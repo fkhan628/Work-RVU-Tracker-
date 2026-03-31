@@ -1,0 +1,919 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="RVU Tracker">
+  <meta name="theme-color" content="#0f172a">
+  <title>RVU Tracker</title>
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="icon-192.png">
+  <style>
+    * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+    body { background: #0f172a; overflow-x: hidden; -webkit-font-smoothing: antialiased; }
+    #root { min-height: 100vh; }
+    input, textarea, select, button { font-family: inherit; }
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: #334155; border-radius: 2px; }
+  </style>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.9/babel.min.js"></script>
+</head>
+<body>
+  <div id="root"></div>
+  <script type="text/babel" data-type="module">
+    const { useState, useEffect, useRef, useMemo } = React;
+
+
+// ═══════════════════════════════════════════════════════════════
+// CPT DATABASE — 2026 CMS Physician Fee Schedule wRVU Values
+// Data Version: CMS CY2026 PFS Final Rule (CMS-1832-F)
+// Last Updated: January 2026
+// Source: CMS PFS Relative Value Files + Medtronic 2026 Guide
+// ═══════════════════════════════════════════════════════════════
+const DATA_VERSION = "CY2026-PFS-v1";
+const DATA_YEAR = 2026;
+const DATA_UPDATED = "2026-01-01";
+
+const CPT_DATABASE_DEFAULT = [
+  // ─── HERNIA: Inguinal (90-day global, unchanged) ───
+  { code: "49491", desc: "Inguinal hernia repair, preterm infant, initial", wRVU: 10.13, category: "Hernia - Inguinal" },
+  { code: "49495", desc: "Inguinal hernia repair, infant < 6 months, initial", wRVU: 7.74, category: "Hernia - Inguinal" },
+  { code: "49500", desc: "Inguinal hernia repair, age 6mo-5yr, initial", wRVU: 6.53, category: "Hernia - Inguinal" },
+  { code: "49505", desc: "Inguinal hernia repair, age 5+, initial", wRVU: 7.76, category: "Hernia - Inguinal" },
+  { code: "49507", desc: "Inguinal hernia repair, incarcerated, initial", wRVU: 9.44, category: "Hernia - Inguinal" },
+  { code: "49520", desc: "Inguinal hernia repair, recurrent", wRVU: 9.44, category: "Hernia - Inguinal" },
+  { code: "49525", desc: "Inguinal hernia repair, recurrent, incarcerated", wRVU: 11.14, category: "Hernia - Inguinal" },
+  { code: "49650", desc: "Lap inguinal hernia repair, initial", wRVU: 6.20, category: "Hernia - Inguinal" },
+  { code: "49651", desc: "Lap inguinal hernia repair, recurrent", wRVU: 7.46, category: "Hernia - Inguinal" },
+
+  // ─── HERNIA: Femoral (90-day global, unchanged) ───
+  { code: "49550", desc: "Femoral hernia repair, initial, reducible", wRVU: 8.38, category: "Hernia - Femoral" },
+  { code: "49553", desc: "Femoral hernia repair, initial, incarcerated", wRVU: 10.26, category: "Hernia - Femoral" },
+  { code: "49555", desc: "Femoral hernia repair, recurrent, reducible", wRVU: 9.72, category: "Hernia - Femoral" },
+  { code: "49557", desc: "Femoral hernia repair, recurrent, incarcerated", wRVU: 11.44, category: "Hernia - Femoral" },
+
+  // ─── HERNIA: Anterior Abdominal — Initial (2023+ size-based, 0-day global) ───
+  { code: "49591", desc: "Anterior abd hernia repair, initial, <3 cm, reducible", wRVU: 5.81, category: "Hernia - Ventral" },
+  { code: "49592", desc: "Anterior abd hernia repair, initial, <3 cm, incarcerated", wRVU: 8.25, category: "Hernia - Ventral" },
+  { code: "49593", desc: "Anterior abd hernia repair, initial, 3-10 cm, reducible", wRVU: 10.00, category: "Hernia - Ventral" },
+  { code: "49594", desc: "Anterior abd hernia repair, initial, 3-10 cm, incarcerated", wRVU: 13.12, category: "Hernia - Ventral" },
+  { code: "49595", desc: "Anterior abd hernia repair, initial, >10 cm, reducible", wRVU: 13.59, category: "Hernia - Ventral" },
+  { code: "49596", desc: "Anterior abd hernia repair, initial, >10 cm, incarcerated", wRVU: 18.20, category: "Hernia - Ventral" },
+
+  // ─── HERNIA: Anterior Abdominal — Recurrent (2023+ size-based, 0-day global) ───
+  { code: "49613", desc: "Anterior abd hernia repair, recurrent, <3 cm, reducible", wRVU: 7.23, category: "Hernia - Ventral" },
+  { code: "49614", desc: "Anterior abd hernia repair, recurrent, <3 cm, incarcerated", wRVU: 9.99, category: "Hernia - Ventral" },
+  { code: "49615", desc: "Anterior abd hernia repair, recurrent, 3-10 cm, reducible", wRVU: 11.17, category: "Hernia - Ventral" },
+  { code: "49616", desc: "Anterior abd hernia repair, recurrent, 3-10 cm, incarcerated", wRVU: 15.16, category: "Hernia - Ventral" },
+  { code: "49617", desc: "Anterior abd hernia repair, recurrent, >10 cm, reducible", wRVU: 15.63, category: "Hernia - Ventral" },
+  { code: "49618", desc: "Anterior abd hernia repair, recurrent, >10 cm, incarcerated", wRVU: 22.10, category: "Hernia - Ventral" },
+
+  // ─── HERNIA: Parastomal & Add-ons ───
+  { code: "49621", desc: "Parastomal hernia repair, any approach, reducible", wRVU: 12.50, category: "Hernia - Ventral" },
+  { code: "49622", desc: "Parastomal hernia repair, any approach, incarcerated", wRVU: 16.75, category: "Hernia - Ventral" },
+  { code: "49623", desc: "Removal non-infected mesh at hernia repair (add-on)", wRVU: 4.13, category: "Hernia - Ventral" },
+
+  // ─── GALLBLADDER ───
+  { code: "47562", desc: "Laparoscopic cholecystectomy", wRVU: 10.21, category: "Gallbladder" },
+  { code: "47563", desc: "Lap cholecystectomy w/ cholangiography", wRVU: 11.42, category: "Gallbladder" },
+  { code: "47564", desc: "Lap cholecystectomy w/ exploration common duct", wRVU: 17.58, category: "Gallbladder" },
+  { code: "47600", desc: "Open cholecystectomy", wRVU: 15.55, category: "Gallbladder" },
+  { code: "47605", desc: "Open cholecystectomy w/ cholangiography", wRVU: 17.05, category: "Gallbladder" },
+  { code: "47610", desc: "Open cholecystectomy w/ exploration common duct", wRVU: 22.56, category: "Gallbladder" },
+
+  // ─── APPENDIX ───
+  { code: "44950", desc: "Open appendectomy", wRVU: 10.82, category: "Appendix" },
+  { code: "44955", desc: "Appendectomy at time of other major procedure (add-on)", wRVU: 3.17, category: "Appendix" },
+  { code: "44960", desc: "Open appendectomy, ruptured w/ abscess or peritonitis", wRVU: 15.69, category: "Appendix" },
+  { code: "44970", desc: "Laparoscopic appendectomy", wRVU: 9.21, category: "Appendix" },
+
+  // ─── COLORECTAL ───
+  { code: "44140", desc: "Partial colectomy w/ anastomosis", wRVU: 23.13, category: "Colorectal" },
+  { code: "44141", desc: "Partial colectomy w/ skin-level cecostomy/colostomy", wRVU: 24.28, category: "Colorectal" },
+  { code: "44143", desc: "Partial colectomy w/ end colostomy (Hartmann)", wRVU: 24.88, category: "Colorectal" },
+  { code: "44144", desc: "Partial colectomy w/ coloproctostomy (low pelvic)", wRVU: 25.37, category: "Colorectal" },
+  { code: "44145", desc: "Colectomy w/ coloproctostomy w/ colostomy", wRVU: 29.07, category: "Colorectal" },
+  { code: "44146", desc: "Colectomy, partial w/ coloproctostomy (2 stage)", wRVU: 26.93, category: "Colorectal" },
+  { code: "44147", desc: "Partial colectomy, abdominal & transanal approach", wRVU: 25.88, category: "Colorectal" },
+  { code: "44150", desc: "Total abdominal colectomy w/ ileostomy", wRVU: 28.38, category: "Colorectal" },
+  { code: "44155", desc: "Total colectomy w/ ileostomy & proctectomy", wRVU: 31.89, category: "Colorectal" },
+  { code: "44204", desc: "Lap partial colectomy w/ anastomosis", wRVU: 25.76, category: "Colorectal" },
+  { code: "44205", desc: "Lap colectomy w/ removal terminal ileum", wRVU: 22.38, category: "Colorectal" },
+  { code: "44206", desc: "Lap partial colectomy w/ end colostomy", wRVU: 26.06, category: "Colorectal" },
+  { code: "44207", desc: "Lap colectomy w/ coloproctostomy", wRVU: 28.58, category: "Colorectal" },
+  { code: "44208", desc: "Lap colectomy w/ coloproctostomy & colonic reservoir", wRVU: 30.14, category: "Colorectal" },
+  { code: "44210", desc: "Lap total colectomy w/ ileostomy", wRVU: 33.07, category: "Colorectal" },
+  { code: "45110", desc: "Proctectomy, abdominoperineal (APR/Miles)", wRVU: 30.06, category: "Colorectal" },
+  { code: "45111", desc: "Proctectomy, partial, transabdominal", wRVU: 23.49, category: "Colorectal" },
+  { code: "45395", desc: "Lap proctectomy, abdominoperineal (APR)", wRVU: 32.65, category: "Colorectal" },
+  { code: "45397", desc: "Lap proctectomy w/ colonic reservoir & coloanal anastomosis", wRVU: 34.84, category: "Colorectal" },
+
+  // ─── ANORECTAL ───
+  { code: "46200", desc: "Fissurectomy w/ sphincterotomy", wRVU: 5.19, category: "Anorectal" },
+  { code: "46220", desc: "Excision external anal tag", wRVU: 2.33, category: "Anorectal" },
+  { code: "46250", desc: "Hemorrhoidectomy, external, 2+ columns", wRVU: 5.73, category: "Anorectal" },
+  { code: "46255", desc: "Hemorrhoidectomy, int & ext, single column", wRVU: 5.18, category: "Anorectal" },
+  { code: "46257", desc: "Hemorrhoidectomy w/ fissurectomy", wRVU: 6.46, category: "Anorectal" },
+  { code: "46258", desc: "Hemorrhoidectomy w/ fistulectomy", wRVU: 7.01, category: "Anorectal" },
+  { code: "46260", desc: "Hemorrhoidectomy, int & ext, 2+ columns", wRVU: 7.55, category: "Anorectal" },
+  { code: "46275", desc: "Hemorrhoidectomy, stapled (PPH)", wRVU: 8.77, category: "Anorectal" },
+  { code: "46280", desc: "Hemorrhoidectomy, complete (Whitehead)", wRVU: 10.37, category: "Anorectal" },
+  { code: "46320", desc: "Hemorrhoid ligation (rubber band)", wRVU: 2.11, category: "Anorectal" },
+  { code: "46700", desc: "Anoplasty for stricture, adult", wRVU: 7.06, category: "Anorectal" },
+
+  // ─── SMALL BOWEL ───
+  { code: "44005", desc: "Enterolysis (lysis of intestinal adhesions)", wRVU: 14.76, category: "Small Bowel" },
+  { code: "44120", desc: "Enterectomy, small intestine resection", wRVU: 18.49, category: "Small Bowel" },
+  { code: "44121", desc: "Enterectomy, multiple resections", wRVU: 23.57, category: "Small Bowel" },
+  { code: "44125", desc: "Enterectomy w/ enterostomy", wRVU: 18.79, category: "Small Bowel" },
+  { code: "44130", desc: "Enteroenterostomy (bypass)", wRVU: 17.12, category: "Small Bowel" },
+  { code: "44180", desc: "Lap enterolysis (lysis of adhesions)", wRVU: 12.76, category: "Small Bowel" },
+  { code: "44202", desc: "Lap enterectomy, small intestine resection", wRVU: 19.91, category: "Small Bowel" },
+  { code: "44602", desc: "Suture small intestine (perforation)", wRVU: 15.88, category: "Small Bowel" },
+  { code: "44603", desc: "Suture small intestine, multiple perforations", wRVU: 19.73, category: "Small Bowel" },
+  { code: "44604", desc: "Suture large intestine (perforation)", wRVU: 17.14, category: "Small Bowel" },
+
+  // ─── BREAST ───
+  { code: "19120", desc: "Excision of breast lesion/cyst", wRVU: 5.85, category: "Breast" },
+  { code: "19125", desc: "Excision breast lesion, preop localization", wRVU: 7.25, category: "Breast" },
+  { code: "19301", desc: "Partial mastectomy (lumpectomy)", wRVU: 8.25, category: "Breast" },
+  { code: "19302", desc: "Partial mastectomy w/ axillary lymphadenectomy", wRVU: 13.64, category: "Breast" },
+  { code: "19303", desc: "Simple complete mastectomy", wRVU: 12.54, category: "Breast" },
+  { code: "19305", desc: "Mastectomy, radical (Halsted)", wRVU: 17.89, category: "Breast" },
+  { code: "19307", desc: "Modified radical mastectomy w/ axillary dissection", wRVU: 17.54, category: "Breast" },
+  { code: "38500", desc: "Biopsy/excision lymph node(s), superficial", wRVU: 4.24, category: "Breast" },
+  { code: "38525", desc: "Biopsy/excision lymph node(s), deep cervical", wRVU: 6.27, category: "Breast" },
+  { code: "38740", desc: "Axillary lymphadenectomy, complete", wRVU: 10.31, category: "Breast" },
+  { code: "38745", desc: "Axillary lymphadenectomy, incl pectoral group", wRVU: 12.03, category: "Breast" },
+  { code: "38900", desc: "Intraop sentinel lymph node ID (add-on)", wRVU: 2.25, category: "Breast" },
+
+  // ─── UPPER GI / STOMACH ───
+  { code: "43239", desc: "EGD w/ biopsy", wRVU: 3.23, category: "Upper GI" },
+  { code: "43246", desc: "EGD w/ PEG tube placement", wRVU: 4.72, category: "Upper GI" },
+  { code: "43280", desc: "Laparoscopic fundoplication (Nissen)", wRVU: 17.65, category: "Upper GI" },
+  { code: "43631", desc: "Partial gastrectomy, distal", wRVU: 24.30, category: "Upper GI" },
+  { code: "43633", desc: "Partial gastrectomy w/ Roux-en-Y", wRVU: 27.80, category: "Upper GI" },
+  { code: "43644", desc: "Lap gastric bypass (Roux-en-Y)", wRVU: 25.12, category: "Upper GI" },
+  { code: "43775", desc: "Lap sleeve gastrectomy", wRVU: 15.05, category: "Upper GI" },
+
+  // ─── HPB (Liver/Pancreas/Spleen) ───
+  { code: "47100", desc: "Hepatotomy, wedge biopsy of liver", wRVU: 10.66, category: "HPB" },
+  { code: "47120", desc: "Hepatectomy, partial lobectomy", wRVU: 30.54, category: "HPB" },
+  { code: "47122", desc: "Hepatectomy, trisegmentectomy", wRVU: 43.63, category: "HPB" },
+  { code: "47125", desc: "Hepatectomy, total left lobectomy", wRVU: 36.29, category: "HPB" },
+  { code: "47130", desc: "Hepatectomy, total right lobectomy", wRVU: 45.75, category: "HPB" },
+  { code: "48140", desc: "Pancreatectomy, distal subtotal", wRVU: 26.68, category: "HPB" },
+  { code: "48145", desc: "Pancreatectomy, distal near-total", wRVU: 34.12, category: "HPB" },
+  { code: "48150", desc: "Whipple (pancreaticoduodenectomy)", wRVU: 56.49, category: "HPB" },
+  { code: "48152", desc: "Whipple w/ pancreatojejunostomy", wRVU: 58.06, category: "HPB" },
+  { code: "48153", desc: "Whipple, pylorus-preserving", wRVU: 54.63, category: "HPB" },
+  { code: "48155", desc: "Pancreatectomy, total", wRVU: 48.72, category: "HPB" },
+  { code: "38100", desc: "Splenectomy, total (open)", wRVU: 16.49, category: "HPB" },
+  { code: "38120", desc: "Laparoscopic splenectomy", wRVU: 15.87, category: "HPB" },
+
+  // ─── ENDOCRINE (Thyroid/Parathyroid/Adrenal) ───
+  { code: "60220", desc: "Thyroid lobectomy, unilateral", wRVU: 10.86, category: "Endocrine" },
+  { code: "60225", desc: "Thyroid lobectomy w/ contralateral subtotal", wRVU: 13.47, category: "Endocrine" },
+  { code: "60240", desc: "Total thyroidectomy", wRVU: 14.66, category: "Endocrine" },
+  { code: "60252", desc: "Total thyroidectomy w/ limited neck dissection", wRVU: 18.16, category: "Endocrine" },
+  { code: "60254", desc: "Total thyroidectomy w/ radical neck dissection", wRVU: 23.82, category: "Endocrine" },
+  { code: "60260", desc: "Thyroidectomy, completion/removal remaining", wRVU: 12.67, category: "Endocrine" },
+  { code: "60500", desc: "Parathyroidectomy or exploration", wRVU: 14.19, category: "Endocrine" },
+  { code: "60502", desc: "Parathyroidectomy, re-exploration", wRVU: 18.23, category: "Endocrine" },
+  { code: "60650", desc: "Laparoscopic adrenalectomy", wRVU: 18.67, category: "Endocrine" },
+
+  // ─── VASCULAR ACCESS (AV Fistula/Graft) ───
+  { code: "36818", desc: "AV fistula, upper arm cephalic vein transposition", wRVU: 14.50, category: "Vascular Access" },
+  { code: "36819", desc: "AV fistula, upper arm basilic vein transposition", wRVU: 15.39, category: "Vascular Access" },
+  { code: "36820", desc: "AV fistula, forearm vein transposition", wRVU: 12.29, category: "Vascular Access" },
+  { code: "36821", desc: "AV fistula, direct (Cimino), any site", wRVU: 10.44, category: "Vascular Access" },
+  { code: "36825", desc: "AV fistula creation, autogenous graft", wRVU: 15.87, category: "Vascular Access" },
+  { code: "36830", desc: "AV fistula creation, nonautogenous graft (PTFE)", wRVU: 12.56, category: "Vascular Access" },
+  { code: "36832", desc: "Revision AV fistula, w/o thrombectomy", wRVU: 11.54, category: "Vascular Access" },
+  { code: "36833", desc: "Revision AV fistula, w/ thrombectomy", wRVU: 12.76, category: "Vascular Access" },
+  { code: "36836", desc: "Percutaneous AV fistula creation, upper arm", wRVU: 8.50, category: "Vascular Access" },
+  { code: "36837", desc: "Percutaneous AV fistula creation, forearm", wRVU: 8.50, category: "Vascular Access" },
+  { code: "36831", desc: "Thrombectomy, AV fistula w/o revision", wRVU: 8.81, category: "Vascular Access" },
+
+  // ─── CENTRAL VENOUS ACCESS ───
+  { code: "36555", desc: "Central venous catheter, < 5 years", wRVU: 3.26, category: "Vascular Access" },
+  { code: "36556", desc: "Central venous catheter, 5 years+", wRVU: 3.04, category: "Vascular Access" },
+  { code: "36558", desc: "Tunneled central venous catheter, 5 years+", wRVU: 4.79, category: "Vascular Access" },
+  { code: "36561", desc: "Tunneled CV catheter w/ port, 5 years+", wRVU: 5.69, category: "Vascular Access" },
+  { code: "36589", desc: "Removal tunneled central venous catheter", wRVU: 2.75, category: "Vascular Access" },
+  { code: "36590", desc: "Removal tunneled CV catheter w/ port", wRVU: 4.02, category: "Vascular Access" },
+
+  // ─── LOWER EXTREMITY AMPUTATION ───
+  { code: "27590", desc: "Amputation, thigh, through femur, any level", wRVU: 13.18, category: "Amputation" },
+  { code: "27591", desc: "Amputation, thigh, immediate fitting prosthesis", wRVU: 14.80, category: "Amputation" },
+  { code: "27592", desc: "Amputation, thigh, open (guillotine)", wRVU: 10.86, category: "Amputation" },
+  { code: "27594", desc: "Amputation, secondary closure or scar revision", wRVU: 6.65, category: "Amputation" },
+  { code: "27596", desc: "Amputation, thigh, re-amputation", wRVU: 10.49, category: "Amputation" },
+  { code: "27598", desc: "Disarticulation at knee", wRVU: 11.58, category: "Amputation" },
+  { code: "27880", desc: "Amputation, below knee (BKA)", wRVU: 11.50, category: "Amputation" },
+  { code: "27881", desc: "BKA w/ immediate fitting prosthesis", wRVU: 12.87, category: "Amputation" },
+  { code: "27882", desc: "BKA, open (guillotine)", wRVU: 9.40, category: "Amputation" },
+  { code: "27884", desc: "BKA, secondary closure or scar revision", wRVU: 5.90, category: "Amputation" },
+  { code: "27886", desc: "BKA, re-amputation", wRVU: 9.20, category: "Amputation" },
+  { code: "27888", desc: "Amputation, ankle (Syme)", wRVU: 11.42, category: "Amputation" },
+  { code: "28800", desc: "Amputation, midfoot (Chopart/Lisfranc)", wRVU: 8.95, category: "Amputation" },
+  { code: "28805", desc: "Amputation, transmetatarsal", wRVU: 9.15, category: "Amputation" },
+  { code: "28810", desc: "Amputation, metatarsal w/ toe, single", wRVU: 6.83, category: "Amputation" },
+  { code: "28820", desc: "Amputation, toe, metatarsophalangeal joint", wRVU: 4.37, category: "Amputation" },
+  { code: "28825", desc: "Amputation, toe, interphalangeal joint", wRVU: 3.56, category: "Amputation" },
+
+  // ─── EXPLORATORY / TRAUMA ───
+  { code: "49000", desc: "Exploratory laparotomy", wRVU: 11.87, category: "Exploratory/Trauma" },
+  { code: "49002", desc: "Reopening of recent laparotomy", wRVU: 10.90, category: "Exploratory/Trauma" },
+  { code: "49010", desc: "Exploratory retroperitoneal area", wRVU: 15.76, category: "Exploratory/Trauma" },
+  { code: "49320", desc: "Diagnostic laparoscopy", wRVU: 6.51, category: "Exploratory/Trauma" },
+  { code: "35221", desc: "Repair blood vessel, intra-abdominal", wRVU: 25.49, category: "Exploratory/Trauma" },
+  { code: "35251", desc: "Repair blood vessel, intra-abdominal w/ graft", wRVU: 32.64, category: "Exploratory/Trauma" },
+
+  // ─── ABSCESS / WOUND ───
+  { code: "10060", desc: "I&D abscess, simple", wRVU: 1.91, category: "Abscess/Wound" },
+  { code: "10061", desc: "I&D abscess, complicated", wRVU: 3.44, category: "Abscess/Wound" },
+  { code: "10080", desc: "I&D pilonidal cyst, simple", wRVU: 2.45, category: "Abscess/Wound" },
+  { code: "10081", desc: "I&D pilonidal cyst, complicated", wRVU: 4.27, category: "Abscess/Wound" },
+  { code: "10120", desc: "Incision & removal foreign body, subcutaneous", wRVU: 2.66, category: "Abscess/Wound" },
+  { code: "10140", desc: "I&D hematoma, simple", wRVU: 2.07, category: "Abscess/Wound" },
+  { code: "10180", desc: "Complex drainage wound infection", wRVU: 3.79, category: "Abscess/Wound" },
+  { code: "46040", desc: "I&D ischiorectal/perirectal abscess", wRVU: 5.82, category: "Abscess/Wound" },
+  { code: "46060", desc: "I&D perirectal abscess, deep", wRVU: 8.15, category: "Abscess/Wound" },
+
+  // ─── SKIN / SOFT TISSUE / DEBRIDEMENT ───
+  { code: "11042", desc: "Debridement, subcutaneous tissue, first 20 sq cm", wRVU: 0.98, category: "Skin/Soft Tissue" },
+  { code: "11043", desc: "Debridement, muscle/fascia, first 20 sq cm", wRVU: 4.37, category: "Skin/Soft Tissue" },
+  { code: "11044", desc: "Debridement, bone, first 20 sq cm", wRVU: 5.42, category: "Skin/Soft Tissue" },
+  { code: "11046", desc: "Debridement, subcutaneous, each addl 20 sq cm (add-on)", wRVU: 0.87, category: "Skin/Soft Tissue" },
+  { code: "12001", desc: "Simple repair, superficial wounds, 2.5 cm or less", wRVU: 1.51, category: "Skin/Soft Tissue" },
+  { code: "12002", desc: "Simple repair, superficial wounds, 2.6-7.5 cm", wRVU: 2.07, category: "Skin/Soft Tissue" },
+  { code: "13100", desc: "Repair, complex, trunk, 1.1-2.5 cm", wRVU: 3.25, category: "Skin/Soft Tissue" },
+  { code: "13101", desc: "Repair, complex, trunk, 2.6-7.5 cm", wRVU: 4.57, category: "Skin/Soft Tissue" },
+
+  // ═══ ORTHOPEDIC SURGERY ═══
+  // ─── Joint Replacement ───
+  { code: "27447", desc: "Total knee arthroplasty (TKA)", wRVU: 19.11, category: "Ortho - Joint" },
+  { code: "27130", desc: "Total hip arthroplasty (THA)", wRVU: 19.11, category: "Ortho - Joint" },
+  { code: "27132", desc: "Conversion to total hip arthroplasty", wRVU: 22.00, category: "Ortho - Joint" },
+  { code: "27134", desc: "Revision total hip, both components", wRVU: 27.69, category: "Ortho - Joint" },
+  { code: "27236", desc: "Open treatment femoral fracture, bipolar prosthesis", wRVU: 16.39, category: "Ortho - Joint" },
+  { code: "27125", desc: "Hemiarthroplasty, hip", wRVU: 14.55, category: "Ortho - Joint" },
+  { code: "27437", desc: "Arthroplasty, patella w/o prosthesis", wRVU: 10.51, category: "Ortho - Joint" },
+  { code: "27438", desc: "Arthroplasty, patella w/ prosthesis", wRVU: 12.58, category: "Ortho - Joint" },
+  { code: "27440", desc: "Arthroplasty, knee, tibial plateau", wRVU: 15.20, category: "Ortho - Joint" },
+  { code: "27441", desc: "Arthroplasty, knee, 2 surfaces (unicompartmental)", wRVU: 15.82, category: "Ortho - Joint" },
+  { code: "27486", desc: "Revision total knee, 1 component", wRVU: 22.97, category: "Ortho - Joint" },
+  { code: "27487", desc: "Revision total knee, femoral & tibial", wRVU: 28.42, category: "Ortho - Joint" },
+  { code: "23472", desc: "Total shoulder arthroplasty (reverse/anatomic)", wRVU: 19.83, category: "Ortho - Joint" },
+  { code: "23470", desc: "Shoulder hemiarthroplasty", wRVU: 17.56, category: "Ortho - Joint" },
+  { code: "23473", desc: "Revision total shoulder, humeral or glenoid", wRVU: 24.38, category: "Ortho - Joint" },
+  { code: "23474", desc: "Revision total shoulder, humeral & glenoid", wRVU: 28.15, category: "Ortho - Joint" },
+
+  // ─── Ortho - Arthroscopy ───
+  { code: "29881", desc: "Knee arthroscopy, meniscectomy", wRVU: 7.96, category: "Ortho - Arthroscopy" },
+  { code: "29880", desc: "Knee arthroscopy, meniscectomy, medial & lateral", wRVU: 9.22, category: "Ortho - Arthroscopy" },
+  { code: "29882", desc: "Knee arthroscopy, meniscus repair, medial", wRVU: 10.24, category: "Ortho - Arthroscopy" },
+  { code: "29883", desc: "Knee arthroscopy, meniscus repair, lateral", wRVU: 10.24, category: "Ortho - Arthroscopy" },
+  { code: "29888", desc: "Knee arthroscopy, ACL reconstruction", wRVU: 13.94, category: "Ortho - Arthroscopy" },
+  { code: "29889", desc: "Knee arthroscopy, PCL reconstruction", wRVU: 16.62, category: "Ortho - Arthroscopy" },
+  { code: "29875", desc: "Knee arthroscopy, synovectomy, limited", wRVU: 5.94, category: "Ortho - Arthroscopy" },
+  { code: "29876", desc: "Knee arthroscopy, synovectomy, major (2+ compartments)", wRVU: 8.37, category: "Ortho - Arthroscopy" },
+  { code: "29877", desc: "Knee arthroscopy, debridement/chondroplasty", wRVU: 6.83, category: "Ortho - Arthroscopy" },
+  { code: "29827", desc: "Shoulder arthroscopy, rotator cuff repair", wRVU: 15.20, category: "Ortho - Arthroscopy" },
+  { code: "29826", desc: "Shoulder arthroscopy, acromioplasty w/ coplaning", wRVU: 10.89, category: "Ortho - Arthroscopy" },
+  { code: "29828", desc: "Shoulder arthroscopy, biceps tenodesis", wRVU: 12.32, category: "Ortho - Arthroscopy" },
+  { code: "29806", desc: "Shoulder arthroscopy, capsulorrhaphy (Bankart)", wRVU: 13.41, category: "Ortho - Arthroscopy" },
+  { code: "29807", desc: "Shoulder arthroscopy, SLAP repair", wRVU: 12.89, category: "Ortho - Arthroscopy" },
+  { code: "29805", desc: "Shoulder arthroscopy, diagnostic", wRVU: 5.76, category: "Ortho - Arthroscopy" },
+  { code: "29914", desc: "Hip arthroscopy, femoroplasty (CAM lesion)", wRVU: 12.37, category: "Ortho - Arthroscopy" },
+  { code: "29915", desc: "Hip arthroscopy, acetabuloplasty (pincer lesion)", wRVU: 12.87, category: "Ortho - Arthroscopy" },
+  { code: "29916", desc: "Hip arthroscopy, labral repair", wRVU: 13.82, category: "Ortho - Arthroscopy" },
+
+  // ─── Ortho - Fracture Fixation ───
+  { code: "27245", desc: "ORIF, intertrochanteric femoral fracture", wRVU: 18.29, category: "Ortho - Fracture" },
+  { code: "27244", desc: "ORIF, intertrochanteric fracture w/ intramedullary implant", wRVU: 15.42, category: "Ortho - Fracture" },
+  { code: "27235", desc: "Percutaneous skeletal fixation, femoral fracture, proximal", wRVU: 11.27, category: "Ortho - Fracture" },
+  { code: "27506", desc: "ORIF, femoral shaft fracture", wRVU: 20.84, category: "Ortho - Fracture" },
+  { code: "27507", desc: "ORIF, femoral shaft fracture w/ intramedullary nail", wRVU: 16.10, category: "Ortho - Fracture" },
+  { code: "27524", desc: "ORIF, tibial plateau fracture", wRVU: 18.93, category: "Ortho - Fracture" },
+  { code: "27759", desc: "ORIF, tibial shaft fracture", wRVU: 17.24, category: "Ortho - Fracture" },
+  { code: "27758", desc: "ORIF, tibial shaft w/ intramedullary nail", wRVU: 14.62, category: "Ortho - Fracture" },
+  { code: "27792", desc: "ORIF, distal fibula (ankle)", wRVU: 10.79, category: "Ortho - Fracture" },
+  { code: "27822", desc: "ORIF, bimalleolar ankle fracture", wRVU: 14.86, category: "Ortho - Fracture" },
+  { code: "27823", desc: "ORIF, trimalleolar ankle fracture", wRVU: 17.03, category: "Ortho - Fracture" },
+  { code: "25607", desc: "ORIF, distal radius fracture", wRVU: 12.28, category: "Ortho - Fracture" },
+  { code: "25608", desc: "ORIF, distal radius, 2 fragments", wRVU: 13.21, category: "Ortho - Fracture" },
+  { code: "25609", desc: "ORIF, distal radius, 3+ fragments", wRVU: 14.61, category: "Ortho - Fracture" },
+  { code: "24515", desc: "ORIF, humeral shaft fracture", wRVU: 15.30, category: "Ortho - Fracture" },
+  { code: "23615", desc: "ORIF, proximal humerus fracture", wRVU: 15.16, category: "Ortho - Fracture" },
+
+  // ─── Ortho - Spine ───
+  { code: "22612", desc: "Lumbar fusion, posterior, single level", wRVU: 22.94, category: "Ortho - Spine" },
+  { code: "22614", desc: "Lumbar fusion, posterior, each addl level (add-on)", wRVU: 7.29, category: "Ortho - Spine" },
+  { code: "22630", desc: "Lumbar fusion, posterior interbody (PLIF/TLIF)", wRVU: 22.27, category: "Ortho - Spine" },
+  { code: "22633", desc: "Lumbar fusion, combined posterior & interbody", wRVU: 27.08, category: "Ortho - Spine" },
+  { code: "22551", desc: "Cervical fusion, anterior, single level (ACDF)", wRVU: 18.92, category: "Ortho - Spine" },
+  { code: "22552", desc: "Cervical fusion, anterior, each addl level (add-on)", wRVU: 5.64, category: "Ortho - Spine" },
+  { code: "63030", desc: "Lumbar laminotomy/discectomy, single level", wRVU: 12.61, category: "Ortho - Spine" },
+  { code: "63047", desc: "Lumbar laminectomy, single level", wRVU: 15.47, category: "Ortho - Spine" },
+  { code: "63048", desc: "Lumbar laminectomy, each addl level (add-on)", wRVU: 4.23, category: "Ortho - Spine" },
+  { code: "22840", desc: "Posterior spinal instrumentation, non-segmental (add-on)", wRVU: 11.80, category: "Ortho - Spine" },
+  { code: "22842", desc: "Posterior segmental instrumentation, 3-6 levels (add-on)", wRVU: 14.32, category: "Ortho - Spine" },
+
+  // ═══ VASCULAR SURGERY ═══
+  { code: "35301", desc: "Carotid endarterectomy (CEA)", wRVU: 22.11, category: "Vascular Surgery" },
+  { code: "35501", desc: "Femoral-popliteal bypass, vein graft", wRVU: 28.73, category: "Vascular Surgery" },
+  { code: "35556", desc: "Femoral-popliteal bypass, in situ vein", wRVU: 31.46, category: "Vascular Surgery" },
+  { code: "35583", desc: "Femoral-popliteal bypass w/ composite graft", wRVU: 30.12, category: "Vascular Surgery" },
+  { code: "35656", desc: "Femoral-tibial bypass, vein graft", wRVU: 34.28, category: "Vascular Surgery" },
+  { code: "34701", desc: "EVAR, aorto-aortic tube endoprosthesis", wRVU: 25.84, category: "Vascular Surgery" },
+  { code: "34710", desc: "EVAR, aorto-bi-iliac endoprosthesis", wRVU: 28.17, category: "Vascular Surgery" },
+  { code: "35081", desc: "Open AAA repair, aorto-aortic tube graft", wRVU: 40.09, category: "Vascular Surgery" },
+  { code: "35082", desc: "Open AAA repair, aorto-bifemoral graft", wRVU: 43.55, category: "Vascular Surgery" },
+  { code: "35131", desc: "Repair, aortoiliac aneurysm, direct", wRVU: 35.82, category: "Vascular Surgery" },
+  { code: "35646", desc: "Aortobifemoral bypass graft", wRVU: 38.42, category: "Vascular Surgery" },
+  { code: "37228", desc: "Revascularization, tibial/peroneal, angioplasty", wRVU: 12.56, category: "Vascular Surgery" },
+  { code: "37229", desc: "Revascularization, tibial/peroneal w/ atherectomy", wRVU: 14.88, category: "Vascular Surgery" },
+  { code: "37236", desc: "Stent placement, initial vessel (add-on to revasc)", wRVU: 3.50, category: "Vascular Surgery" },
+  { code: "36247", desc: "Selective catheterization, 2nd order abdominal/pelvic", wRVU: 5.28, category: "Vascular Surgery" },
+  { code: "37765", desc: "Stab phlebectomy of varicose veins, 10-20", wRVU: 6.44, category: "Vascular Surgery" },
+  { code: "37700", desc: "Ligation & division, saphenous vein", wRVU: 5.73, category: "Vascular Surgery" },
+  { code: "36514", desc: "Therapeutic apheresis", wRVU: 2.06, category: "Vascular Surgery" },
+
+  // ═══ UROLOGY ═══
+  { code: "52000", desc: "Cystourethroscopy, diagnostic", wRVU: 2.29, category: "Urology" },
+  { code: "52204", desc: "Cystoscopy w/ biopsy", wRVU: 3.66, category: "Urology" },
+  { code: "52214", desc: "Cystoscopy w/ fulguration of trigone/bladder neck", wRVU: 3.87, category: "Urology" },
+  { code: "52234", desc: "Cystoscopy w/ TURBT, small (<0.5 cm)", wRVU: 4.67, category: "Urology" },
+  { code: "52235", desc: "Cystoscopy w/ TURBT, medium (0.5-2.0 cm)", wRVU: 5.75, category: "Urology" },
+  { code: "52240", desc: "Cystoscopy w/ TURBT, large (>2.0 cm)", wRVU: 7.90, category: "Urology" },
+  { code: "52601", desc: "TURP, complete", wRVU: 14.53, category: "Urology" },
+  { code: "52649", desc: "Transurethral robotic-assisted resection of prostate", wRVU: 14.00, category: "Urology" },
+  { code: "55866", desc: "Lap radical prostatectomy (robotic), w/o LN", wRVU: 29.40, category: "Urology" },
+  { code: "55868", desc: "Lap radical prostatectomy w/ limited LN dissection", wRVU: 32.50, category: "Urology" },
+  { code: "55869", desc: "Lap radical prostatectomy w/ bilateral LN dissection", wRVU: 35.60, category: "Urology" },
+  { code: "55840", desc: "Open radical prostatectomy, retropubic", wRVU: 25.88, category: "Urology" },
+  { code: "50543", desc: "Lap partial nephrectomy", wRVU: 24.88, category: "Urology" },
+  { code: "50545", desc: "Lap radical nephrectomy", wRVU: 23.37, category: "Urology" },
+  { code: "50220", desc: "Open nephrectomy", wRVU: 18.14, category: "Urology" },
+  { code: "50230", desc: "Open radical nephrectomy", wRVU: 23.45, category: "Urology" },
+  { code: "50590", desc: "ESWL (lithotripsy)", wRVU: 5.52, category: "Urology" },
+  { code: "52353", desc: "Ureteroscopy w/ lithotripsy", wRVU: 10.74, category: "Urology" },
+  { code: "52352", desc: "Ureteroscopy w/o lithotripsy", wRVU: 9.98, category: "Urology" },
+  { code: "50080", desc: "PCNL (percutaneous nephrolithotomy)", wRVU: 18.82, category: "Urology" },
+  { code: "52332", desc: "Cystoscopy w/ ureteral stent placement", wRVU: 4.54, category: "Urology" },
+  { code: "51990", desc: "Lap urethral suspension (Burch)", wRVU: 14.68, category: "Urology" },
+  { code: "51999", desc: "Unlisted urinary system procedure", wRVU: 0.00, category: "Urology" },
+  { code: "51020", desc: "Cystotomy w/ fulguration/excision of lesion", wRVU: 10.13, category: "Urology" },
+  { code: "51550", desc: "Partial cystectomy, simple", wRVU: 14.75, category: "Urology" },
+  { code: "51570", desc: "Radical cystectomy", wRVU: 35.61, category: "Urology" },
+  { code: "51585", desc: "Radical cystectomy w/ continent diversion", wRVU: 48.26, category: "Urology" },
+  { code: "54520", desc: "Orchiectomy, simple", wRVU: 5.98, category: "Urology" },
+  { code: "54530", desc: "Orchiectomy, radical (inguinal approach)", wRVU: 8.79, category: "Urology" },
+  { code: "54640", desc: "Orchiopexy, inguinal approach", wRVU: 8.86, category: "Urology" },
+  { code: "55250", desc: "Vasectomy", wRVU: 4.09, category: "Urology" },
+  { code: "53445", desc: "Insertion penile prosthesis (inflatable)", wRVU: 15.17, category: "Urology" },
+  { code: "50360", desc: "Renal transplant, allograft", wRVU: 35.89, category: "Urology" },
+
+  // ═══ ENT (Otolaryngology) ═══
+  { code: "42820", desc: "Tonsillectomy & adenoidectomy, <12 years", wRVU: 5.41, category: "ENT" },
+  { code: "42821", desc: "Tonsillectomy & adenoidectomy, 12+ years", wRVU: 5.68, category: "ENT" },
+  { code: "42825", desc: "Tonsillectomy, primary, <12 years", wRVU: 4.86, category: "ENT" },
+  { code: "42826", desc: "Tonsillectomy, primary, 12+ years", wRVU: 5.13, category: "ENT" },
+  { code: "42830", desc: "Adenoidectomy, primary, <12 years", wRVU: 3.67, category: "ENT" },
+  { code: "31255", desc: "Nasal/sinus endoscopy, maxillary antrostomy", wRVU: 7.62, category: "ENT" },
+  { code: "31256", desc: "Nasal endoscopy w/ maxillary antrostomy, removal tissue", wRVU: 5.94, category: "ENT" },
+  { code: "31267", desc: "Nasal endoscopy w/ frontal sinus exploration", wRVU: 9.86, category: "ENT" },
+  { code: "31276", desc: "Nasal endoscopy w/ sphenoidotomy", wRVU: 8.45, category: "ENT" },
+  { code: "31254", desc: "Nasal endoscopy w/ ethmoidectomy, partial", wRVU: 7.43, category: "ENT" },
+  { code: "31237", desc: "Nasal endoscopy, diagnostic", wRVU: 1.46, category: "ENT" },
+  { code: "30520", desc: "Septoplasty", wRVU: 7.45, category: "ENT" },
+  { code: "30140", desc: "Submucous resection, inferior turbinate", wRVU: 4.33, category: "ENT" },
+  { code: "42410", desc: "Parotidectomy, lateral lobe w/o nerve dissection", wRVU: 12.92, category: "ENT" },
+  { code: "42415", desc: "Parotidectomy, lateral lobe w/ nerve dissection", wRVU: 16.58, category: "ENT" },
+  { code: "42420", desc: "Parotidectomy, total w/ nerve dissection", wRVU: 22.13, category: "ENT" },
+  { code: "42440", desc: "Excision submandibular gland", wRVU: 9.67, category: "ENT" },
+  { code: "31300", desc: "Laryngotomy (thyrotomy)", wRVU: 11.89, category: "ENT" },
+  { code: "31365", desc: "Supraglottic laryngectomy", wRVU: 26.43, category: "ENT" },
+  { code: "31390", desc: "Pharyngolaryngectomy w/ radical neck dissection", wRVU: 42.57, category: "ENT" },
+  { code: "38720", desc: "Radical neck dissection (cervical lymphadenectomy)", wRVU: 21.15, category: "ENT" },
+  { code: "38724", desc: "Modified radical neck dissection", wRVU: 18.76, category: "ENT" },
+  { code: "21044", desc: "Excision mandibular tumor, resection", wRVU: 15.83, category: "ENT" },
+  { code: "69436", desc: "Tympanostomy (PE tube insertion), general anesthesia", wRVU: 3.53, category: "ENT" },
+  { code: "69631", desc: "Tympanoplasty w/o mastoidectomy", wRVU: 13.27, category: "ENT" },
+  { code: "69641", desc: "Tympanoplasty w/ mastoidectomy", wRVU: 17.52, category: "ENT" },
+  { code: "69210", desc: "Removal impacted cerumen, unilateral", wRVU: 0.61, category: "ENT" },
+  { code: "21310", desc: "Closed treatment nasal fracture w/o manipulation", wRVU: 1.48, category: "ENT" },
+  { code: "21315", desc: "Closed treatment nasal fracture w/ stabilization", wRVU: 3.86, category: "ENT" },
+  { code: "21320", desc: "Closed treatment nasal fracture w/ manipulation", wRVU: 4.85, category: "ENT" },
+  { code: "31571", desc: "Laryngoscopy w/ injection vocal cord", wRVU: 3.22, category: "ENT" },
+  { code: "31575", desc: "Diagnostic flexible laryngoscopy", wRVU: 1.10, category: "ENT" },
+  { code: "31579", desc: "Laryngoscopy, stroboscopy", wRVU: 1.76, category: "ENT" },
+];
+
+// Build lookup maps
+const buildCPTMap = (db) => { const m = {}; db.forEach(c => { m[c.code] = c; }); return m; };
+const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();
+
+const MODIFIERS = [
+  { code: "-22", label: "Increased Complexity", factor: 1.2, desc: "~20% increase" },
+  { code: "-50", label: "Bilateral Procedure", factor: 1.5, desc: "150% of base" },
+  { code: "-51", label: "Multiple Procedures", factor: 0.5, desc: "50% (2nd+ proc)" },
+  { code: "-62", label: "Co-Surgeon", factor: 0.625, desc: "62.5% of base" },
+  { code: "-80", label: "Assistant Surgeon", factor: 0.16, desc: "16% of base" },
+  { code: "-AS", label: "PA/NP Assistant", factor: 0.135, desc: "13.5% of base" },
+  { code: "-59", label: "Distinct Procedural Service", factor: 1.0, desc: "100% (unbundle)" },
+  { code: "-78", label: "Return to OR, Related", factor: 0.7, desc: "70% of base" },
+  { code: "-79", label: "Unrelated Proc, Postop", factor: 1.0, desc: "100% of base" },
+  { code: "-76", label: "Repeat Procedure, Same MD", factor: 1.0, desc: "100% of base" },
+  { code: "-77", label: "Repeat Procedure, Diff MD", factor: 1.0, desc: "100% of base" },
+];
+const MOD_MAP = {}; MODIFIERS.forEach(m => { MOD_MAP[m.code] = m; });
+
+// ─── Helpers ───
+const fontLink = document.createElement("link");
+fontLink.href = "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap";
+fontLink.rel = "stylesheet";
+document.head.appendChild(fontLink);
+
+const fmt = d => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
+const fmtShort = d => new Date(d).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, yearStart: new Date().getFullYear() + "-01-01" });
+const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, dataVersion: DATA_VERSION });
+const SK = "rvu-tracker-data";
+
+function loadData() { try { const s = JSON.parse(localStorage.getItem(SK)); return { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, dataVersion: s.dataVersion || DATA_VERSION }; } catch { return defState(); } }
+function saveData(d) { try { localStorage.setItem(SK, JSON.stringify(d)); } catch {} }
+async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r?.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
+async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
+
+// Apply user overrides to CPT database and include CMS imported codes
+function getDB(overrides) {
+  let db = [...CPT_DATABASE_DEFAULT];
+  // Load CMS imported codes if available
+  try {
+    const cms = localStorage.getItem('rvu-tracker-cms-codes');
+    if (cms) {
+      const cmsCodes = JSON.parse(cms);
+      const existingCodes = new Set(db.map(c => c.code));
+      cmsCodes.forEach(c => { if (!existingCodes.has(c.code) && c.wRVU > 0) { db.push(c); existingCodes.add(c.code); } });
+    }
+  } catch {}
+  if (overrides && Object.keys(overrides).length > 0) {
+    db = db.map(c => overrides[c.code] ? { ...c, wRVU: overrides[c.code] } : c);
+  }
+  return db;
+}
+
+function calcAdj(base, mods) {
+  if (!mods || mods.length === 0) return base;
+  if (mods.length === 1) { const m = MOD_MAP[mods[0]]; return m ? base * m.factor : base; }
+  let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r;
+}
+
+// ─── CSV Parse (same as before) ───
+function parseLine(line) { const r = []; let cur = "", inQ = false; for (let i = 0; i < line.length; i++) { const c = line[i]; if (c === '"') inQ = !inQ; else if ((c === ',' || c === '\t') && !inQ) { r.push(cur.trim()); cur = ""; } else cur += c; } r.push(cur.trim()); return r; }
+function normH(h) { return h.toLowerCase().replace(/[^a-z0-9]/g, ''); }
+function detectCols(headers) {
+  const m = { date: -1, cpt: -1, desc: -1, rvu: -1, modifier: -1, notes: -1 };
+  const maps = { date: ['date','dos','servicedate','proceduredate','dateofservice','dosdate'], cpt: ['cpt','cptcode','code','procedure','proccode','procedurecode','cptcd'], desc: ['description','desc','proceduredesc','proceduredescription','name','procedurename'], rvu: ['rvu','wrvu','wrvus','rvuvalue','workrvu','totalrvu','totalwrvu','wrvuvalue','rvus'], modifier: ['modifier','modifiers','mod','mods'], notes: ['notes','note','comments','comment','memo'] };
+  headers.forEach((h, i) => { const n = normH(h); Object.entries(maps).forEach(([k, vals]) => { if (m[k] === -1 && vals.includes(n)) m[k] = i; }); });
+  return m;
+}
+function parseDate2(val) { if (!val) return new Date().toISOString().slice(0, 10); const c = val.trim(); let x = c.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/); if (x) { const y = x[3].length === 2 ? '20' + x[3] : x[3]; return `${y}-${x[1].padStart(2,'0')}-${x[2].padStart(2,'0')}`; } x = c.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/); if (x) return `${x[1]}-${x[2].padStart(2,'0')}-${x[3].padStart(2,'0')}`; const d = new Date(c); if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10); return new Date().toISOString().slice(0, 10); }
+function extractCPT(val) { if (!val) return null; const x = val.replace(/[^0-9]/g, ' ').trim().match(/\b(\d{5})\b/); return x ? x[1] : null; }
+function extractMods(val) { if (!val) return []; const known = MODIFIERS.map(m => m.code); const mods = []; (val.match(/[-]?\d{2}/g) || []).forEach(raw => { const c = raw.startsWith('-') ? raw : '-' + raw; if (known.includes(c)) mods.push(c); }); if (/AS/i.test(val)) mods.push('-AS'); return [...new Set(mods)]; }
+
+function parseImport(text, cptMap) {
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length < 2) return { entries: [], errors: ['Not enough data rows'], mapping: null, headers: [] };
+  const headers = parseLine(lines[0]);
+  const mapping = detectCols(headers);
+  if (mapping.cpt === -1) { const first = parseLine(lines[1]); first.forEach((v, i) => { if (mapping.cpt === -1 && /^\d{5}$/.test(v.trim())) mapping.cpt = i; }); }
+  if (mapping.cpt === -1) return { entries: [], errors: ['Could not detect CPT code column.'], mapping, headers };
+  const entries = [], errors = []; let unmatched = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseLine(lines[i]); if (cols.length < 2) continue;
+    const code = extractCPT(mapping.cpt >= 0 ? cols[mapping.cpt] : '');
+    if (!code) { errors.push(`Row ${i + 1}: No valid CPT code`); continue; }
+    const date = mapping.date >= 0 ? parseDate2(cols[mapping.date]) : new Date().toISOString().slice(0, 10);
+    const mods = mapping.modifier >= 0 ? extractMods(cols[mapping.modifier]) : [];
+    const notes = mapping.notes >= 0 ? (cols[mapping.notes] || '') : '';
+    const info = cptMap[code]; let desc = mapping.desc >= 0 ? (cols[mapping.desc] || '') : ''; let base;
+    if (info) { desc = desc || info.desc; base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || info.wRVU) : info.wRVU; }
+    else { unmatched++; desc = desc || `CPT ${code}`; base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || 0) : 0; }
+    entries.push({ id: Date.now().toString() + '-' + i, date, cptCode: code, description: desc, category: info ? info.category : 'Imported', baseRVU: base, modifiers: mods, adjustedRVU: calcAdj(base, mods), notes, imported: true });
+  }
+  if (unmatched > 0) errors.push(`${unmatched} CPT code(s) not in database`);
+  return { entries, errors, mapping, headers };
+}
+
+// ═══════════════════════════════════════
+// APP
+// ═══════════════════════════════════════
+export default function App() {
+  const [data, setData] = useState(defState);
+  const [view, setView] = useState("dashboard");
+  const [loaded, setLoaded] = useState(false);
+
+  const db = useMemo(() => getDB(data.rvuOverrides), [data.rvuOverrides]);
+  const cptMap = useMemo(() => buildCPTMap(db), [db]);
+  const categories = useMemo(() => buildCategories(db), [db]);
+
+  useEffect(() => { (async () => { const p = await loadPersistent(); setData(p && p.entries.length > 0 ? p : loadData()); setLoaded(true); })(); }, []);
+  useEffect(() => { if (!loaded) return; saveData(data); savePersistent(data); }, [data, loaded]);
+  const upd = fn => setData(prev => ({ ...fn(prev) }));
+
+  if (!loaded) return <div style={S.loading}>Loading...</div>;
+  return (
+    <div style={S.shell}><div style={S.app}>
+      {view === "dashboard" && <Dashboard data={data} db={db} setView={setView} />}
+      {view === "log" && <LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
+      {view === "import" && <Import data={data} cptMap={cptMap} upd={upd} setView={setView} />}
+      {view === "history" && <History data={data} upd={upd} setView={setView} />}
+      {view === "settings" && <Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
+      <Nav view={view} setView={setView} />
+    </div></div>
+  );
+}
+
+function Nav({ view, setView }) {
+  const tabs = [{ id: "dashboard", icon: "\u25C9", label: "Dashboard" }, { id: "log", icon: "\uFF0B", label: "Log" }, { id: "import", icon: "\u2913", label: "Import" }, { id: "history", icon: "\u2630", label: "History" }, { id: "settings", icon: "\u2699", label: "Settings" }];
+  return (<div style={S.nav}>{tabs.map(t => (<button key={t.id} onClick={() => setView(t.id)} style={{ ...S.navBtn, color: view === t.id ? "#0ea5e9" : "#94a3b8" }}><span style={{ fontSize: t.id === "log" || t.id === "import" ? 22 : 17 }}>{t.icon}</span><span style={{ fontSize: 9, marginTop: 2, letterSpacing: 0.4 }}>{t.label}</span></button>))}</div>);
+}
+
+// ═══════════════════════════════════════
+// DASHBOARD
+// ═══════════════════════════════════════
+function Dashboard({ data, db, setView }) {
+  const { entries, settings } = data;
+  const now = new Date(); const ys = new Date(settings.yearStart);
+  const ye = entries.filter(e => new Date(e.date) >= ys);
+  const tRVU = ye.reduce((s, e) => s + e.adjustedRVU, 0);
+  const tComp = tRVU * settings.ratePerRVU;
+  const gPct = settings.annualGoal > 0 ? Math.min((tRVU / settings.annualGoal) * 100, 100) : 0;
+  const dp = Math.max(1, Math.floor((now - ys) / 86400000));
+  const ePct = (dp / 365) * 100;
+  const pace = gPct >= ePct ? "ahead" : "behind";
+  const pDiff = Math.abs(tRVU - (settings.annualGoal * dp / 365));
+  const months = []; for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); const me = entries.filter(e => { const ed = new Date(e.date); return ed.getMonth() === d.getMonth() && ed.getFullYear() === d.getFullYear(); }); months.push({ label: d.toLocaleDateString("en-US", { month: "short" }), rvu: me.reduce((s, e) => s + e.adjustedRVU, 0) }); }
+  const maxM = Math.max(...months.map(m => m.rvu), 1);
+  const ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
+  const wRVU = entries.filter(e => new Date(e.date) >= ws).reduce((s, e) => s + e.adjustedRVU, 0);
+  const todayRVU = entries.filter(e => e.date === now.toISOString().slice(0,10)).reduce((s, e) => s + e.adjustedRVU, 0);
+
+  return (<div style={S.page}>
+    <div style={S.header}><h1 style={S.title}>RVU Tracker</h1><p style={S.subtitle}>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div>
+    <div style={S.cardMain}><div style={{ display: "flex", alignItems: "center", gap: 24 }}>
+      <svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="8" /><circle cx="50" cy="50" r="42" fill="none" stroke={pace === "ahead" ? "#10b981" : "#f59e0b"} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${gPct * 2.639} 263.9`} transform="rotate(-90 50 50)" style={{ transition: "stroke-dasharray 0.8s ease" }} /><text x="50" y="46" textAnchor="middle" fill="#f8fafc" fontSize="18" fontFamily="JetBrains Mono" fontWeight="600">{gPct.toFixed(0)}%</text><text x="50" y="62" textAnchor="middle" fill="#94a3b8" fontSize="9" fontFamily="DM Sans">of goal</text></svg>
+      <div><div style={S.metricBig}>{tRVU.toFixed(1)}</div><div style={S.metricLabel}>wRVUs YTD</div><div style={{ ...S.paceTag, background: pace === "ahead" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: pace === "ahead" ? "#34d399" : "#fbbf24" }}>{pace === "ahead" ? "▲" : "▼"} {pDiff.toFixed(1)} wRVUs {pace}</div></div>
+    </div></div>
+    <div style={S.statsRow}>
+      <div style={S.statCard}><div style={S.statValue}>{todayRVU.toFixed(1)}</div><div style={S.statLabel}>Today</div></div>
+      <div style={S.statCard}><div style={S.statValue}>{wRVU.toFixed(1)}</div><div style={S.statLabel}>This Week</div></div>
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>${tComp.toLocaleString()}</div><div style={S.statLabel}>Compensation</div></div>
+    </div>
+    <div style={S.card}><div style={S.cardLabel}>Monthly wRVUs</div><div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100, marginTop: 12 }}>{months.map((m, i) => (<div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}><span style={{ fontSize: 11, fontFamily: "JetBrains Mono", color: "#cbd5e1", fontWeight: 500 }}>{m.rvu > 0 ? m.rvu.toFixed(0) : ""}</span><div style={{ width: "100%", height: Math.max(4, (m.rvu / maxM) * 70), background: i === months.length - 1 ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4 }} /><span style={{ fontSize: 10, color: "#94a3b8" }}>{m.label}</span></div>))}</div></div>
+    {entries.length > 0 && <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Recent Procedures</div><button onClick={() => setView("history")} style={S.linkBtn}>View All →</button></div><div style={{ marginTop: 8 }}>{entries.slice(-3).reverse().map((e, i) => (<div key={i} style={S.recentItem}><div><div style={S.recentCode}>{e.cptCode}</div><div style={S.recentDesc}>{e.description}</div></div><div style={{ textAlign: "right" }}><div style={S.recentRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={S.recentDate}>{fmtShort(e.date)}</div></div></div>))}</div></div>}
+    <div style={{ ...S.card, background: "#0f172a", border: "1px solid #1e293b", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "#475569" }}>Data: CMS {DATA_YEAR} PFS</span><span style={{ fontSize: 10, color: "#334155", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
+    <button onClick={() => setView("log")} style={S.fabBtn}>+ Log Procedure</button>
+  </div>);
+}
+
+// ═══════════════════════════════════════
+// LOG PROCEDURE
+// ═══════════════════════════════════════
+function LogProc({ data, db, cptMap, categories, upd, setView }) {
+  const [search, setSearch] = useState(""); const [cat, setCat] = useState("All"); const [sel, setSel] = useState(null); const [mods, setMods] = useState([]); const [date, setDate] = useState(new Date().toISOString().slice(0, 10)); const [notes, setNotes] = useState(""); const [saved, setSaved] = useState(false);
+  const filtered = useMemo(() => { let items = db; if (cat !== "All") items = items.filter(c => c.category === cat); if (search.trim()) { const q = search.toLowerCase().trim(); items = items.filter(c => c.code.includes(q) || c.desc.toLowerCase().includes(q) || c.category.toLowerCase().includes(q)); } return items; }, [search, cat, db]);
+  const rv = () => sel ? calcAdj(sel.wRVU, mods) : 0;
+  const save = () => { if (!sel) return; upd(prev => ({ ...prev, entries: [...prev.entries, { id: Date.now().toString(), date, cptCode: sel.code, description: sel.desc, category: sel.category, baseRVU: sel.wRVU, modifiers: [...mods], adjustedRVU: rv(), notes }] })); setSaved(true); setTimeout(() => { setSaved(false); setSel(null); setMods([]); setNotes(""); setSearch(""); }, 1200); };
+  const togMod = c => setMods(p => p.includes(c) ? p.filter(m => m !== c) : [...p, c]);
+
+  return (<div style={S.page}>
+    <div style={S.header}><h1 style={S.title}>Log Procedure</h1></div>
+    {saved && <div style={S.successBanner}>✓ Logged — {rv().toFixed(2)} wRVUs</div>}
+    <div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={date} onChange={e => setDate(e.target.value)} style={S.dateInput} /></div>
+    <div style={S.fieldGroup}><label style={S.fieldLabel}>Search CPT Code or Procedure</label><input type="text" value={search} onChange={e => { setSearch(e.target.value); setSel(null); }} placeholder="e.g. 47562, cholecystectomy, hernia..." style={S.searchInput} /></div>
+    <div style={S.catRow}><button onClick={() => setCat("All")} style={cat === "All" ? S.catBtnActive : S.catBtn}>All</button>{categories.map(c => <button key={c} onClick={() => setCat(c)} style={cat === c ? S.catBtnActive : S.catBtn}>{c}</button>)}</div>
+    {!sel && <div style={S.resultsList}>{filtered.slice(0, 20).map(cpt => (<button key={cpt.code} onClick={() => { setSel(cpt); setSearch(cpt.code + " - " + cpt.desc); }} style={S.resultItem}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={S.resultCode}>{cpt.code}</span><span style={S.resultRVU}>{cpt.wRVU} wRVU</span></div><div style={S.resultDesc}>{cpt.desc}</div><div style={S.resultCat}>{cpt.category}</div></button>))}{filtered.length === 0 && search && <div style={{ padding: 20, textAlign: "center", color: "#64748b" }}>No matching CPT codes found</div>}</div>}
+    {sel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={S.selectedCode}>{sel.code}</span><button onClick={() => { setSel(null); setSearch(""); setMods([]); }} style={S.clearBtn}>✕</button></div><div style={S.selectedDesc}>{sel.desc}</div><div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "#64748b" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{sel.wRVU}</div></div>{mods.length > 0 && <div><div style={{ fontSize: 11, color: "#64748b" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{rv().toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "#64748b" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(rv() * data.settings.ratePerRVU).toFixed(0)}</div></div></div></div>
+    <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => togMod(m.code)} style={mods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span><span style={S.modFactor}>{m.desc}</span></button>)}</div></div>
+    <div style={S.fieldGroup}><label style={S.fieldLabel}>Notes (optional)</label><textarea value={notes} onChange={e => setNotes(e.target.value)} placeholder="Patient details, complexity, etc." style={S.notesInput} rows={2} /></div>
+    <button onClick={save} style={S.saveBtn}>Log Procedure — {rv().toFixed(2)} wRVUs</button></>}
+  </div>);
+}
+
+// ─── CMS PFS File Parser ───
+function parseCMSFile(text) {
+  const lines = text.split('\n').filter(l => l.trim());
+  if (lines.length < 2) return { codes: [], errors: ['File appears empty'] };
+  const headers = parseLine(lines[0]);
+  const hNorm = headers.map(h => normH(h));
+  // Find columns: HCPCS (CPT code), DESCRIPTION, WORK RVU
+  let cptCol = -1, descCol = -1, rvuCol = -1;
+  hNorm.forEach((h, i) => {
+    if (cptCol === -1 && (h === 'hcpcs' || h === 'hcpcscode' || h === 'cpt' || h === 'cptcode' || h === 'cpthcpcs' || h === 'code' || h === 'procedurecode')) cptCol = i;
+    if (descCol === -1 && (h === 'description' || h === 'desc' || h === 'shortdescription' || h === 'longdescription' || h === 'shortdesc')) descCol = i;
+    if (rvuCol === -1 && (h === 'workrvu' || h === 'wrvu' || h === 'workrvus' || h === 'rvu' || h === 'wrvunonfacility' || h === 'wrvufacility')) rvuCol = i;
+  });
+  // Broader search if not found
+  if (cptCol === -1) hNorm.forEach((h, i) => { if (cptCol === -1 && h.includes('hcpcs')) cptCol = i; });
+  if (rvuCol === -1) hNorm.forEach((h, i) => { if (rvuCol === -1 && h.includes('work') && h.includes('rvu')) rvuCol = i; });
+  if (descCol === -1) hNorm.forEach((h, i) => { if (descCol === -1 && h.includes('desc')) descCol = i; });
+
+  if (cptCol === -1) return { codes: [], errors: ['Could not find HCPCS/CPT code column. Expected column named HCPCS, CPT, or Code.'] };
+  if (rvuCol === -1) return { codes: [], errors: ['Could not find Work RVU column. Expected column named WORK RVU or WRVU.'] };
+
+  const codes = []; const seen = new Set(); let skipped = 0;
+  for (let i = 1; i < lines.length; i++) {
+    const cols = parseLine(lines[i]);
+    const code = (cols[cptCol] || '').replace(/[^0-9A-Za-z]/g, '').trim();
+    if (!code || code.length < 5 || seen.has(code)) { skipped++; continue; }
+    const rvu = parseFloat(cols[rvuCol]);
+    if (isNaN(rvu) || rvu <= 0) { skipped++; continue; }
+    seen.add(code);
+    const desc = descCol >= 0 ? (cols[descCol] || '').replace(/^"|"$/g, '').trim() : `CPT ${code}`;
+    codes.push({ code, desc: desc.substring(0, 100), wRVU: rvu, category: 'CMS Import' });
+  }
+  return { codes, errors: skipped > 0 ? [`Skipped ${skipped} rows (no valid CPT or wRVU = 0)`] : [], detectedCols: { cpt: cptCol >= 0 ? headers[cptCol] : null, desc: descCol >= 0 ? headers[descCol] : null, rvu: rvuCol >= 0 ? headers[rvuCol] : null } };
+}
+
+// ═══════════════════════════════════════
+// IMPORT
+// ═══════════════════════════════════════
+function Import({ data, cptMap, upd, setView }) {
+  const [mode, setMode] = useState("choose"); const [raw, setRaw] = useState(""); const [parsed, setParsed] = useState(null); const [status, setStatus] = useState(null); const [page, setPage] = useState(0); const fRef = useRef(null);
+  const [cmsParsed, setCmsParsed] = useState(null); const [cmsStatus, setCmsStatus] = useState(null); const cmsRef = useRef(null);
+  const doParse = t => { setParsed(parseImport(t, cptMap)); setPage(0); setMode("preview"); };
+  const onFile = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { setRaw(ev.target.result); doParse(ev.target.result); }; r.readAsText(f); };
+  const doImport = () => { if (!parsed?.entries.length) return; upd(prev => ({ ...prev, entries: [...prev.entries, ...parsed.entries] })); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
+  const onCmsFile = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { setCmsParsed(parseCMSFile(ev.target.result)); setMode("cms-preview"); }; r.readAsText(f); };
+  const doCmsImport = () => {
+    if (!cmsParsed?.codes.length) return;
+    // Merge CMS codes into the app's database via overrides + localStorage
+    const newOverrides = { ...data.rvuOverrides };
+    const newDB = [...CPT_DATABASE_DEFAULT];
+    const existingCodes = new Set(CPT_DATABASE_DEFAULT.map(c => c.code));
+    let added = 0, updated = 0;
+    cmsParsed.codes.forEach(c => {
+      if (existingCodes.has(c.code)) { newOverrides[c.code] = c.wRVU; updated++; }
+      else { newDB.push(c); added++; }
+    });
+    // Store imported CMS codes in persistent storage
+    try { localStorage.setItem('rvu-tracker-cms-codes', JSON.stringify(cmsParsed.codes)); } catch {}
+    (async () => { try { await window.storage.set('rvu-tracker-cms-codes', JSON.stringify(cmsParsed.codes)); } catch {} })();
+    upd(prev => ({ ...prev, rvuOverrides: newOverrides, cmsImported: true, cmsCodeCount: cmsParsed.codes.length }));
+    setCmsStatus({ added, updated, total: cmsParsed.codes.length });
+    setTimeout(() => { setCmsStatus(null); setMode("choose"); setView("settings"); }, 3000);
+  };
+  const PS = 20; const pEntries = parsed ? parsed.entries.slice(page * PS, (page + 1) * PS) : []; const tPages = parsed ? Math.ceil(parsed.entries.length / PS) : 0;
+
+  if (mode === "choose") return (<div style={S.page}><div style={S.header}><h1 style={S.title}>Import Data</h1><p style={S.subtitle}>Bring in your RVU Wallet history</p></div>
+    <div style={{ ...S.card, border: "1px solid #334155", cursor: "pointer" }} onClick={() => fRef.current?.click()}><input ref={fRef} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onFile} /><div style={{ textAlign: "center", padding: "24px 0" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📄</div><div style={{ fontSize: 16, fontWeight: 600, color: "#e2e8f0" }}>Upload CSV / Spreadsheet</div><div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Export from RVU Wallet and upload</div></div></div>
+    <div style={{ textAlign: "center", color: "#475569", fontSize: 13, margin: "14px 0" }}>— or —</div>
+    <div style={{ ...S.card, border: "1px solid #334155", cursor: "pointer" }} onClick={() => setMode("paste")}><div style={{ textAlign: "center", padding: "24px 0" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📋</div><div style={{ fontSize: 16, fontWeight: 600, color: "#e2e8f0" }}>Paste Data</div><div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Copy rows from a spreadsheet and paste</div></div></div>
+
+    <div style={{ textAlign: "center", color: "#475569", fontSize: 13, margin: "14px 0" }}>— or —</div>
+
+    <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.05)", cursor: "pointer" }} onClick={() => cmsRef.current?.click()}>
+      <input ref={cmsRef} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onCmsFile} />
+      <div style={{ textAlign: "center", padding: "24px 0" }}>
+        <div style={{ fontSize: 40, marginBottom: 8 }}>🏛️</div>
+        <div style={{ fontSize: 16, fontWeight: 600, color: "#10b981" }}>Import CMS Fee Schedule</div>
+        <div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Load all 10,000+ CPT codes with official wRVU values</div>
+        <div style={{ fontSize: 11, color: "#475569", marginTop: 8, lineHeight: 1.5 }}>
+          Download from cms.gov → PFS Relative Value Files → Upload the CSV here
+        </div>
+      </div>
+    </div>
+
+    <div style={{ ...S.card, marginTop: 16, background: "#0f172a", border: "1px solid #1e293b" }}><div style={{ ...S.cardLabel, marginBottom: 8 }}>Current Database</div><div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>{Object.keys(cptMap).length} preloaded codes · {DATA_VERSION}</div></div>
+  </div>);
+
+  if (mode === "paste") return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => setMode("choose")} style={S.backBtn}>←</button><h1 style={{ ...S.title, marginBottom: 0 }}>Paste Data</h1></div>
+    <textarea value={raw} onChange={e => setRaw(e.target.value)} placeholder={"Date,CPT,Description,wRVU,Modifier\n01/15/2025,47562,Lap cholecystectomy,10.21,"} style={{ ...S.notesInput, minHeight: 200, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.6 }} />
+    <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button onClick={() => setMode("choose")} style={S.secondaryBtn}>Cancel</button><button onClick={() => doParse(raw)} disabled={!raw.trim()} style={{ ...S.saveBtn, flex: 1, opacity: raw.trim() ? 1 : 0.4 }}>Parse Data →</button></div>
+  </div>);
+
+  if (mode === "preview" && parsed) {
+    const matched = parsed.entries.filter(e => cptMap[e.cptCode]); const tRVU = parsed.entries.reduce((s, e) => s + e.adjustedRVU, 0);
+    return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={S.backBtn}>←</button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
+      {status === 'ok' && <div style={S.successBanner}>✓ Imported {parsed.entries.length} procedures!</div>}
+      <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: "1px solid #334155" }}><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>{[[parsed.entries.length, "Procedures", "#f8fafc"], [tRVU.toFixed(0), "Total wRVUs", "#0ea5e9"], [matched.length, "Matched", "#10b981"]].map(([v, l, c]) => (<div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: c }}>{v}</div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div></div>))}</div></div>
+      {parsed.errors.length > 0 && <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: 12, marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 600, color: "#fbbf24", marginBottom: 4 }}>⚠ Warnings</div>{parsed.errors.slice(0, 5).map((e, i) => <div key={i} style={{ fontSize: 11, color: "#fcd34d", padding: "2px 0" }}>{e}</div>)}</div>}
+      <div style={S.card}><div style={S.cardLabel}>Preview ({parsed.entries.length} rows)</div><div style={{ marginTop: 8, maxHeight: 280, overflowY: "auto", scrollbarWidth: "thin" }}>{pEntries.map((e, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.5)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: cptMap[e.cptCode] ? "#0ea5e9" : "#fbbf24", fontWeight: 600 }}>{e.cptCode}</span> <span style={{ fontSize: 10, color: "#64748b" }}>{fmtShort(e.date)}</span><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.description}</div></div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600, marginLeft: 8 }}>{e.adjustedRVU.toFixed(2)}</div></div>))}</div>{tPages > 1 && <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 8 }}><button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ ...S.pgBtn, opacity: page === 0 ? 0.3 : 1 }}>‹</button><span style={{ fontSize: 11, color: "#64748b", fontFamily: "JetBrains Mono" }}>{page+1}/{tPages}</span><button onClick={() => setPage(p => Math.min(tPages-1, p+1))} disabled={page === tPages-1} style={{ ...S.pgBtn, opacity: page === tPages-1 ? 0.3 : 1 }}>›</button></div>}</div>
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={() => { setParsed(null); setMode("choose"); setRaw(""); }} style={S.secondaryBtn}>Cancel</button><button onClick={doImport} disabled={!parsed.entries.length} style={{ ...S.saveBtn, flex: 2, background: "linear-gradient(135deg, #10b981, #059669)" }}>Import {parsed.entries.length} Procedures</button></div>
+    </div>);
+  }
+  if (mode === "cms-preview" && cmsParsed) {
+    return (<div style={S.page}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode("choose"); setCmsParsed(null); }} style={S.backBtn}>←</button><h1 style={{ ...S.title, marginBottom: 0 }}>CMS Fee Schedule</h1></div>
+      {cmsStatus && <div style={S.successBanner}>✓ Loaded {cmsStatus.total} codes! ({cmsStatus.added} new, {cmsStatus.updated} updated)</div>}
+      {cmsParsed.errors.length > 0 && <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: 12, marginBottom: 12 }}>{cmsParsed.errors.map((e, i) => <div key={i} style={{ fontSize: 11, color: "#fcd34d" }}>{e}</div>)}</div>}
+      <div style={{ ...S.card, background: "linear-gradient(135deg, #064e3b, #0f172a)", border: "1px solid rgba(16,185,129,0.3)" }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+          <div style={{ textAlign: "center" }}><div style={{ fontSize: 32, fontFamily: "JetBrains Mono", fontWeight: 700, color: "#10b981" }}>{cmsParsed.codes.length.toLocaleString()}</div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>CPT Codes Found</div></div>
+          <div style={{ textAlign: "center" }}><div style={{ fontSize: 32, fontFamily: "JetBrains Mono", fontWeight: 700, color: "#f8fafc" }}>{cmsParsed.codes.filter(c => !cptMap[c.code]).length.toLocaleString()}</div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>New Codes</div></div>
+        </div>
+      </div>
+      {cmsParsed.detectedCols && <div style={S.card}><div style={S.cardLabel}>Detected Columns</div><div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>{[["CPT", cmsParsed.detectedCols.cpt], ["Description", cmsParsed.detectedCols.desc], ["Work RVU", cmsParsed.detectedCols.rvu]].map(([l, v]) => (<div key={l} style={{ padding: "4px 10px", borderRadius: 6, fontSize: 11, fontWeight: 500, background: v ? "rgba(16,185,129,0.15)" : "rgba(100,116,139,0.15)", color: v ? "#34d399" : "#64748b", border: `1px solid ${v ? "rgba(16,185,129,0.3)" : "rgba(100,116,139,0.2)"}` }}>✓ {l}: {v || "not found"}</div>))}</div></div>}
+      <div style={S.card}><div style={S.cardLabel}>Sample Codes</div><div style={{ marginTop: 8, maxHeight: 200, overflowY: "auto", scrollbarWidth: "thin" }}>{cmsParsed.codes.slice(0, 15).map((c, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "6px 0", borderBottom: "1px solid rgba(51,65,85,0.4)" }}><div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{c.code}</span><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1 }}>{c.desc}</div></div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{c.wRVU}</div></div>))}</div></div>
+      <div style={{ fontSize: 12, color: "#94a3b8", margin: "8px 0", lineHeight: 1.5 }}>This will update wRVU values for existing codes and add new codes to your database. Your logged procedures will not be affected.</div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <button onClick={() => { setCmsParsed(null); setMode("choose"); }} style={S.secondaryBtn}>Cancel</button>
+        <button onClick={doCmsImport} style={{ ...S.saveBtn, flex: 2, background: "linear-gradient(135deg, #10b981, #059669)" }}>Load {cmsParsed.codes.length.toLocaleString()} CPT Codes</button>
+      </div>
+    </div>);
+  }
+
+  return null;
+}
+
+// ═══════════════════════════════════════
+// HISTORY
+// ═══════════════════════════════════════
+function History({ data, upd, setView }) {
+  const [filter, setFilter] = useState(""); const [sortBy, setSortBy] = useState("date"); const [groupBy, setGroupBy] = useState("date");
+  const { entries, settings } = data;
+  const filtered = useMemo(() => { let items = [...entries]; if (filter.trim()) { const q = filter.toLowerCase(); items = items.filter(e => e.cptCode.includes(q) || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) || (e.notes && e.notes.toLowerCase().includes(q))); } items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return new Date(b.date) - new Date(a.date); }); return items; }, [entries, filter, sortBy]);
+  const grouped = useMemo(() => { if (groupBy === "none") return { "All": filtered }; const g = {}; filtered.forEach(e => { const k = groupBy === "date" ? e.date : e.category; if (!g[k]) g[k] = []; g[k].push(e); }); return g; }, [filtered, groupBy]);
+  const del = id => upd(prev => ({ ...prev, entries: prev.entries.filter(e => e.id !== id) }));
+  const tF = filtered.reduce((s, e) => s + e.adjustedRVU, 0);
+
+  return (<div style={S.page}>
+    <div style={S.header}><h1 style={S.title}>History</h1><p style={S.subtitle}>{entries.length} procedures · {tF.toFixed(1)} wRVUs</p></div>
+    <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search history..." style={S.searchInput} />
+    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>{["date","rvu","code"].map(s => <button key={s} onClick={() => setSortBy(s)} style={sortBy === s ? S.catBtnActive : S.catBtn}>Sort: {s === "rvu" ? "wRVU" : s}</button>)}<div style={{ width: 8 }} />{["date","category","none"].map(g => <button key={g} onClick={() => setGroupBy(g)} style={groupBy === g ? S.catBtnActive : S.catBtn}>Group: {g}</button>)}</div>
+    <div style={{ marginTop: 12 }}>
+      {Object.keys(grouped).length === 0 && <div style={{ textAlign: "center", color: "#64748b", padding: 40 }}>No procedures logged yet</div>}
+      {Object.entries(grouped).map(([group, items]) => (<div key={group} style={{ marginBottom: 16 }}>
+        <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "#64748b", fontWeight: 400 }}> · {items.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU</span></div>
+        {items.map(e => (<div key={e.id} style={S.historyItem}><div style={{ flex: 1 }}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span style={S.histCode}>{e.cptCode}</span>{e.modifiers.map(m => <span key={m} style={S.histMod}>{m}</span>)}{e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}</div><div style={S.histDesc}>{e.description}</div>{groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}{e.notes && <div style={S.histNotes}>📝 {e.notes}</div>}</div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div><button onClick={() => del(e.id)} style={S.deleteBtn}>✕</button></div></div>))}
+      </div>))}
+    </div>
+  </div>);
+}
+
+// ═══════════════════════════════════════
+// SETTINGS (with wRVU Editor)
+// ═══════════════════════════════════════
+function Settings({ data, db, cptMap, categories, upd, setView }) {
+  const { settings } = data;
+  const [editSearch, setEditSearch] = useState("");
+  const [editCat, setEditCat] = useState("All");
+  const [showEditor, setShowEditor] = useState(false);
+
+  const set = (k, v) => upd(prev => ({ ...prev, settings: { ...prev.settings, [k]: v } }));
+  const setOverride = (code, val) => upd(prev => {
+    const o = { ...prev.rvuOverrides };
+    const orig = CPT_DATABASE_DEFAULT.find(c => c.code === code);
+    if (orig && Math.abs(val - orig.wRVU) < 0.001) { delete o[code]; } else { o[code] = val; }
+    return { ...prev, rvuOverrides: o };
+  });
+  const resetOverrides = () => { if (confirm("Reset all wRVU values to CMS defaults?")) upd(prev => ({ ...prev, rvuOverrides: {} })); };
+
+  const editFiltered = useMemo(() => {
+    let items = db;
+    if (editCat !== "All") items = items.filter(c => c.category === editCat);
+    if (editSearch.trim()) { const q = editSearch.toLowerCase(); items = items.filter(c => c.code.includes(q) || c.desc.toLowerCase().includes(q)); }
+    return items;
+  }, [db, editCat, editSearch]);
+
+  const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, `"${e.description}"`, e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), `"${e.notes || ''}"`]); const csv = [h.join(','), ...rows.map(r => r.join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `rvu-export-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(u); };
+  const expJSON = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `rvu-export-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(u); };
+  const clear = () => { if (confirm("Delete all logged procedures? This cannot be undone.")) upd(prev => ({ ...prev, entries: [] })); };
+  const tRVU = data.entries.reduce((s, e) => s + e.adjustedRVU, 0);
+  const avg = data.entries.length > 0 ? tRVU / data.entries.length : 0;
+  const overrideCount = Object.keys(data.rvuOverrides).length;
+
+  return (<div style={S.page}>
+    <div style={S.header}><h1 style={S.title}>Settings</h1></div>
+    <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ''); set("ratePerRVU", v === "" ? 0 : parseFloat(v) || 0); }} placeholder="0" style={S.numberInput} /></div></div>
+    <div style={S.card}><div style={S.cardLabel}>Annual Goal</div><div style={S.fieldGroup}><label style={S.fieldLabel}>Target wRVUs per year</label><input type="text" inputMode="decimal" value={settings.annualGoal === 0 ? "" : String(settings.annualGoal)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ''); set("annualGoal", v === "" ? 0 : parseFloat(v) || 0); }} placeholder="0" style={S.numberInput} /></div><div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
+
+    {/* wRVU Editor */}
+    <div style={S.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={S.cardLabel}>wRVU Values Editor</div>
+        <button onClick={() => setShowEditor(!showEditor)} style={S.linkBtn}>{showEditor ? "Hide" : "Edit Values"}</button>
+      </div>
+      <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>
+        Data: CMS CY{DATA_YEAR} PFS · {db.length} codes · {overrideCount > 0 ? `${overrideCount} custom override(s)` : "No overrides"}
+      </div>
+      {showEditor && <>
+        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search codes to edit..." style={{ ...S.searchInput, marginTop: 10, fontSize: 13 }} />
+        <div style={{ ...S.catRow, marginTop: 6 }}><button onClick={() => setEditCat("All")} style={editCat === "All" ? S.catBtnActive : S.catBtn}>All</button>{categories.map(c => <button key={c} onClick={() => setEditCat(c)} style={editCat === c ? S.catBtnActive : S.catBtn}>{c}</button>)}</div>
+        <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 8, scrollbarWidth: "thin", scrollbarColor: "#334155 transparent" }}>
+          {editFiltered.slice(0, 30).map(cpt => {
+            const orig = CPT_DATABASE_DEFAULT.find(c => c.code === cpt.code);
+            const isOverridden = data.rvuOverrides[cpt.code] !== undefined;
+            return (<div key={cpt.code} style={{ display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.4)", gap: 8 }}>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                  <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: isOverridden ? "#fbbf24" : "#0ea5e9", fontWeight: 600 }}>{cpt.code}</span>
+                  {isOverridden && <span style={{ fontSize: 9, color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: 3 }}>custom</span>}
+                </div>
+                <div style={{ fontSize: 11, color: "#94a3b8", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.desc}</div>
+              </div>
+              <input type="text" inputMode="decimal" value={cpt.wRVU} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setOverride(cpt.code, v); }} style={{ width: 65, padding: "4px 6px", background: isOverridden ? "rgba(251,191,36,0.1)" : "#0f172a", border: `1px solid ${isOverridden ? "rgba(251,191,36,0.3)" : "#334155"}`, borderRadius: 6, color: "#f8fafc", fontSize: 13, fontFamily: "JetBrains Mono", fontWeight: 600, textAlign: "right", outline: "none" }} />
+            </div>);
+          })}
+          {editFiltered.length > 30 && <div style={{ fontSize: 11, color: "#475569", padding: 8, textAlign: "center" }}>Showing 30 of {editFiltered.length} — narrow your search</div>}
+        </div>
+        {overrideCount > 0 && <button onClick={resetOverrides} style={{ ...S.dangerBtn, width: "100%", marginTop: 8, fontSize: 12, padding: "8px 12px" }}>Reset All to CMS Defaults</button>}
+      </>}
+    </div>
+
+    <div style={S.card}><div style={S.cardLabel}>Summary Stats</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", data.entries.length, "#e2e8f0"], ["Total wRVUs", tRVU.toFixed(1), "#e2e8f0"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", "$" + (tRVU * settings.ratePerRVU).toLocaleString(), "#10b981"]].map(([l, v, c]) => (<div key={l}><div style={{ fontSize: 11, color: "#64748b" }}>{l}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: c, fontWeight: 600 }}>{v}</div></div>))}</div></div>
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>Export JSON</button></div>
+    <div style={{ marginTop: 8 }}><button onClick={clear} style={{ ...S.dangerBtn, width: "100%" }}>Clear All Data</button></div>
+  </div>);
+}
+
+// ═══════════════════════════════════════
+// STYLES
+// ═══════════════════════════════════════
+const S = {
+  shell: { width: "100%", minHeight: "100vh", background: "#0f172a", display: "flex", justifyContent: "center", fontFamily: "'DM Sans', sans-serif" },
+  app: { width: "100%", maxWidth: 480, minHeight: "100vh", background: "#0f172a", position: "relative", paddingBottom: 80 },
+  loading: { display: "flex", alignItems: "center", justifyContent: "center", height: "100vh", color: "#94a3b8", fontSize: 16, background: "#0f172a" },
+  page: { padding: "16px 16px 24px" }, header: { marginBottom: 16 },
+  title: { fontSize: 26, fontWeight: 700, color: "#f8fafc", margin: 0, letterSpacing: -0.5 },
+  subtitle: { fontSize: 13, color: "#64748b", margin: "4px 0 0" },
+  cardMain: { background: "linear-gradient(135deg, #1e293b 0%, #0f172a 100%)", border: "1px solid #1e293b", borderRadius: 16, padding: 20, marginBottom: 12 },
+  card: { background: "#1e293b", borderRadius: 12, padding: 16, marginBottom: 12 },
+  cardLabel: { fontSize: 12, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 1 },
+  metricBig: { fontSize: 36, fontWeight: 700, fontFamily: "'JetBrains Mono'", color: "#f8fafc", lineHeight: 1 },
+  metricLabel: { fontSize: 13, color: "#64748b", marginTop: 2 },
+  paceTag: { display: "inline-block", fontSize: 11, fontWeight: 600, padding: "3px 8px", borderRadius: 6, marginTop: 6, fontFamily: "'JetBrains Mono'" },
+  statsRow: { display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 8, marginBottom: 12 },
+  statCard: { background: "#1e293b", borderRadius: 10, padding: "12px 10px", textAlign: "center" },
+  statValue: { fontSize: 18, fontWeight: 600, fontFamily: "'JetBrains Mono'", color: "#e2e8f0" },
+  statLabel: { fontSize: 10, color: "#64748b", marginTop: 2, textTransform: "uppercase", letterSpacing: 0.5 },
+  recentItem: { display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #334155" },
+  recentCode: { fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#0ea5e9", fontWeight: 600 },
+  recentDesc: { fontSize: 12, color: "#94a3b8", marginTop: 2, maxWidth: 200, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" },
+  recentRVU: { fontSize: 14, fontFamily: "'JetBrains Mono'", color: "#e2e8f0", fontWeight: 600 },
+  recentDate: { fontSize: 11, color: "#64748b" },
+  linkBtn: { background: "none", border: "none", color: "#0ea5e9", fontSize: 12, fontWeight: 500, cursor: "pointer", padding: 0 },
+  nav: { position: "fixed", bottom: 0, left: "50%", transform: "translateX(-50%)", width: "100%", maxWidth: 480, display: "flex", justifyContent: "space-around", padding: "8px 0 12px", background: "rgba(15,23,42,0.95)", backdropFilter: "blur(20px)", borderTop: "1px solid #1e293b", zIndex: 100 },
+  navBtn: { background: "none", border: "none", display: "flex", flexDirection: "column", alignItems: "center", cursor: "pointer", padding: "4px 8px", transition: "color 0.2s" },
+  fieldGroup: { marginBottom: 12 }, fieldLabel: { fontSize: 12, fontWeight: 500, color: "#94a3b8", marginBottom: 6, display: "block" },
+  searchInput: { width: "100%", padding: "12px 14px", background: "#1e293b", border: "1px solid #334155", borderRadius: 10, color: "#f8fafc", fontSize: 15, outline: "none", boxSizing: "border-box" },
+  dateInput: { padding: "10px 14px", background: "#1e293b", border: "1px solid #334155", borderRadius: 10, color: "#f8fafc", fontSize: 14, outline: "none", colorScheme: "dark" },
+  numberInput: { padding: "10px 14px", background: "#0f172a", border: "1px solid #334155", borderRadius: 10, color: "#f8fafc", fontSize: 18, fontFamily: "'JetBrains Mono'", fontWeight: 600, outline: "none", width: 120 },
+  notesInput: { width: "100%", padding: "10px 14px", background: "#1e293b", border: "1px solid #334155", borderRadius: 10, color: "#f8fafc", fontSize: 14, outline: "none", resize: "vertical", boxSizing: "border-box" },
+  catRow: { display: "flex", gap: 6, overflowX: "auto", paddingBottom: 8, marginTop: 8, scrollbarWidth: "none" },
+  catBtn: { flexShrink: 0, padding: "6px 12px", background: "#1e293b", border: "1px solid #334155", borderRadius: 20, color: "#94a3b8", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" },
+  catBtnActive: { flexShrink: 0, padding: "6px 12px", background: "#0ea5e9", border: "1px solid #0ea5e9", borderRadius: 20, color: "#fff", fontSize: 12, cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap" },
+  resultsList: { maxHeight: 360, overflowY: "auto", marginTop: 8, scrollbarWidth: "thin", scrollbarColor: "#334155 transparent" },
+  resultItem: { width: "100%", textAlign: "left", background: "#1e293b", border: "1px solid #334155", borderRadius: 10, padding: "10px 14px", marginBottom: 6, cursor: "pointer", display: "block", transition: "border-color 0.15s" },
+  resultCode: { fontSize: 14, fontFamily: "'JetBrains Mono'", color: "#0ea5e9", fontWeight: 600 },
+  resultRVU: { fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#10b981", fontWeight: 500 },
+  resultDesc: { fontSize: 13, color: "#cbd5e1", marginTop: 2 }, resultCat: { fontSize: 11, color: "#64748b", marginTop: 2 },
+  selectedCard: { background: "linear-gradient(135deg, #0c4a6e 0%, #1e293b 100%)", border: "1px solid #0ea5e9", borderRadius: 12, padding: 16, marginBottom: 12 },
+  selectedCode: { fontSize: 20, fontFamily: "'JetBrains Mono'", color: "#38bdf8", fontWeight: 700 },
+  selectedDesc: { fontSize: 14, color: "#e2e8f0", marginTop: 4 },
+  clearBtn: { background: "none", border: "none", color: "#64748b", fontSize: 18, cursor: "pointer", padding: "0 4px" },
+  modGrid: { display: "grid", gridTemplateColumns: "1fr 1fr", gap: 6 },
+  modBtn: { display: "flex", flexDirection: "column", padding: "8px 10px", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, cursor: "pointer", textAlign: "left" },
+  modBtnActive: { display: "flex", flexDirection: "column", padding: "8px 10px", background: "rgba(14,165,233,0.15)", border: "1px solid #0ea5e9", borderRadius: 8, cursor: "pointer", textAlign: "left" },
+  modCode: { fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#38bdf8", fontWeight: 600 },
+  modLabel: { fontSize: 11, color: "#cbd5e1", marginTop: 1 },
+  modFactor: { fontSize: 10, color: "#64748b", marginTop: 1, fontFamily: "'JetBrains Mono'" },
+  saveBtn: { width: "100%", padding: "14px 20px", background: "linear-gradient(135deg, #0ea5e9, #0284c7)", border: "none", borderRadius: 12, color: "#fff", fontSize: 16, fontWeight: 600, cursor: "pointer", marginTop: 8 },
+  fabBtn: { width: "100%", padding: "14px 20px", background: "linear-gradient(135deg, #0ea5e9, #0284c7)", border: "none", borderRadius: 12, color: "#fff", fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 12 },
+  secondaryBtn: { flex: 1, padding: "12px 16px", background: "#1e293b", border: "1px solid #334155", borderRadius: 10, color: "#e2e8f0", fontSize: 14, fontWeight: 500, cursor: "pointer" },
+  dangerBtn: { flex: 1, padding: "12px 16px", background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)", borderRadius: 10, color: "#f87171", fontSize: 14, fontWeight: 500, cursor: "pointer" },
+  successBanner: { background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)", borderRadius: 10, padding: "12px 16px", color: "#34d399", fontSize: 14, fontWeight: 600, marginBottom: 12, textAlign: "center" },
+  groupHeader: { fontSize: 13, fontWeight: 600, color: "#e2e8f0", padding: "8px 0 4px", borderBottom: "1px solid #334155", marginBottom: 6 },
+  historyItem: { display: "flex", gap: 12, padding: "10px 0", borderBottom: "1px solid rgba(51,65,85,0.5)" },
+  histCode: { fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#0ea5e9", fontWeight: 600 },
+  histMod: { fontSize: 10, fontFamily: "'JetBrains Mono'", color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: 4 },
+  histDesc: { fontSize: 12, color: "#94a3b8", marginTop: 2 },
+  histNotes: { fontSize: 11, color: "#64748b", marginTop: 3, fontStyle: "italic" },
+  histRVU: { fontSize: 15, fontFamily: "'JetBrains Mono'", color: "#e2e8f0", fontWeight: 600 },
+  deleteBtn: { background: "none", border: "none", color: "#64748b", fontSize: 12, cursor: "pointer", padding: "2px 4px", marginTop: 4 },
+  backBtn: { background: "none", border: "1px solid #334155", borderRadius: 8, color: "#94a3b8", fontSize: 18, cursor: "pointer", padding: "4px 10px" },
+  pgBtn: { background: "none", border: "1px solid #334155", borderRadius: 6, color: "#e2e8f0", fontSize: 16, cursor: "pointer", padding: "2px 8px" },
+};
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(React.createElement(App));
+  </script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js').catch(() => {});
+      });
+    }
+  </script>
+</body>
+</html>
