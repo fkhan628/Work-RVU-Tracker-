@@ -612,37 +612,131 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
 
 // ─── CMS PFS File Parser ───
 function parseCMSFile(text) {
-  const lines = text.split('\n').filter(l => l.trim());
+  // CMS RVU files can have quirky formats: 
+  // - May have multiple header rows or metadata rows at top
+  // - Column names may include spaces: "HCPCS", "MOD", "DESCRIPTION", "WORK RVU"
+  // - May be comma-delimited, tab-delimited, or even fixed-width
+  // - Same HCPCS code appears multiple times with different modifiers (26, TC, etc.)
+  // - Work RVU might be "NA" for some codes
+  
+  let lines = text.split('\n').filter(l => l.trim());
   if (lines.length < 2) return { codes: [], errors: ['File appears empty'] };
-  const headers = parseLine(lines[0]);
-  const hNorm = headers.map(h => normH(h));
-  // Find columns: HCPCS (CPT code), DESCRIPTION, WORK RVU
-  let cptCol = -1, descCol = -1, rvuCol = -1;
+  
+  // Try to find the header row — it should contain "HCPCS" somewhere
+  let headerIdx = -1;
+  for (let i = 0; i < Math.min(lines.length, 10); i++) {
+    const upper = lines[i].toUpperCase();
+    if (upper.includes('HCPCS') && (upper.includes('RVU') || upper.includes('DESCRIPTION') || upper.includes('DESC'))) {
+      headerIdx = i;
+      break;
+    }
+  }
+  
+  // If no header found with HCPCS, try broader search
+  if (headerIdx === -1) {
+    for (let i = 0; i < Math.min(lines.length, 10); i++) {
+      const upper = lines[i].toUpperCase();
+      if ((upper.includes('CPT') || upper.includes('CODE')) && upper.includes('RVU')) {
+        headerIdx = i;
+        break;
+      }
+    }
+  }
+  
+  if (headerIdx === -1) {
+    // Last resort: assume first row is header
+    headerIdx = 0;
+  }
+  
+  const headerLine = lines[headerIdx];
+  const headers = parseLine(headerLine);
+  
+  // Normalize headers for matching — remove all non-alphanumeric, lowercase
+  const hNorm = headers.map(h => h.toLowerCase().replace(/[^a-z0-9]/g, ''));
+  
+  // Find columns with extensive matching
+  let cptCol = -1, descCol = -1, rvuCol = -1, modCol = -1;
+  
   hNorm.forEach((h, i) => {
-    if (cptCol === -1 && (h === 'hcpcs' || h === 'hcpcscode' || h === 'cpt' || h === 'cptcode' || h === 'cpthcpcs' || h === 'code' || h === 'procedurecode')) cptCol = i;
-    if (descCol === -1 && (h === 'description' || h === 'desc' || h === 'shortdescription' || h === 'longdescription' || h === 'shortdesc')) descCol = i;
-    if (rvuCol === -1 && (h === 'workrvu' || h === 'wrvu' || h === 'workrvus' || h === 'rvu' || h === 'wrvunonfacility' || h === 'wrvufacility')) rvuCol = i;
+    // CPT/HCPCS column
+    if (cptCol === -1) {
+      if (h === 'hcpcs' || h === 'hcpcscode' || h === 'cpthcpcs' || h === 'cpt' || 
+          h === 'cptcode' || h === 'code' || h === 'procedurecode' || h === 'hcpcscpt' ||
+          h === 'hcpcscd' || h === 'hcpscd' || h === 'cpcd') cptCol = i;
+    }
+    // Modifier column (to filter for global/base records only)
+    if (modCol === -1) {
+      if (h === 'mod' || h === 'modifier' || h === 'modifiers' || h === 'mod1') modCol = i;
+    }
+    // Description
+    if (descCol === -1) {
+      if (h === 'description' || h === 'desc' || h === 'shortdescription' || h === 'shortdesc' ||
+          h === 'longdescription' || h === 'proceduredescription' || h === 'descriptor' ||
+          h === 'shortdescriptor' || h === 'longdescriptor') descCol = i;
+    }
+    // Work RVU
+    if (rvuCol === -1) {
+      if (h === 'workrvu' || h === 'wrvu' || h === 'wrvus' || h === 'workrvus' || 
+          h === 'wrkrvu' || h === 'rvuwork') rvuCol = i;
+    }
   });
-  // Broader search if not found
-  if (cptCol === -1) hNorm.forEach((h, i) => { if (cptCol === -1 && h.includes('hcpcs')) cptCol = i; });
+  
+  // Broader search if exact match failed
+  if (cptCol === -1) hNorm.forEach((h, i) => { if (cptCol === -1 && (h.includes('hcpcs') || h.includes('hcps'))) cptCol = i; });
   if (rvuCol === -1) hNorm.forEach((h, i) => { if (rvuCol === -1 && h.includes('work') && h.includes('rvu')) rvuCol = i; });
+  if (rvuCol === -1) hNorm.forEach((h, i) => { if (rvuCol === -1 && h.includes('wrvu')) rvuCol = i; });
+  if (rvuCol === -1) hNorm.forEach((h, i) => { if (rvuCol === -1 && h === 'rvu') rvuCol = i; });
   if (descCol === -1) hNorm.forEach((h, i) => { if (descCol === -1 && h.includes('desc')) descCol = i; });
-
-  if (cptCol === -1) return { codes: [], errors: ['Could not find HCPCS/CPT code column. Expected column named HCPCS, CPT, or Code.'] };
-  if (rvuCol === -1) return { codes: [], errors: ['Could not find Work RVU column. Expected column named WORK RVU or WRVU.'] };
+  
+  // If still no CPT column, try to find by content pattern (column with 5-digit numbers)
+  if (cptCol === -1 && lines.length > headerIdx + 1) {
+    const sampleRow = parseLine(lines[headerIdx + 1]);
+    sampleRow.forEach((v, i) => {
+      if (cptCol === -1 && /^\d{5}$/.test(v.trim())) cptCol = i;
+    });
+  }
+  
+  const detectedInfo = `Headers found: [${headers.slice(0, 8).join(', ')}${headers.length > 8 ? '...' : ''}]`;
+  
+  if (cptCol === -1) return { codes: [], errors: [`Could not find HCPCS/CPT column. ${detectedInfo}. Try opening the file in Excel and re-saving as CSV.`] };
+  if (rvuCol === -1) return { codes: [], errors: [`Could not find Work RVU column. ${detectedInfo}. Expected a column containing "WORK RVU" or "WRVU".`] };
 
   const codes = []; const seen = new Set(); let skipped = 0;
-  for (let i = 1; i < lines.length; i++) {
+  for (let i = headerIdx + 1; i < lines.length; i++) {
     const cols = parseLine(lines[i]);
+    if (cols.length <= Math.max(cptCol, rvuCol)) { skipped++; continue; }
+    
+    // Get code, strip any non-alphanumeric
     const code = (cols[cptCol] || '').replace(/[^0-9A-Za-z]/g, '').trim();
-    if (!code || code.length < 5 || seen.has(code)) { skipped++; continue; }
-    const rvu = parseFloat(cols[rvuCol]);
+    if (!code || code.length < 4) { skipped++; continue; }
+    
+    // Skip modifier rows (26=professional, TC=technical) — keep only global (blank modifier) or first occurrence
+    if (modCol >= 0) {
+      const mod = (cols[modCol] || '').trim();
+      if (mod && mod !== '' && mod !== '0') {
+        // This is a modifier row — skip if we already have the base code
+        if (seen.has(code)) { skipped++; continue; }
+      }
+    }
+    
+    if (seen.has(code)) { skipped++; continue; }
+    
+    // Parse RVU — handle "NA", empty, or non-numeric
+    const rvuStr = (cols[rvuCol] || '').trim();
+    if (!rvuStr || rvuStr.toUpperCase() === 'NA') { skipped++; continue; }
+    const rvu = parseFloat(rvuStr);
     if (isNaN(rvu) || rvu <= 0) { skipped++; continue; }
+    
     seen.add(code);
     const desc = descCol >= 0 ? (cols[descCol] || '').replace(/^"|"$/g, '').trim() : `CPT ${code}`;
-    codes.push({ code, desc: desc.substring(0, 100), wRVU: rvu, category: 'CMS Import' });
+    codes.push({ code, desc: desc.substring(0, 100), wRVU: Math.round(rvu * 100) / 100, category: 'CMS Import' });
   }
-  return { codes, errors: skipped > 0 ? [`Skipped ${skipped} rows (no valid CPT or wRVU = 0)`] : [], detectedCols: { cpt: cptCol >= 0 ? headers[cptCol] : null, desc: descCol >= 0 ? headers[descCol] : null, rvu: rvuCol >= 0 ? headers[rvuCol] : null } };
+  
+  const errors = [];
+  if (codes.length === 0) errors.push(`No valid codes found. ${detectedInfo}. The file may need to be opened in Excel and re-saved as a standard CSV.`);
+  if (skipped > 0) errors.push(`Skipped ${skipped} rows (modifier variants, wRVU = 0, or NA)`);
+  
+  return { codes, errors, detectedCols: { cpt: cptCol >= 0 ? headers[cptCol] : null, desc: descCol >= 0 ? headers[descCol] : null, rvu: rvuCol >= 0 ? headers[rvuCol] : null } };
 }
 
 // ═══════════════════════════════════════
