@@ -32,8 +32,6 @@
   <script type="text/babel" data-presets="react">
     const { useState, useEffect, useRef, useMemo } = React;
 
-const { useState, useEffect, useRef, useMemo } = React;
-
 const CPT_DATABASE_DEFAULT=CMS_RAW.map(r=>({code:r[0],desc:r[1],wRVU:r[2],category:r[3]}));
 const buildCPTMap = (db) => { const m = {}; db.forEach(c => { m[c.code] = c; }); return m; };
 const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();
@@ -230,7 +228,7 @@ function Import({ data, cptMap, upd, setView }) {
   
   const doParse = t => { setParsed(parseImport(t, cptMap)); setPage(0); setMode("preview"); };
   const onFile = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { setRaw(ev.target.result); doParse(ev.target.result); }; r.readAsText(f); };
-  const doImport = () => { if (!parsed && parsed.entries.length) return; upd(prev => ({ ...prev, entries: [...prev.entries, ...parsed.entries] })); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
+  const doImport = () => { if (!parsed || !parsed.entries || !parsed.entries.length) return; upd(prev => ({ ...prev, entries: [...prev.entries, ...parsed.entries] })); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
   const PS = 20; const pEntries = parsed ? parsed.entries.slice(page * PS, (page + 1) * PS) : []; const tPages = parsed ? Math.ceil(parsed.entries.length / PS) : 0;
 
   if (mode === "choose") return (<div style={S.page}><div style={S.header}><h1 style={S.title}>Import Data</h1><p style={S.subtitle}>Import your procedure history</p></div>
