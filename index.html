@@ -33,7 +33,7 @@
   
   <!-- App: fetched and compiled separately so Babel only handles 46KB -->
   <script>
-    fetch("app.jsx")
+    fetch("app.js?v=" + Date.now())
       .then(function(r) { return r.text(); })
       .then(function(jsx) {
         var js = Babel.transform(jsx, { presets: ["react"] }).code;

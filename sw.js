@@ -3,7 +3,7 @@ const urlsToCache = [
   './',
   './index.html',
   './cpt-data.js',
-  './app.jsx',
+  './app.js',
   './manifest.json',
   'https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js',
   'https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js',
