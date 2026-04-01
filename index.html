@@ -31,7 +31,6 @@ const CMS_RAW=[["0446T","Insj impltbl glucose sensor",1.11,"Other"],["0447T","Rm
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
 <script type="text/babel" data-presets="react">
 const {useState,useEffect,useRef,useMemo}=React;
-const { useState, useEffect, useRef, useMemo } = React;
 
 const CPT_DATABASE_DEFAULT=CMS_RAW.map(r=>({code:r[0],desc:r[1],wRVU:r[2],category:r[3]}));
 const buildCPTMap = (db) => { const m = {}; db.forEach(c => { m[c.code] = c; }); return m; };
