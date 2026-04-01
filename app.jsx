@@ -92,7 +92,7 @@ function parseImport(text, cptMap) {
 // ═══════════════════════════════════════
 // APP
 // ═══════════════════════════════════════
-export default function App() {
+function App() {
   const [data, setData] = useState(defState);
   const [view, setView] = useState("dashboard");
   const [loaded, setLoaded] = useState(false);
@@ -197,13 +197,12 @@ function Import({ data, cptMap, upd, setView }) {
   const doParse = t => { setParsed(parseImport(t, cptMap)); setPage(0); setMode("preview"); };
   const onFile = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { setRaw(ev.target.result); doParse(ev.target.result); }; r.readAsText(f); };
   const doImport = () => { if (!parsed?.entries.length) return; upd(prev => ({ ...prev, entries: [...prev.entries, ...parsed.entries] })); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
-  };
   const PS = 20; const pEntries = parsed ? parsed.entries.slice(page * PS, (page + 1) * PS) : []; const tPages = parsed ? Math.ceil(parsed.entries.length / PS) : 0;
 
   if (mode === "choose") return (<div style={S.page}><div style={S.header}><h1 style={S.title}>Import Data</h1><p style={S.subtitle}>Import your procedure history</p></div>
     <div style={{ ...S.card, border: "1px solid #334155", cursor: "pointer" }} onClick={() => fRef.current?.click()}><input ref={fRef} type="file" accept=".csv,.tsv,.txt" style={{ display: "none" }} onChange={onFile} /><div style={{ textAlign: "center", padding: "24px 0" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📄</div><div style={{ fontSize: 16, fontWeight: 600, color: "#e2e8f0" }}>Upload CSV / Spreadsheet</div><div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Export from RVU Wallet and upload</div></div></div>
-    </div>
-
+    <div style={{ textAlign: "center", color: "#475569", fontSize: 13, margin: "14px 0" }}>— or —</div>
+    <div style={{ ...S.card, border: "1px solid #334155", cursor: "pointer" }} onClick={() => setMode("paste")}><div style={{ textAlign: "center", padding: "24px 0" }}><div style={{ fontSize: 40, marginBottom: 8 }}>📋</div><div style={{ fontSize: 16, fontWeight: 600, color: "#e2e8f0" }}>Paste Data</div><div style={{ fontSize: 13, color: "#64748b", marginTop: 4 }}>Copy rows from a spreadsheet and paste</div></div></div>
     <div style={{ ...S.card, marginTop: 16, background: "#0f172a", border: "1px solid #1e293b" }}><div style={{ ...S.cardLabel, marginBottom: 8 }}>Complete CMS Database</div><div style={{ fontSize: 12, color: "#94a3b8", lineHeight: 1.6 }}>{Object.keys(cptMap).length} preloaded codes · {DATA_VERSION}</div></div>
   </div>);
 
