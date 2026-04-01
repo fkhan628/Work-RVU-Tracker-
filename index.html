@@ -240,7 +240,7 @@ function App() {
       {view === "dashboard" && <Dashboard data={data} db={db} setView={setView} />}
       {view === "log" && <LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
       {view === "import" && <Import data={data} cptMap={cptMap} upd={upd} setView={setView} />}
-      {view === "history" && <History data={data} upd={upd} setView={setView} />}
+      {view === "history" && <History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
       {view === "settings" && <Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
       <Nav view={view} setView={setView} />
     </div></div>
@@ -325,7 +325,7 @@ function Import({ data, cptMap, upd, setView }) {
   
   const doParse = t => { setParsed(parseImport(t, cptMap)); setPage(0); setMode("preview"); };
   const onFile = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { setRaw(ev.target.result); doParse(ev.target.result); }; r.readAsText(f); };
-  const doImport = () => { if (!parsed && parsed.entries.length) return; upd(prev => ({ ...prev, entries: [...prev.entries, ...parsed.entries] })); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
+  const doImport = () => { if (!parsed || !parsed.entries || !parsed.entries.length) return; upd(prev => { var existing = prev.entries; var newEntries = parsed.entries.filter(function(ne) { return !existing.some(function(ex) { return ex.date === ne.date && ex.cptCode === ne.cptCode && ex.notes === ne.notes; }); }); return { ...prev, entries: [...prev.entries, ...newEntries] }; }); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
   const PS = 20; const pEntries = parsed ? parsed.entries.slice(page * PS, (page + 1) * PS) : []; const tPages = parsed ? Math.ceil(parsed.entries.length / PS) : 0;
 
   if (mode === "choose") return (<div style={S.page}><div style={S.header}><h1 style={S.title}>Import Data</h1><p style={S.subtitle}>Import your procedure history</p></div>
@@ -356,13 +356,71 @@ function Import({ data, cptMap, upd, setView }) {
 // =======================================
 // HISTORY
 // =======================================
-function History({ data, upd, setView }) {
+function History({ data, db, cptMap, categories, upd, setView }) {
   const [filter, setFilter] = useState(""); const [sortBy, setSortBy] = useState("date"); const [groupBy, setGroupBy] = useState("date");
+  const [editId, setEditId] = useState(null);
+  const [editDate, setEditDate] = useState("");
+  const [editCode, setEditCode] = useState("");
+  const [editMods, setEditMods] = useState([]);
+  const [editNotes, setEditNotes] = useState("");
+  const [editSearch, setEditSearch] = useState("");
   const { entries, settings } = data;
   const filtered = useMemo(() => { let items = [...entries]; if (filter.trim()) { const q = filter.toLowerCase(); items = items.filter(e => e.cptCode.includes(q) || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) || (e.notes && e.notes.toLowerCase().includes(q))); } items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return new Date(b.date) - new Date(a.date); }); return items; }, [entries, filter, sortBy]);
   const grouped = useMemo(() => { if (groupBy === "none") return { "All": filtered }; const g = {}; filtered.forEach(e => { const k = groupBy === "date" ? e.date : e.category; if (!g[k]) g[k] = []; g[k].push(e); }); return g; }, [filtered, groupBy]);
   const del = id => upd(prev => ({ ...prev, entries: prev.entries.filter(e => e.id !== id) }));
   const tF = filtered.reduce((s, e) => s + e.adjustedRVU, 0);
+
+  const startEdit = (e) => {
+    setEditId(e.id);
+    setEditDate(e.date);
+    setEditCode(e.cptCode);
+    setEditMods(e.modifiers || []);
+    setEditNotes(e.notes || "");
+    setEditSearch("");
+  };
+
+  const cancelEdit = () => { setEditId(null); };
+
+  const saveEdit = () => {
+    var info = cptMap[editCode];
+    var baseRVU = info ? info.wRVU : 0;
+    var desc = info ? info.desc : ("CPT " + editCode);
+    var cat = info ? info.category : "Other";
+    var adj = calcAdj(baseRVU, editMods);
+    upd(prev => ({ ...prev, entries: prev.entries.map(e => e.id === editId ? { ...e, date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes } : e) }));
+    setEditId(null);
+  };
+
+  const toggleEditMod = (mc) => { setEditMods(prev => prev.includes(mc) ? prev.filter(m => m !== mc) : [...prev, mc]); };
+
+  const editFiltered = useMemo(() => {
+    if (!editSearch.trim()) return [];
+    var q = editSearch.toLowerCase();
+    return db.filter(c => c.code.includes(q) || c.desc.toLowerCase().includes(q)).slice(0, 10);
+  }, [editSearch, db]);
+
+  // Edit mode
+  if (editId) {
+    var editInfo = cptMap[editCode];
+    var editBase = editInfo ? editInfo.wRVU : 0;
+    var editAdj = calcAdj(editBase, editMods);
+    return (<div style={S.page}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Edit Procedure</h1></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} /></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>CPT Code</label>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <div style={{ flex: 1, padding: "8px 12px", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#0ea5e9", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode}</div>
+        </div>
+        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search to change CPT code..." style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
+        {editFiltered.length > 0 && <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4 }}>{editFiltered.map(c => (<button key={c.code} onClick={() => { setEditCode(c.code); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9" }}>{c.code}</span><span style={{ fontSize: 11, color: "#94a3b8" }}>{c.wRVU} wRVU</span></div><div style={{ fontSize: 11, color: "#94a3b8" }}>{c.desc}</div></button>))}</div>}
+        {editInfo && <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{editInfo.desc}</div>}
+      </div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
+      <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#64748b" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#64748b" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#64748b" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(editAdj * settings.ratePerRVU).toFixed(0)}</div></div></div></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} style={S.notesInput} rows={2} /></div>
+      <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button><button onClick={saveEdit} style={{ ...S.saveBtn, flex: 1 }}>Save Changes</button></div>
+    </div>);
+  }
 
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>History</h1><p style={S.subtitle}>{entries.length} procedures  {tF.toFixed(1)} wRVUs</p></div>
@@ -372,7 +430,7 @@ function History({ data, upd, setView }) {
       {Object.keys(grouped).length === 0 && <div style={{ textAlign: "center", color: "#64748b", padding: 40 }}>No procedures logged yet</div>}
       {Object.entries(grouped).map(([group, items]) => (<div key={group} style={{ marginBottom: 16 }}>
         <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "#64748b", fontWeight: 400 }}>  {items.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU</span></div>
-        {items.map(e => (<div key={e.id} style={S.historyItem}><div style={{ flex: 1 }}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span style={S.histCode}>{e.cptCode}</span>{e.modifiers.map(m => <span key={m} style={S.histMod}>{m}</span>)}{e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}</div><div style={S.histDesc}>{e.description}</div>{groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}{e.notes && <div style={S.histNotes}> {e.notes}</div>}</div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div><button onClick={() => del(e.id)} style={S.deleteBtn}></button></div></div>))}
+        {items.map(e => (<div key={e.id} style={S.historyItem}><div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(e)}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span style={S.histCode}>{e.cptCode}</span>{e.modifiers.map(m => <span key={m} style={S.histMod}>{m}</span>)}{e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}</div><div style={S.histDesc}>{e.description}</div>{groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}{e.notes && <div style={S.histNotes}>{e.notes}</div>}</div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div><button onClick={(ev) => { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button></div></div>))}
       </div>))}
     </div>
   </div>);
@@ -406,6 +464,28 @@ function Settings({ data, db, cptMap, categories, upd, setView }) {
   const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, `"${e.description}"`, e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), `"${e.notes || ''}"`]); const csv = [h.join(','), ...rows.map(r => r.join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `rvu-export-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(u); };
   const expJSON = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `rvu-export-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(u); };
   const clear = () => { if (confirm("Delete all logged procedures? This cannot be undone.")) upd(prev => ({ ...prev, entries: [] })); };
+
+  const removeDuplicates = () => {
+    var seen = {};
+    var unique = [];
+    var dupeCount = 0;
+    data.entries.forEach(function(e) {
+      var key = e.date + '|' + e.cptCode + '|' + (e.modifiers || []).sort().join(',');
+      if (!seen[key]) {
+        seen[key] = true;
+        unique.push(e);
+      } else {
+        dupeCount++;
+      }
+    });
+    if (dupeCount === 0) {
+      alert("No duplicates found!");
+    } else if (confirm("Found " + dupeCount + " duplicate(s). Remove them?")) {
+      upd(function(prev) { return { ...prev, entries: unique }; });
+      alert("Removed " + dupeCount + " duplicate(s). " + unique.length + " entries remaining.");
+    }
+  };
+
   const tRVU = data.entries.reduce((s, e) => s + e.adjustedRVU, 0);
   const avg = data.entries.length > 0 ? tRVU / data.entries.length : 0;
   const overrideCount = Object.keys(data.rvuOverrides).length;
@@ -450,6 +530,7 @@ function Settings({ data, db, cptMap, categories, upd, setView }) {
 
     <div style={S.card}><div style={S.cardLabel}>Summary Stats</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", data.entries.length, "#e2e8f0"], ["Total wRVUs", tRVU.toFixed(1), "#e2e8f0"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", "$" + (tRVU * settings.ratePerRVU).toLocaleString(), "#10b981"]].map(([l, v, c]) => (<div key={l}><div style={{ fontSize: 11, color: "#64748b" }}>{l}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: c, fontWeight: 600 }}>{v}</div></div>))}</div></div>
     <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>Export JSON</button></div>
+    <div style={{ marginTop: 8 }}><button onClick={removeDuplicates} style={{ ...S.secondaryBtn, width: "100%", color: "#fbbf24", borderColor: "rgba(251,191,36,0.3)" }}>Remove Duplicates</button></div>
     <div style={{ marginTop: 8 }}><button onClick={clear} style={{ ...S.dangerBtn, width: "100%" }}>Clear All Data</button></div>
   </div>);
 }
