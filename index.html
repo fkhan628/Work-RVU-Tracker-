@@ -104,24 +104,118 @@ function parseImport(text, cptMap) {
   const lines = text.split('\n').filter(l => l.trim());
   if (lines.length < 2) return { entries: [], errors: ['Not enough data rows'], mapping: null, headers: [] };
   const headers = parseLine(lines[0]);
-  const mapping = detectCols(headers);
-  if (mapping.cpt === -1) { const first = parseLine(lines[1]); first.forEach((v, i) => { if (mapping.cpt === -1 && /^\d{5}$/.test(v.trim())) mapping.cpt = i; }); }
-  if (mapping.cpt === -1) return { entries: [], errors: ['Could not detect CPT code column.'], mapping, headers };
-  const entries = [], errors = []; let unmatched = 0;
-  for (let i = 1; i < lines.length; i++) {
-    const cols = parseLine(lines[i]); if (cols.length < 2) continue;
-    const code = extractCPT(mapping.cpt >= 0 ? cols[mapping.cpt] : '');
-    if (!code) { errors.push(`Row ${i + 1}: No valid CPT code`); continue; }
-    const date = mapping.date >= 0 ? parseDate2(cols[mapping.date]) : new Date().toISOString().slice(0, 10);
-    const mods = mapping.modifier >= 0 ? extractMods(cols[mapping.modifier]) : [];
-    const notes = mapping.notes >= 0 ? (cols[mapping.notes] || '') : '';
-    const info = cptMap[code]; let desc = mapping.desc >= 0 ? (cols[mapping.desc] || '') : ''; let base;
-    if (info) { desc = desc || info.desc; base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || info.wRVU) : info.wRVU; }
-    else { unmatched++; desc = desc || `CPT ${code}`; base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || 0) : 0; }
-    entries.push({ id: Date.now().toString() + '-' + i, date, cptCode: code, description: desc, category: info ? info.category : 'Imported', baseRVU: base, modifiers: mods, adjustedRVU: calcAdj(base, mods), notes, imported: true });
+  const hNorm = headers.map(h => normH(h));
+
+  // Detect RVU Wallet format: Date, Encounter ID, Reference ID, Location, Codes, Total Work RVUs, Total Adjusted Work RVUs
+  let isRVUWallet = false;
+  let dateCol = -1, codesCol = -1, refCol = -1, locCol = -1, rvuCol = -1, adjRvuCol = -1;
+
+  hNorm.forEach((h, i) => {
+    if (h === 'date' || h === 'dos' || h === 'servicedate' || h === 'dateofservice') dateCol = i;
+    if (h === 'codes' || h === 'code') codesCol = i;
+    if (h === 'referenceid' || h === 'refid' || h === 'patientid') refCol = i;
+    if (h === 'location') locCol = i;
+    if (h === 'totalworkrvus' || h === 'totalwrvus' || h === 'workrvus') rvuCol = i;
+    if (h === 'totaladjustedworkrvus' || h === 'adjustedrvus' || h === 'adjrvus') adjRvuCol = i;
+  });
+
+  // Check if this looks like RVU Wallet format
+  if (codesCol >= 0 && (rvuCol >= 0 || adjRvuCol >= 0)) {
+    isRVUWallet = true;
   }
-  if (unmatched > 0) errors.push(`${unmatched} CPT code(s) not in database`);
-  return { entries, errors, mapping, headers };
+
+  // Also try generic column detection
+  const mapping = detectCols(headers);
+
+  if (isRVUWallet) {
+    // RVU Wallet parser - handles multi-code rows with inline modifiers
+    const entries = [], errors = [];
+    let unmatched = 0;
+
+    for (let i = 1; i < lines.length; i++) {
+      const cols = parseLine(lines[i]);
+      if (cols.length < 3) continue;
+
+      const date = dateCol >= 0 ? parseDate2(cols[dateCol]) : new Date().toISOString().slice(0, 10);
+      const ref = refCol >= 0 ? (cols[refCol] || '') : '';
+      const loc = locCol >= 0 ? (cols[locCol] || '') : '';
+      const codesStr = codesCol >= 0 ? cols[codesCol] : '';
+      const totalAdj = adjRvuCol >= 0 ? parseFloat(cols[adjRvuCol]) : 0;
+
+      if (!codesStr.trim()) { errors.push('Row ' + (i+1) + ': No codes'); continue; }
+
+      // Split multiple codes: "19301, 38525-51, 38900"
+      const codeItems = codesStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+
+      codeItems.forEach(function(codeStr, idx) {
+        // Parse code and modifier: "38525-51" -> code=38525, mod=-51
+        // Also handle: "19303-50", "47562-22", "44005-22"
+        var code = '';
+        var mods = [];
+        var parts = codeStr.split('-');
+        code = parts[0].replace(/[^0-9]/g, '');
+        
+        // Everything after first part is modifiers
+        for (var p = 1; p < parts.length; p++) {
+          var modStr = parts[p].trim();
+          if (modStr) {
+            var modCode = '-' + modStr;
+            if (MOD_MAP[modCode]) mods.push(modCode);
+            else if (modStr === 'LT' || modStr === 'RT') { /* laterality, skip */ }
+          }
+        }
+
+        if (!code || code.length < 4) return;
+
+        var info = cptMap[code];
+        var desc = info ? info.desc : ('CPT ' + code);
+        var baseRVU = info ? info.wRVU : 0;
+        if (!info) unmatched++;
+
+        var adjustedRVU = calcAdj(baseRVU, mods);
+
+        // Build notes from reference ID and location
+        var notes = '';
+        if (ref) notes = ref;
+        if (loc) notes = notes ? (notes + ' - ' + loc) : loc;
+
+        entries.push({
+          id: Date.now().toString() + '-' + i + '-' + idx,
+          date: date,
+          cptCode: code,
+          description: desc,
+          category: info ? info.category : 'Imported',
+          baseRVU: baseRVU,
+          modifiers: mods,
+          adjustedRVU: adjustedRVU,
+          notes: notes,
+          imported: true
+        });
+      });
+    }
+
+    if (unmatched > 0) errors.push(unmatched + ' CPT code(s) not in database');
+    return { entries: entries, errors: errors, mapping: { date: dateCol, cpt: codesCol, desc: -1, rvu: rvuCol, modifier: -1, notes: -1 }, headers: headers };
+  }
+
+  // Generic CSV parser (non-RVU Wallet format)
+  if (mapping.cpt === -1) { var first = parseLine(lines[1]); first.forEach(function(v, i) { if (mapping.cpt === -1 && /^\d{5}$/.test(v.trim())) mapping.cpt = i; }); }
+  if (mapping.cpt === -1) return { entries: [], errors: ['Could not detect CPT code column.'], mapping: mapping, headers: headers };
+  var entries = [], errors = []; var unmatched2 = 0;
+  for (var i = 1; i < lines.length; i++) {
+    var cols = parseLine(lines[i]); if (cols.length < 2) continue;
+    var code = extractCPT(mapping.cpt >= 0 ? cols[mapping.cpt] : '');
+    if (!code) { errors.push('Row ' + (i + 1) + ': No valid CPT code'); continue; }
+    var date = mapping.date >= 0 ? parseDate2(cols[mapping.date]) : new Date().toISOString().slice(0, 10);
+    var mods = mapping.modifier >= 0 ? extractMods(cols[mapping.modifier]) : [];
+    var notes = mapping.notes >= 0 ? (cols[mapping.notes] || '') : '';
+    var info = cptMap[code]; var desc = mapping.desc >= 0 ? (cols[mapping.desc] || '') : ''; var base;
+    if (info) { desc = desc || info.desc; base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || info.wRVU) : info.wRVU; }
+    else { unmatched2++; desc = desc || ('CPT ' + code); base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || 0) : 0; }
+    entries.push({ id: Date.now().toString() + '-' + i, date: date, cptCode: code, description: desc, category: info ? info.category : 'Imported', baseRVU: base, modifiers: mods, adjustedRVU: calcAdj(base, mods), notes: notes, imported: true });
+  }
+  if (unmatched2 > 0) errors.push(unmatched2 + ' CPT code(s) not in database');
+  return { entries: entries, errors: errors, mapping: mapping, headers: headers };
 }
 
 // =======================================
