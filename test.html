@@ -1,0 +1,24 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Test</title>
+<style>body{background:#0f172a;color:#fff;font-family:sans-serif;}</style>
+</head><body>
+<div id="root"></div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js"></script>
+<script type="text/babel">
+function App() {
+  const [count, React.useState] = React.useState(0);
+  return (<div style={{padding:20}}>
+    <h1>RVU Tracker - Test</h1>
+    <p>If you see this, Babel works!</p>
+    <button onClick={() => setCount(c => c+1)}>Clicked {count} times</button>
+  </div>);
+}
+const root = ReactDOM.createRoot(document.getElementById("root"));
+root.render(React.createElement(App));
+</script>
+</body></html>
