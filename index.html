@@ -378,6 +378,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
   const [activeProc, setActiveProc] = useState(0);
   const [cat, setCat] = useState("All");
   const [showFavs, setShowFavs] = useState(true);
+  const [isCall, setIsCall] = useState(false);
   var scanning = useRef(false);
   var [scanStatus, setScanStatus] = useState("");
   var [scanError, setScanError] = useState("");
@@ -698,6 +699,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
           adjustedRVU: info.wRVU,
           notes: enc.patient + " - " + enc.visitType,
           encounterId: enc.patient,
+          isCall: isCall,
           imported: false
         });
       });
@@ -730,6 +732,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
         adjustedRVU: adj,
         notes: (patientId ? patientId + (notes ? " - " + notes : "") : notes),
         encounterId: patientId || undefined,
+        isCall: isCall,
         imported: false
       });
     });
@@ -741,6 +744,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
       setActiveProc(0);
       setNotes("");
       setPatientId("");
+      setIsCall(false);
     }, 1200);
   };
 
@@ -847,6 +851,18 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
     <div style={{ display: "flex", gap: 8 }}>
       <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={date} onChange={function(e) { setDate(e.target.value); }} style={S.dateInput} /></div></div>
       <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={patientId} onChange={function(e) { setPatientId(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
+    </div>
+
+    {/* Call/Private toggle */}
+    <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+      <button onClick={function() { setIsCall(false); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid #334155", background: !isCall ? "rgba(14,165,233,0.1)" : "#1e293b", color: !isCall ? "#0ea5e9" : "#64748b", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <span style={{ width: 16, height: 16, borderRadius: 8, border: !isCall ? "2px solid #0ea5e9" : "2px solid #475569", display: "flex", alignItems: "center", justifyContent: "center" }}>{!isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "#0ea5e9" }}></span>}</span>
+        Private
+      </button>
+      <button onClick={function() { setIsCall(true); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: isCall ? "2px solid #a78bfa" : "1px solid #334155", background: isCall ? "rgba(139,92,246,0.1)" : "#1e293b", color: isCall ? "#a78bfa" : "#64748b", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <span style={{ width: 16, height: 16, borderRadius: 8, border: isCall ? "2px solid #a78bfa" : "2px solid #475569", display: "flex", alignItems: "center", justifyContent: "center" }}>{isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "#a78bfa" }}></span>}</span>
+        Call
+      </button>
     </div>
 
     {/* Procedure tabs */}
@@ -978,8 +994,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(function(m) { return <button key={m.code} onClick={function() { toggleMod(m.code); }} style={curMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span><span style={S.modFactor}>{m.desc}</span></button>; })}</div></div></>}
 
     {/* Encounter summary */}
-    {canSave && <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: "1px solid #334155", marginTop: 8 }}>
-      <div style={S.cardLabel}>Encounter Summary</div>
+    {canSave && <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: isCall ? "1px solid rgba(139,92,246,0.3)" : "1px solid #334155", marginTop: 8 }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div style={S.cardLabel}>Encounter Summary</div>
+        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "#a78bfa" : "#0ea5e9", fontWeight: 600 }}>{isCall ? "Call" : "Private"}</span>
+      </div>
       <div style={{ marginTop: 8 }}>{procs.filter(function(p){return p.code;}).map(function(p, i) {
         var info = cptMap[p.code];
         var adj = calcProcRVU(p);
@@ -998,7 +1017,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
     </div>}
 
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Case details, complexity, etc." style={S.notesInput} rows={2} /></div>
-    {canSave && <button onClick={save} style={S.saveBtn}>Log Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
+    {canSave && <button onClick={save} style={{ ...S.saveBtn, background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
   </div>);
 }
 
@@ -1379,7 +1398,7 @@ function History({ data, db, cptMap, categories, upd, setView }) {
       {Object.keys(grouped).length === 0 && <div style={{ textAlign: "center", color: "#64748b", padding: 40 }}>No procedures logged yet</div>}
       {Object.entries(grouped).map(([group, items]) => (<div key={group} style={{ marginBottom: 16 }}>
         <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "#64748b", fontWeight: 400 }}>  {items.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU</span></div>
-        {items.map(e => (<div key={e.id} style={S.historyItem}><div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(e)}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span style={S.histCode}>{e.cptCode}</span>{e.modifiers.map(m => <span key={m} style={S.histMod}>{m}</span>)}{e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}</div><div style={S.histDesc}>{e.description}</div>{groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}{e.notes && <div style={S.histNotes}>{e.notes}</div>}</div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div><button onClick={(ev) => { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button></div></div>))}
+        {items.map(e => (<div key={e.id} style={S.historyItem}><div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(e)}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span style={S.histCode}>{e.cptCode}</span>{e.modifiers.map(m => <span key={m} style={S.histMod}>{m}</span>)}{e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}{e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}</div><div style={S.histDesc}>{e.description}</div>{groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}{e.notes && <div style={S.histNotes}>{e.notes}</div>}</div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div><button onClick={(ev) => { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button></div></div>))}
       </div>))}
     </div>
   </div>);
@@ -2136,13 +2155,13 @@ function Settings({ data, db, cptMap, categories, upd, setView }) {
       }
 
       // Sheet 2: All Procedures
-      var procHeaders = ["Date", "CPT Code", "Description", "Category", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes"];
+      var procHeaders = ["Date", "CPT Code", "Description", "Category", "Type", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes"];
       var procRows = data.entries.slice().sort(function(a, b) { return a.date.localeCompare(b.date); }).map(function(e) {
-        return [e.date, e.cptCode, e.description, e.category, e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((e.adjustedRVU * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || ""];
+        return [e.date, e.cptCode, e.description, e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((e.adjustedRVU * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || ""];
       });
       var procData = [procHeaders].concat(procRows);
       var ws1 = XLSX.utils.aoa_to_sheet(procData);
-      ws1["!cols"] = [{ wch: 11 }, { wch: 8 }, { wch: 40 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 30 }];
+      ws1["!cols"] = [{ wch: 11 }, { wch: 8 }, { wch: 40 }, { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 30 }];
       XLSX.utils.book_append_sheet(wb, ws1, "Procedures");
 
       // Sheet 3: Monthly Summary
