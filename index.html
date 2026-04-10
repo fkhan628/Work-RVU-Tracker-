@@ -260,35 +260,108 @@ function Nav({ view, setView }) {
 // =======================================
 function Dashboard({ data, db, setView }) {
   const { entries, settings } = data;
+  const instData = data.institutionData || [];
   const now = new Date(); const ys = new Date(settings.yearStart);
+  const hasInst = instData.length > 0;
+
+  // Institution data filtered to current year
+  const instYTD = instData.filter(function(d) {
+    var dDate = new Date(d.month + "-01");
+    return dDate >= ys;
+  });
+  const instTotal = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
+  const instWork = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0); }, 0);
+  const instSplit = instYTD.reduce(function(s, d) { return s + (d.splitRVU || 0); }, 0);
+
+  // Tracked data YTD (fallback + secondary metrics)
   const ye = entries.filter(e => new Date(e.date) >= ys);
-  const tRVU = ye.reduce((s, e) => s + e.adjustedRVU, 0);
+  const trackedRVU = ye.reduce((s, e) => s + e.adjustedRVU, 0);
+
+  // Use institution if available, otherwise tracked
+  const tRVU = hasInst ? instTotal : trackedRVU;
   const tComp = tRVU * settings.ratePerRVU;
   const gPct = settings.annualGoal > 0 ? Math.min((tRVU / settings.annualGoal) * 100, 100) : 0;
   const dp = Math.max(1, Math.floor((now - ys) / 86400000));
   const ePct = (dp / 365) * 100;
   const pace = gPct >= ePct ? "ahead" : "behind";
   const pDiff = Math.abs(tRVU - (settings.annualGoal * dp / 365));
-  const months = []; for (let i = 5; i >= 0; i--) { const d = new Date(now.getFullYear(), now.getMonth() - i, 1); const me = entries.filter(e => { const ed = new Date(e.date); return ed.getMonth() === d.getMonth() && ed.getFullYear() === d.getFullYear(); }); months.push({ label: d.toLocaleDateString("en-US", { month: "short" }), rvu: me.reduce((s, e) => s + e.adjustedRVU, 0) }); }
-  const maxM = Math.max(...months.map(m => m.rvu), 1);
+
+  // Monthly chart - last 6 months, prefer institution data
+  const months = [];
+  for (var i = 5; i >= 0; i--) {
+    var md = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    var mKey = md.getFullYear() + "-" + String(md.getMonth() + 1).padStart(2, "0");
+    var mLabel = md.toLocaleDateString("en-US", { month: "short" });
+    var instMonth = instData.find(function(d) { return d.month === mKey; });
+    var trackedMonth = entries.filter(function(e) { var ed = new Date(e.date); return ed.getMonth() === md.getMonth() && ed.getFullYear() === md.getFullYear(); });
+    var trackedMRVU = trackedMonth.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var instMRVU = instMonth ? (instMonth.workRVU || 0) + (instMonth.splitRVU || 0) : 0;
+    months.push({ label: mLabel, inst: instMRVU, tracked: trackedMRVU, primary: hasInst ? instMRVU : trackedMRVU });
+  }
+  const maxM = Math.max(...months.map(m => Math.max(m.inst, m.tracked)), 1);
+
+  // Today and this week from tracked entries
   const ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
   const wRVU = entries.filter(e => new Date(e.date) >= ws).reduce((s, e) => s + e.adjustedRVU, 0);
   const todayRVU = entries.filter(e => e.date === now.toISOString().slice(0,10)).reduce((s, e) => s + e.adjustedRVU, 0);
+
+  // Projected annual based on current pace
+  var monthsElapsed = instYTD.length || Math.max(1, dp / 30.44);
+  var projected = hasInst && instYTD.length > 0 ? (instTotal / instYTD.length) * 12 : (trackedRVU / Math.max(1, dp / 30.44)) * 12;
 
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>RVU Tracker</h1><p style={S.subtitle}>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div>
     <div style={S.cardMain}><div style={{ display: "flex", alignItems: "center", gap: 24 }}>
       <svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="8" /><circle cx="50" cy="50" r="42" fill="none" stroke={pace === "ahead" ? "#10b981" : "#f59e0b"} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${gPct * 2.639} 263.9`} transform="rotate(-90 50 50)" style={{ transition: "stroke-dasharray 0.8s ease" }} /><text x="50" y="46" textAnchor="middle" fill="#f8fafc" fontSize="18" fontFamily="JetBrains Mono" fontWeight="600">{gPct.toFixed(0)}%</text><text x="50" y="62" textAnchor="middle" fill="#94a3b8" fontSize="9" fontFamily="DM Sans">of goal</text></svg>
-      <div><div style={S.metricBig}>{tRVU.toFixed(1)}</div><div style={S.metricLabel}>wRVUs YTD</div><div style={{ ...S.paceTag, background: pace === "ahead" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: pace === "ahead" ? "#34d399" : "#fbbf24" }}>{pace === "ahead" ? "" : ""} {pDiff.toFixed(1)} wRVUs {pace}</div></div>
-    </div></div>
+      <div><div style={S.metricBig}>{tRVU.toFixed(1)}</div><div style={S.metricLabel}>wRVUs YTD</div>
+        {hasInst && <div style={{ fontSize: 10, color: "#64748b", marginTop: 1 }}>W: {instWork.toFixed(0)} | C: {instSplit.toFixed(0)}</div>}
+        <div style={{ ...S.paceTag, background: pace === "ahead" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: pace === "ahead" ? "#34d399" : "#fbbf24" }}>{pDiff.toFixed(1)} wRVUs {pace}</div>
+      </div>
+    </div>
+    {hasInst && <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 10, color: "#a78bfa" }}>Source: Institution Data</span>
+      <span style={{ fontSize: 10, color: "#64748b" }}>Projected: {projected.toFixed(0)} wRVUs/yr</span>
+    </div>}
+    </div>
+
     <div style={S.statsRow}>
       <div style={S.statCard}><div style={S.statValue}>{todayRVU.toFixed(1)}</div><div style={S.statLabel}>Today</div></div>
       <div style={S.statCard}><div style={S.statValue}>{wRVU.toFixed(1)}</div><div style={S.statLabel}>This Week</div></div>
-      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>${tComp.toLocaleString()}</div><div style={S.statLabel}>Compensation</div></div>
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>${tComp.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div><div style={S.statLabel}>Comp YTD</div></div>
     </div>
-    <div style={S.card}><div style={S.cardLabel}>Monthly wRVUs</div><div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 100, marginTop: 12 }}>{months.map((m, i) => (<div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 4 }}><span style={{ fontSize: 11, fontFamily: "JetBrains Mono", color: "#cbd5e1", fontWeight: 500 }}>{m.rvu > 0 ? m.rvu.toFixed(0) : ""}</span><div style={{ width: "100%", height: Math.max(4, (m.rvu / maxM) * 70), background: i === months.length - 1 ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4 }} /><span style={{ fontSize: 10, color: "#94a3b8" }}>{m.label}</span></div>))}</div></div>
+
+    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Monthly wRVUs</div>{hasInst && <div style={{ display: "flex", gap: 8 }}>
+      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#a78bfa" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#0ea5e9" }}><span style={{ display: "inline-block", width: 8, height: 3, borderRadius: 1, background: "#0ea5e9" }}></span>Tracked</span>
+    </div>}</div>
+    <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 110, marginTop: 12 }}>{months.map(function(m, i) {
+      var instH = maxM > 0 ? (m.inst / maxM) * 80 : 0;
+      var trackH = maxM > 0 ? (m.tracked / maxM) * 80 : 0;
+      var isLast = i === months.length - 1;
+      return (<div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
+        <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#cbd5e1", fontWeight: 500 }}>{m.primary > 0 ? m.primary.toFixed(0) : ""}</span>
+        <div style={{ width: "100%", position: "relative" }}>
+          {hasInst && <div style={{ width: "100%", height: Math.max(instH > 0 ? instH : 0, instH > 0 ? 4 : 0), background: isLast ? "linear-gradient(to top, #8b5cf6, #a78bfa)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4, transition: "height 0.3s" }} />}
+          {hasInst && m.tracked > 0 && <div style={{ position: "absolute", bottom: 0, left: "25%", width: "50%", height: Math.max(4, trackH), background: "#0ea5e9", borderRadius: 2, opacity: 0.8 }} />}
+          {!hasInst && <div style={{ width: "100%", height: Math.max(4, trackH > 0 ? trackH : 0), background: isLast ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4 }} />}
+        </div>
+        <span style={{ fontSize: 10, color: "#94a3b8" }}>{m.label}</span>
+      </div>);
+    })}</div></div>
+
     {entries.length > 0 && <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Recent Procedures</div><button onClick={() => setView("history")} style={S.linkBtn}>View All </button></div><div style={{ marginTop: 8 }}>{entries.slice(-3).reverse().map((e, i) => (<div key={i} style={S.recentItem}><div><div style={S.recentCode}>{e.cptCode}</div><div style={S.recentDesc}>{e.description}</div></div><div style={{ textAlign: "right" }}><div style={S.recentRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={S.recentDate}>{fmtShort(e.date)}</div></div></div>))}</div></div>}
-    <div style={{ ...S.card, background: "#0f172a", border: "1px solid #1e293b", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "#475569" }}>Data: CMS {DATA_YEAR} PFS</span><span style={{ fontSize: 10, color: "#334155", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
+
+    {!hasInst && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.03)" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <span style={{ fontSize: 18 }}>{"\u2194"}</span>
+        <div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "#a78bfa" }}>Add Institution Data</div>
+          <div style={{ fontSize: 11, color: "#64748b" }}>Go to Compare tab to import your institution's RVU data for goal tracking</div>
+        </div>
+      </div>
+    </div>}
+
+    <div style={{ ...S.card, background: "#0f172a", border: "1px solid #1e293b", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "#475569" }}>Data: {hasInst ? "Institution" : "Self-tracked"} | CMS {DATA_YEAR}</span><span style={{ fontSize: 10, color: "#334155", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
     <button onClick={() => setView("log")} style={S.fabBtn}>+ Log Procedure</button>
   </div>);
 }
@@ -2018,6 +2091,99 @@ function Settings({ data, db, cptMap, categories, upd, setView }) {
 
   const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, `"${e.description}"`, e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), `"${e.notes || ''}"`]); const csv = [h.join(','), ...rows.map(r => r.join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `rvu-export-${new Date().toISOString().slice(0,10)}.csv`; a.click(); URL.revokeObjectURL(u); };
   const expJSON = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = `rvu-export-${new Date().toISOString().slice(0,10)}.json`; a.click(); URL.revokeObjectURL(u); };
+
+  const expExcel = () => {
+    try {
+      var wb = XLSX.utils.book_new();
+
+      // Build monthMap first (needed by multiple sheets)
+      var monthMap = {};
+      data.entries.forEach(function(e) {
+        var key = e.date.slice(0, 7);
+        if (!monthMap[key]) monthMap[key] = { rvu: 0, comp: 0, cases: 0 };
+        monthMap[key].rvu += e.adjustedRVU;
+        monthMap[key].comp += e.adjustedRVU * settings.ratePerRVU;
+        monthMap[key].cases += 1;
+      });
+
+      // Sheet 1: Institution Comparison (if data exists)
+      var instData = data.institutionData || [];
+      if (instData.length > 0) {
+        var compHeaders = ["Month", "Work RVU (Private)", "Split RVU (Call)", "Institution Total", "Tracked RVUs", "Difference", "Diff %", "Inst Cases", "Tracked Cases"];
+        var compSorted = instData.slice().sort(function(a, b) { return a.month.localeCompare(b.month); });
+        var compRows = compSorted.map(function(d) {
+          var instT = (d.workRVU || 0) + (d.splitRVU || 0);
+          var meas = monthMap[d.month];
+          var measT = meas ? meas.rvu : 0;
+          var measCases = meas ? meas.cases : 0;
+          var diff = measT - instT;
+          var diffPct = instT > 0 ? ((diff / instT) * 100) : 0;
+          return [d.month, parseFloat((d.workRVU || 0).toFixed(2)), parseFloat((d.splitRVU || 0).toFixed(2)), parseFloat(instT.toFixed(2)), parseFloat(measT.toFixed(2)), parseFloat(diff.toFixed(2)), parseFloat(diffPct.toFixed(1)), d.cases || 0, measCases];
+        });
+        var cTotWork = compRows.reduce(function(s, r) { return s + r[1]; }, 0);
+        var cTotSplit = compRows.reduce(function(s, r) { return s + r[2]; }, 0);
+        var cTotInst = compRows.reduce(function(s, r) { return s + r[3]; }, 0);
+        var cTotMeas = compRows.reduce(function(s, r) { return s + r[4]; }, 0);
+        var cTotDiff = cTotMeas - cTotInst;
+        var cTotPct = cTotInst > 0 ? ((cTotDiff / cTotInst) * 100) : 0;
+        var cTotICases = compRows.reduce(function(s, r) { return s + r[7]; }, 0);
+        var cTotTCases = compRows.reduce(function(s, r) { return s + r[8]; }, 0);
+        compRows.push(["TOTAL", parseFloat(cTotWork.toFixed(2)), parseFloat(cTotSplit.toFixed(2)), parseFloat(cTotInst.toFixed(2)), parseFloat(cTotMeas.toFixed(2)), parseFloat(cTotDiff.toFixed(2)), parseFloat(cTotPct.toFixed(1)), cTotICases, cTotTCases]);
+        var compData = [compHeaders].concat(compRows);
+        var ws3 = XLSX.utils.aoa_to_sheet(compData);
+        ws3["!cols"] = [{ wch: 10 }, { wch: 17 }, { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 11 }, { wch: 13 }];
+        XLSX.utils.book_append_sheet(wb, ws3, "Institution Comparison");
+      }
+
+      // Sheet 2: All Procedures
+      var procHeaders = ["Date", "CPT Code", "Description", "Category", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes"];
+      var procRows = data.entries.slice().sort(function(a, b) { return a.date.localeCompare(b.date); }).map(function(e) {
+        return [e.date, e.cptCode, e.description, e.category, e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((e.adjustedRVU * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || ""];
+      });
+      var procData = [procHeaders].concat(procRows);
+      var ws1 = XLSX.utils.aoa_to_sheet(procData);
+      ws1["!cols"] = [{ wch: 11 }, { wch: 8 }, { wch: 40 }, { wch: 22 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, ws1, "Procedures");
+
+      // Sheet 3: Monthly Summary
+      var monthKeys = Object.keys(monthMap).sort();
+      var sumHeaders = ["Month", "Tracked wRVUs", "Cases", "Avg wRVU/Case", "Compensation"];
+      var sumRows = monthKeys.map(function(k) {
+        var m = monthMap[k];
+        return [k, parseFloat(m.rvu.toFixed(2)), m.cases, parseFloat((m.rvu / Math.max(m.cases, 1)).toFixed(2)), parseFloat(m.comp.toFixed(2))];
+      });
+      var sumTotRVU = sumRows.reduce(function(s, r) { return s + r[1]; }, 0);
+      var sumTotCases = sumRows.reduce(function(s, r) { return s + r[2]; }, 0);
+      var sumTotComp = sumRows.reduce(function(s, r) { return s + r[4]; }, 0);
+      sumRows.push(["TOTAL", parseFloat(sumTotRVU.toFixed(2)), sumTotCases, parseFloat((sumTotRVU / Math.max(sumTotCases, 1)).toFixed(2)), parseFloat(sumTotComp.toFixed(2))]);
+      var sumData = [sumHeaders].concat(sumRows);
+      var ws2 = XLSX.utils.aoa_to_sheet(sumData);
+      ws2["!cols"] = [{ wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 14 }];
+      XLSX.utils.book_append_sheet(wb, ws2, "Monthly Summary");
+
+      // Sheet 4: Top Procedures
+      var codeMap = {};
+      data.entries.forEach(function(e) {
+        if (!codeMap[e.cptCode]) codeMap[e.cptCode] = { code: e.cptCode, desc: e.description, cat: e.category, count: 0, totalRVU: 0 };
+        codeMap[e.cptCode].count += 1;
+        codeMap[e.cptCode].totalRVU += e.adjustedRVU;
+      });
+      var topList = Object.values(codeMap).sort(function(a, b) { return b.totalRVU - a.totalRVU; });
+      var topHeaders = ["CPT Code", "Description", "Category", "Times Logged", "Total wRVUs", "Avg wRVU", "Total Compensation"];
+      var topRows = topList.map(function(t) {
+        return [t.code, t.desc, t.cat, t.count, parseFloat(t.totalRVU.toFixed(2)), parseFloat((t.totalRVU / t.count).toFixed(2)), parseFloat((t.totalRVU * settings.ratePerRVU).toFixed(2))];
+      });
+      var topData = [topHeaders].concat(topRows);
+      var ws4 = XLSX.utils.aoa_to_sheet(topData);
+      ws4["!cols"] = [{ wch: 10 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
+      XLSX.utils.book_append_sheet(wb, ws4, "Top Procedures");
+
+      // Write file
+      XLSX.writeFile(wb, "RVU-Export-" + new Date().toISOString().slice(0, 10) + ".xlsx");
+    } catch (e) {
+      alert("Excel export failed: " + e.message);
+    }
+  };
   const clear = () => { if (confirm("Delete all logged procedures? This cannot be undone.")) upd(prev => ({ ...prev, entries: [] })); };
 
   const removeDuplicates = () => {
@@ -2101,7 +2267,7 @@ function Settings({ data, db, cptMap, categories, upd, setView }) {
     </div>
 
     <div style={S.card}><div style={S.cardLabel}>Summary Stats</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", data.entries.length, "#e2e8f0"], ["Total wRVUs", tRVU.toFixed(1), "#e2e8f0"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", "$" + (tRVU * settings.ratePerRVU).toLocaleString(), "#10b981"]].map(([l, v, c]) => (<div key={l}><div style={{ fontSize: 11, color: "#64748b" }}>{l}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: c, fontWeight: 600 }}>{v}</div></div>))}</div></div>
-    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>Export JSON</button></div>
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} style={{ ...S.secondaryBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.3)" }}>Export Excel</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
 
     {/* Backup & Restore */}
     <div style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
