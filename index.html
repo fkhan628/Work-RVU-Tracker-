@@ -13,8 +13,11 @@
 <style>
 *{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent}
 body{background:#0f172a;overflow-x:hidden;-webkit-font-smoothing:antialiased}
+body.light-mode{background:#f0f2f5}
 #root{min-height:100vh}
 input,textarea,select,button{font-family:inherit}
+.light-mode #root{filter:invert(0.93) hue-rotate(180deg)}
+.light-mode input[type="date"]{color-scheme:light}
 </style>
 </head>
 <body>
@@ -226,6 +229,18 @@ function App() {
   const [data, setData] = useState(defState);
   const [view, setView] = useState("dashboard");
   const [loaded, setLoaded] = useState(false);
+  const [undoAction, setUndoAction] = useState(null);
+  const undoTimer = useRef(null);
+  const [theme, setTheme] = useState(function() {
+    try { return localStorage.getItem("rvu-theme") || "dark"; } catch(e) { return "dark"; }
+  });
+
+  useEffect(function() {
+    document.body.className = theme === "light" ? "light-mode" : "";
+    try { localStorage.setItem("rvu-theme", theme); } catch(e) {}
+  }, [theme]);
+
+  var toggleTheme = function() { setTheme(function(t) { return t === "dark" ? "light" : "dark"; }); };
 
   const db = useMemo(() => getDB(data.rvuOverrides), [data.rvuOverrides]);
   const cptMap = useMemo(() => buildCPTMap(db), [db]);
@@ -235,16 +250,39 @@ function App() {
   useEffect(() => { if (!loaded) return; saveData(data); savePersistent(data); }, [data, loaded]);
   const upd = fn => setData(prev => ({ ...fn(prev) }));
 
+  var showUndo = function(action) {
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+    setUndoAction(action);
+    undoTimer.current = setTimeout(function() { setUndoAction(null); }, 8000);
+  };
+
+  var doUndo = function() {
+    if (!undoAction) return;
+    if (undoAction.type === "delete") {
+      upd(function(prev) { return { ...prev, entries: prev.entries.concat(undoAction.entries) }; });
+    } else if (undoAction.type === "log") {
+      var ids = undoAction.ids;
+      upd(function(prev) { return { ...prev, entries: prev.entries.filter(function(e) { return ids.indexOf(e.id) === -1; }) }; });
+    }
+    setUndoAction(null);
+    if (undoTimer.current) clearTimeout(undoTimer.current);
+  };
+
   if (!loaded) return <div style={S.loading}>Loading...</div>;
   return (
     <div style={S.shell}><div style={S.app}>
       {view === "dashboard" && <Dashboard data={data} db={db} setView={setView} />}
-      {view === "log" && <LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
+      {view === "log" && <LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} />}
       {view === "analytics" && <Analytics data={data} db={db} setView={setView} />}
       {view === "compare" && <Compare data={data} upd={upd} setView={setView} />}
       {view === "import" && <Import data={data} cptMap={cptMap} upd={upd} setView={setView} />}
-      {view === "history" && <History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
-      {view === "settings" && <Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} />}
+      {view === "history" && <History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} />}
+      {view === "settings" && <Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} />}
+      {undoAction && <div style={{ position: "fixed", bottom: 64, left: "50%", transform: "translateX(-50%)", zIndex: 9990, background: "#1e293b", border: "1px solid #334155", borderRadius: 12, padding: "10px 16px", display: "flex", alignItems: "center", gap: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", maxWidth: 360, width: "90%" }}>
+        <span style={{ fontSize: 13, color: "#e2e8f0", flex: 1 }}>{undoAction.message}</span>
+        <button onClick={doUndo} style={{ padding: "6px 16px", borderRadius: 8, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Undo</button>
+        <button onClick={function() { setUndoAction(null); }} style={{ background: "none", border: "none", color: "#475569", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>{"\u2715"}</button>
+      </div>}
       <Nav view={view} setView={setView} />
     </div></div>
   );
@@ -261,35 +299,65 @@ function Nav({ view, setView }) {
 function Dashboard({ data, db, setView }) {
   const { entries, settings } = data;
   const instData = data.institutionData || [];
-  const now = new Date(); const ys = new Date(settings.yearStart);
+  const now = new Date();
   const hasInst = instData.length > 0;
 
-  // Institution data filtered to current year
+  // Detect available years from entries and institution data
+  var availableYears = useMemo(function() {
+    var ySet = {};
+    entries.forEach(function(e) { ySet[e.date.slice(0, 4)] = true; });
+    instData.forEach(function(d) { ySet[d.month.slice(0, 4)] = true; });
+    return Object.keys(ySet).sort().reverse();
+  }, [entries, instData]);
+
+  var currentFiscalYear = settings.yearStart ? settings.yearStart.slice(0, 4) : String(now.getFullYear());
+  var [selectedYear, setSelectedYear] = useState("current");
+
+  // Calculate year boundaries based on selection
+  var yearBounds = useMemo(function() {
+    if (selectedYear === "current") {
+      var ys = new Date(settings.yearStart);
+      var ye = new Date(ys); ye.setFullYear(ye.getFullYear() + 1);
+      return { start: ys, end: ye, isCurrent: true, label: currentFiscalYear };
+    }
+    var ys = new Date(selectedYear + "-01-01");
+    var ye = new Date(parseInt(selectedYear) + 1 + "-01-01");
+    var isCurrent = now >= ys && now < ye;
+    return { start: ys, end: ye, isCurrent: isCurrent, label: selectedYear };
+  }, [selectedYear, settings.yearStart, currentFiscalYear]);
+
+  var ys = yearBounds.start;
+  var isCurrent = yearBounds.isCurrent;
+  var effectiveNow = isCurrent ? now : yearBounds.end;
+
+  // Institution data filtered to selected year
   const instYTD = instData.filter(function(d) {
     var dDate = new Date(d.month + "-01");
-    return dDate >= ys;
+    return dDate >= ys && dDate < yearBounds.end;
   });
   const instTotal = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
   const instWork = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0); }, 0);
   const instSplit = instYTD.reduce(function(s, d) { return s + (d.splitRVU || 0); }, 0);
 
-  // Tracked data YTD (fallback + secondary metrics)
-  const ye = entries.filter(e => new Date(e.date) >= ys);
+  // Tracked data for selected year
+  const ye = entries.filter(function(e) { var d = new Date(e.date); return d >= ys && d < yearBounds.end; });
   const trackedRVU = ye.reduce((s, e) => s + e.adjustedRVU, 0);
 
   // Use institution if available, otherwise tracked
   const tRVU = hasInst ? instTotal : trackedRVU;
   const tComp = tRVU * settings.ratePerRVU;
   const gPct = settings.annualGoal > 0 ? Math.min((tRVU / settings.annualGoal) * 100, 100) : 0;
-  const dp = Math.max(1, Math.floor((now - ys) / 86400000));
+  const dp = Math.max(1, Math.floor((effectiveNow - ys) / 86400000));
   const ePct = (dp / 365) * 100;
   const pace = gPct >= ePct ? "ahead" : "behind";
   const pDiff = Math.abs(tRVU - (settings.annualGoal * dp / 365));
 
-  // Monthly chart - last 6 months, prefer institution data
+  // Monthly chart - for current year show last 6 months, for past years show all 12
   const months = [];
-  for (var i = 5; i >= 0; i--) {
-    var md = new Date(now.getFullYear(), now.getMonth() - i, 1);
+  var chartMonths = isCurrent ? 6 : 12;
+  var chartBase = isCurrent ? now : new Date(parseInt(yearBounds.label), 11, 1);
+  for (var i = chartMonths - 1; i >= 0; i--) {
+    var md = new Date(chartBase.getFullYear(), chartBase.getMonth() - i, 1);
     var mKey = md.getFullYear() + "-" + String(md.getMonth() + 1).padStart(2, "0");
     var mLabel = md.toLocaleDateString("en-US", { month: "short" });
     var instMonth = instData.find(function(d) { return d.month === mKey; });
@@ -300,20 +368,41 @@ function Dashboard({ data, db, setView }) {
   }
   const maxM = Math.max(...months.map(m => Math.max(m.inst, m.tracked)), 1);
 
-  // Today and this week from tracked entries
+  // Today and this week from tracked entries (current year only)
   const ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
-  const wRVU = entries.filter(e => new Date(e.date) >= ws).reduce((s, e) => s + e.adjustedRVU, 0);
-  const todayRVU = entries.filter(e => e.date === now.toISOString().slice(0,10)).reduce((s, e) => s + e.adjustedRVU, 0);
+  const wRVU = isCurrent ? entries.filter(e => new Date(e.date) >= ws).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
+  const todayRVU = isCurrent ? entries.filter(e => e.date === now.toISOString().slice(0,10)).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
 
   // Projected annual based on current pace
   var monthsElapsed = instYTD.length || Math.max(1, dp / 30.44);
   var projected = hasInst && instYTD.length > 0 ? (instTotal / instYTD.length) * 12 : (trackedRVU / Math.max(1, dp / 30.44)) * 12;
 
+  // Previous year comparison
+  var prevYearRVU = useMemo(function() {
+    var prevStart = new Date(ys); prevStart.setFullYear(prevStart.getFullYear() - 1);
+    var prevEnd = new Date(ys);
+    var prevEntries = entries.filter(function(e) { var d = new Date(e.date); return d >= prevStart && d < prevEnd; });
+    var prevTracked = prevEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var prevInst = instData.filter(function(d) { var dDate = new Date(d.month + "-01"); return dDate >= prevStart && dDate < prevEnd; });
+    var prevInstTotal = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
+    if (prevInstTotal > 0 || prevTracked > 0) {
+      return { total: hasInst ? prevInstTotal : prevTracked, hasData: true };
+    }
+    return { total: 0, hasData: false };
+  }, [entries, instData, ys, hasInst]);
+
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>RVU Tracker</h1><p style={S.subtitle}>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div>
+
+    {/* Year selector - only show if multi-year data exists */}
+    {availableYears.length > 1 && <div style={S.catRow}>
+      <button onClick={function() { setSelectedYear("current"); }} style={selectedYear === "current" ? S.catBtnActive : S.catBtn}>Current</button>
+      {availableYears.map(function(y) { return <button key={y} onClick={function() { setSelectedYear(y); }} style={selectedYear === y ? S.catBtnActive : S.catBtn}>{y}</button>; })}
+    </div>}
+
     <div style={S.cardMain}><div style={{ display: "flex", alignItems: "center", gap: 24 }}>
       <svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="8" /><circle cx="50" cy="50" r="42" fill="none" stroke={pace === "ahead" ? "#10b981" : "#f59e0b"} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${gPct * 2.639} 263.9`} transform="rotate(-90 50 50)" style={{ transition: "stroke-dasharray 0.8s ease" }} /><text x="50" y="46" textAnchor="middle" fill="#f8fafc" fontSize="18" fontFamily="JetBrains Mono" fontWeight="600">{gPct.toFixed(0)}%</text><text x="50" y="62" textAnchor="middle" fill="#94a3b8" fontSize="9" fontFamily="DM Sans">of goal</text></svg>
-      <div><div style={S.metricBig}>{tRVU.toFixed(1)}</div><div style={S.metricLabel}>wRVUs YTD</div>
+      <div><div style={S.metricBig}>{tRVU.toFixed(1)}</div><div style={S.metricLabel}>wRVUs {isCurrent ? "YTD" : yearBounds.label}</div>
         {hasInst && <div style={{ fontSize: 10, color: "#64748b", marginTop: 1 }}>W: {instWork.toFixed(0)} | C: {instSplit.toFixed(0)}</div>}
         <div style={{ ...S.paceTag, background: pace === "ahead" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: pace === "ahead" ? "#34d399" : "#fbbf24" }}>{pDiff.toFixed(1)} wRVUs {pace}</div>
       </div>
@@ -325,19 +414,44 @@ function Dashboard({ data, db, setView }) {
     </div>
 
     <div style={S.statsRow}>
-      <div style={S.statCard}><div style={S.statValue}>{todayRVU.toFixed(1)}</div><div style={S.statLabel}>Today</div></div>
-      <div style={S.statCard}><div style={S.statValue}>{wRVU.toFixed(1)}</div><div style={S.statLabel}>This Week</div></div>
-      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>${tComp.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div><div style={S.statLabel}>Comp YTD</div></div>
+      {isCurrent ? <>
+        <div style={S.statCard}><div style={S.statValue}>{todayRVU.toFixed(1)}</div><div style={S.statLabel}>Today</div></div>
+        <div style={S.statCard}><div style={S.statValue}>{wRVU.toFixed(1)}</div><div style={S.statLabel}>This Week</div></div>
+      </> : <>
+        <div style={S.statCard}><div style={S.statValue}>{ye.length}</div><div style={S.statLabel}>Cases</div></div>
+        <div style={S.statCard}><div style={S.statValue}>{ye.length > 0 ? (tRVU / ye.length).toFixed(1) : "0"}</div><div style={S.statLabel}>Avg/Case</div></div>
+      </>}
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>${tComp.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
     </div>
 
-    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Monthly wRVUs</div>{hasInst && <div style={{ display: "flex", gap: 8 }}>
+    {/* Year-over-year comparison */}
+    {prevYearRVU.hasData && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.02)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>vs. Prior Year</div>
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Same period last year: {prevYearRVU.total.toFixed(0)} wRVUs</div>
+        </div>
+        <div style={{ textAlign: "right" }}>
+          {(function() {
+            var yoyDiff = tRVU - prevYearRVU.total;
+            var yoyPct = prevYearRVU.total > 0 ? ((yoyDiff / prevYearRVU.total) * 100) : 0;
+            return <>
+              <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: yoyDiff >= 0 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>{yoyDiff >= 0 ? "+" : ""}{yoyDiff.toFixed(0)}</div>
+              <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#64748b" }}>{yoyDiff >= 0 ? "+" : ""}{yoyPct.toFixed(1)}%</div>
+            </>;
+          })()}
+        </div>
+      </div>
+    </div>}
+
+    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>{isCurrent ? "Monthly wRVUs" : yearBounds.label + " Monthly wRVUs"}</div>{hasInst && <div style={{ display: "flex", gap: 8 }}>
       <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#a78bfa" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst</span>
       <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#0ea5e9" }}><span style={{ display: "inline-block", width: 8, height: 3, borderRadius: 1, background: "#0ea5e9" }}></span>Tracked</span>
     </div>}</div>
     <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 110, marginTop: 12 }}>{months.map(function(m, i) {
       var instH = maxM > 0 ? (m.inst / maxM) * 80 : 0;
       var trackH = maxM > 0 ? (m.tracked / maxM) * 80 : 0;
-      var isLast = i === months.length - 1;
+      var isLast = i === months.length - 1 && isCurrent;
       return (<div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
         <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#cbd5e1", fontWeight: 500 }}>{m.primary > 0 ? m.primary.toFixed(0) : ""}</span>
         <div style={{ width: "100%", position: "relative" }}>
@@ -369,7 +483,7 @@ function Dashboard({ data, db, setView }) {
 // =======================================
 // LOG PROCEDURE
 // =======================================
-function LogProc({ data, db, cptMap, categories, upd, setView }) {
+function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
   const [patientId, setPatientId] = useState("");
   const [procs, setProcs] = useState([{ id: 1, code: null, search: "", mods: [] }]);
@@ -737,6 +851,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
       });
     });
     upd(function(prev) { return { ...prev, entries: prev.entries.concat(newEntries) }; });
+    var loggedRVU = newEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc (" + loggedRVU.toFixed(1) + " wRVUs)" });
     setSaved(true);
     setTimeout(function() {
       setSaved(false);
@@ -1016,7 +1132,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
       </div>
     </div>}
 
-    <div style={S.fieldGroup}><label style={S.fieldLabel}>Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Case details, complexity, etc." style={S.notesInput} rows={2} /></div>
+    <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
     {canSave && <button onClick={save} style={{ ...S.saveBtn, background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
   </div>);
 }
@@ -1030,6 +1146,12 @@ function LogProc({ data, db, cptMap, categories, upd, setView }) {
 function Analytics({ data, db, setView }) {
   var [timeRange, setTimeRange] = useState("ytd");
   var [detailMonth, setDetailMonth] = useState(null);
+  var [showSummary, setShowSummary] = useState(false);
+  var [summaryMonth, setSummaryMonth] = useState(function() {
+    var n = new Date();
+    return n.getFullYear() + "-" + String(n.getMonth() + 1).padStart(2, "0");
+  });
+  var [copyStatus, setCopyStatus] = useState("");
   var entries = data.entries;
   var settings = data.settings;
   var goal = settings.annualGoal || 0;
@@ -1155,6 +1277,48 @@ function Analytics({ data, db, setView }) {
     </div>);
   }
 
+  // Monthly summary data
+  var summaryData = useMemo(function() {
+    var mEntries = entries.filter(function(e) { return e.date.slice(0, 7) === summaryMonth; });
+    var totalRVU = mEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var totalComp = totalRVU * rate;
+    var caseCount = mEntries.length;
+    var avgRVU = caseCount > 0 ? totalRVU / caseCount : 0;
+    var privateEntries = mEntries.filter(function(e) { return !e.isCall; });
+    var callEntries = mEntries.filter(function(e) { return e.isCall; });
+    var privateRVU = privateEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var callRVU = callEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var codeMap = {};
+    mEntries.forEach(function(e) {
+      if (!codeMap[e.cptCode]) codeMap[e.cptCode] = { code: e.cptCode, desc: e.description, count: 0, rvu: 0 };
+      codeMap[e.cptCode].count++;
+      codeMap[e.cptCode].rvu += e.adjustedRVU;
+    });
+    var topProcs = Object.values(codeMap).sort(function(a, b) { return b.rvu - a.rvu; }).slice(0, 8);
+    var patients = {};
+    mEntries.forEach(function(e) { if (e.encounterId) patients[e.encounterId] = true; });
+    var days = {};
+    mEntries.forEach(function(e) { days[e.date] = true; });
+    return { totalRVU: totalRVU, totalComp: totalComp, caseCount: caseCount, avgRVU: avgRVU, privateRVU: privateRVU, callRVU: callRVU, privateCases: privateEntries.length, callCases: callEntries.length, topProcs: topProcs, uniquePatients: Object.keys(patients).length, workDays: Object.keys(days).length };
+  }, [entries, summaryMonth, rate]);
+
+  var summaryMonthName = function(ym) {
+    var parts = ym.split("-");
+    return new Date(parseInt(parts[0]), parseInt(parts[1]) - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" });
+  };
+
+  var generateSummaryText = function() {
+    var s = summaryData;
+    var lines = ["MONTHLY RVU SUMMARY - " + summaryMonthName(summaryMonth).toUpperCase(), "=".repeat(44), "", "Total wRVUs:        " + s.totalRVU.toFixed(2), "Total Compensation: $" + s.totalComp.toLocaleString(undefined, { maximumFractionDigits: 0 }), "Cases:              " + s.caseCount, "Avg wRVU/Case:      " + s.avgRVU.toFixed(2), "Working Days:       " + s.workDays, "Unique Patients:    " + s.uniquePatients, "", "Private: " + s.privateCases + " cases, " + s.privateRVU.toFixed(1) + " wRVUs", "Call:    " + s.callCases + " cases, " + s.callRVU.toFixed(1) + " wRVUs", ""];
+    if (goal > 0) { lines.push("Monthly Goal Pace: " + ((s.totalRVU / (goal / 12)) * 100).toFixed(0) + "% of " + (goal / 12).toFixed(0) + " wRVU target"); lines.push(""); }
+    if (s.topProcs.length > 0) { lines.push("TOP PROCEDURES:"); lines.push("-".repeat(44)); s.topProcs.forEach(function(p) { lines.push("  " + p.code + "  x" + p.count + "  " + p.rvu.toFixed(1) + " wRVU  " + p.desc.slice(0, 30)); }); }
+    return lines.join("\n");
+  };
+
+  var copySummary = function() {
+    if (navigator.clipboard) { navigator.clipboard.writeText(generateSummaryText()).then(function() { setCopyStatus("Copied!"); setTimeout(function() { setCopyStatus(""); }, 2000); }); }
+  };
+
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>Analytics</h1></div>
 
@@ -1277,6 +1441,42 @@ function Analytics({ data, db, setView }) {
       </div>
     </div>}
 
+    {/* Monthly Summary Report */}
+    <button onClick={function() { setShowSummary(!showSummary); }} style={{ ...S.secondaryBtn, width: "100%", marginBottom: 8, color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>{showSummary ? "Hide Summary" : "Monthly Summary Report"}</button>
+    {showSummary && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.25)" }}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+        <div style={S.cardLabel}>Monthly Report</div>
+        <input type="month" value={summaryMonth} onChange={function(e) { setSummaryMonth(e.target.value); }} style={{ ...S.dateInput, fontSize: 12, padding: "4px 8px" }} />
+      </div>
+      <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fafc", marginBottom: 12 }}>{summaryMonthName(summaryMonth)}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
+        <div style={{ background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 700 }}>{summaryData.totalRVU.toFixed(1)}</div>
+          <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>wRVUs</div>
+        </div>
+        <div style={{ background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 700 }}>${summaryData.totalComp.toLocaleString(undefined, { maximumFractionDigits: 0 })}</div>
+          <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Compensation</div>
+        </div>
+      </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
+        {[[summaryData.caseCount, "Cases"], [summaryData.avgRVU.toFixed(1), "Avg/Case"], [summaryData.workDays, "Days"], [summaryData.uniquePatients, "Patients"]].map(function(item) { return <div key={item[1]} style={{ background: "#0f172a", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}><div style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{item[0]}</div><div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{item[1]}</div></div>; })}
+      </div>
+      {summaryData.privateCases + summaryData.callCases > 0 && <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
+        <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)" }}><div style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Private</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{summaryData.privateRVU.toFixed(1)} wRVU | {summaryData.privateCases} cases</div></div>
+        <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}><div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600 }}>Call</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{summaryData.callRVU.toFixed(1)} wRVU | {summaryData.callCases} cases</div></div>
+      </div>}
+      {goal > 0 && <div style={{ padding: "8px 10px", borderRadius: 6, background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div><span style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Monthly Goal Pace</span><div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>Target: {(goal / 12).toFixed(0)} wRVU/month</div></div>
+        <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 700 }}>{((summaryData.totalRVU / (goal / 12)) * 100).toFixed(0)}%</span>
+      </div>}
+      {summaryData.topProcs.length > 0 && <div style={{ marginBottom: 12 }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#94a3b8", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Top Procedures</div>
+        {summaryData.topProcs.map(function(p) { return (<div key={p.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "4px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}><div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 10, color: "#64748b", marginLeft: 4 }}>x{p.count}</span><div style={{ fontSize: 11, color: "#94a3b8" }}>{p.desc.length > 35 ? p.desc.slice(0, 35) + "..." : p.desc}</div></div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{p.rvu.toFixed(1)}</span></div>); })}
+      </div>}
+      <button onClick={copySummary} style={{ ...S.saveBtn, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{copyStatus || "Copy Summary to Clipboard"}</button>
+    </div>}
+
     {/* Quick links */}
     <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
       <button onClick={function() { setView("import"); }} style={{ ...S.secondaryBtn, flex: 1 }}>Import Data</button>
@@ -1324,7 +1524,7 @@ function Import({ data, cptMap, upd, setView }) {
 // =======================================
 // HISTORY
 // =======================================
-function History({ data, db, cptMap, categories, upd, setView }) {
+function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [filter, setFilter] = useState(""); const [sortBy, setSortBy] = useState("date"); const [groupBy, setGroupBy] = useState("date");
   const [editId, setEditId] = useState(null);
   const [editDate, setEditDate] = useState("");
@@ -1332,11 +1532,151 @@ function History({ data, db, cptMap, categories, upd, setView }) {
   const [editMods, setEditMods] = useState([]);
   const [editNotes, setEditNotes] = useState("");
   const [editSearch, setEditSearch] = useState("");
+  const [editPatient, setEditPatient] = useState("");
+  const [editIsCall, setEditIsCall] = useState(false);
+  const [dateRange, setDateRange] = useState("all");
+  const [customStart, setCustomStart] = useState("");
+  const [customEnd, setCustomEnd] = useState("");
+  const [showCallFilter, setShowCallFilter] = useState("all");
   const { entries, settings } = data;
-  const filtered = useMemo(() => { let items = [...entries]; if (filter.trim()) { const q = filter.toLowerCase(); items = items.filter(e => e.cptCode.includes(q) || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) || (e.notes && e.notes.toLowerCase().includes(q))); } items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return new Date(b.date) - new Date(a.date); }); return items; }, [entries, filter, sortBy]);
+
+  var dateRangeBounds = useMemo(function() {
+    var now = new Date();
+    var todayStr = now.toISOString().slice(0, 10);
+    if (dateRange === "all") return null;
+    if (dateRange === "today") return { start: todayStr, end: todayStr };
+    if (dateRange === "week") {
+      var ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
+      return { start: ws.toISOString().slice(0, 10), end: todayStr };
+    }
+    if (dateRange === "month") {
+      return { start: now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-01", end: todayStr };
+    }
+    if (dateRange === "lastMonth") {
+      var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
+      var lmEnd = new Date(now.getFullYear(), now.getMonth(), 0);
+      return { start: lm.toISOString().slice(0, 10), end: lmEnd.toISOString().slice(0, 10) };
+    }
+    if (dateRange === "quarter") {
+      var qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
+      return { start: qStart.toISOString().slice(0, 10), end: todayStr };
+    }
+    if (dateRange === "ytd") {
+      var ys = settings.yearStart || (now.getFullYear() + "-01-01");
+      return { start: ys, end: todayStr };
+    }
+    if (dateRange === "custom") {
+      return { start: customStart || "2000-01-01", end: customEnd || todayStr };
+    }
+    return null;
+  }, [dateRange, customStart, customEnd, settings.yearStart]);
+
+  const filtered = useMemo(() => {
+    let items = [...entries];
+    if (dateRangeBounds) {
+      items = items.filter(function(e) { return e.date >= dateRangeBounds.start && e.date <= dateRangeBounds.end; });
+    }
+    if (showCallFilter === "private") items = items.filter(function(e) { return !e.isCall; });
+    if (showCallFilter === "call") items = items.filter(function(e) { return e.isCall; });
+    if (filter.trim()) { const q = filter.toLowerCase(); items = items.filter(e => e.cptCode.includes(q) || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) || (e.notes && e.notes.toLowerCase().includes(q))); }
+    items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return new Date(b.date) - new Date(a.date); });
+    return items;
+  }, [entries, filter, sortBy, dateRangeBounds, showCallFilter]);
   const grouped = useMemo(() => { if (groupBy === "none") return { "All": filtered }; const g = {}; filtered.forEach(e => { const k = groupBy === "date" ? e.date : e.category; if (!g[k]) g[k] = []; g[k].push(e); }); return g; }, [filtered, groupBy]);
-  const del = id => upd(prev => ({ ...prev, entries: prev.entries.filter(e => e.id !== id) }));
+  const del = function(id) {
+    var entry = data.entries.find(function(e) { return e.id === id; });
+    upd(prev => ({ ...prev, entries: prev.entries.filter(e => e.id !== id) }));
+    if (entry) {
+      showUndo({ type: "delete", entries: [entry], message: "Deleted " + (entry.cptCode || "entry") + " (" + entry.adjustedRVU.toFixed(2) + " wRVU)" });
+    }
+  };
   const tF = filtered.reduce((s, e) => s + e.adjustedRVU, 0);
+  const filteredCount = filtered.length;
+  const [swipedId, setSwipedId] = useState(null);
+  var touchStart = useRef({ x: 0, id: null });
+
+  var handleTouchStart = function(id, e) {
+    touchStart.current = { x: e.touches[0].clientX, id: id };
+  };
+  var handleTouchEnd = function(id, e) {
+    var dx = e.changedTouches[0].clientX - touchStart.current.x;
+    if (dx < -60 && touchStart.current.id === id) { setSwipedId(id); }
+    else if (dx > 30) { setSwipedId(null); }
+  };
+
+  // Build encounter groups within a date group
+  var buildEncounters = function(items) {
+    var encounters = [];
+    var encMap = {};
+    var order = [];
+    items.forEach(function(e) {
+      if (e.encounterId) {
+        if (!encMap[e.encounterId]) {
+          encMap[e.encounterId] = [];
+          order.push({ type: "enc", key: e.encounterId });
+        }
+        encMap[e.encounterId].push(e);
+      } else {
+        order.push({ type: "single", entry: e });
+      }
+    });
+    return order.map(function(o) {
+      if (o.type === "enc") {
+        var ents = encMap[o.key];
+        if (ents.length === 1) return { type: "single", entry: ents[0] };
+        return { type: "encounter", patient: o.key, entries: ents, totalRVU: ents.reduce(function(s, x) { return s + x.adjustedRVU; }, 0) };
+      }
+      return o;
+    });
+  };
+
+  // Single procedure row (reused by both grouped and ungrouped)
+  var renderProcRow = function(e, compact) {
+    var isSwiped = swipedId === e.id;
+    return (<div key={e.id} style={{ position: "relative", overflow: "hidden" }}
+      onTouchStart={function(ev) { handleTouchStart(e.id, ev); }}
+      onTouchEnd={function(ev) { handleTouchEnd(e.id, ev); }}
+    >
+      <div style={{ ...S.historyItem, transform: isSwiped ? "translateX(-80px)" : "translateX(0)", transition: "transform 0.2s ease", borderBottom: compact ? "1px solid rgba(51,65,85,0.3)" : "1px solid rgba(51,65,85,0.5)" }}>
+        <div style={{ flex: 1, cursor: "pointer" }} onClick={function() { startEdit(e); }}>
+          <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+            <span style={S.histCode}>{e.cptCode}</span>
+            {e.modifiers.map(function(m) { return <span key={m} style={S.histMod}>{m}</span>; })}
+            {e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
+            {e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}
+            {!compact && e.encounterId && <span style={{ fontSize: 9, color: "#94a3b8", background: "rgba(148,163,184,0.1)", padding: "1px 5px", borderRadius: 3 }}>{e.encounterId}</span>}
+          </div>
+          <div style={S.histDesc}>{e.description}</div>
+          {groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}
+          {e.notes && !compact && <div style={S.histNotes}>{e.notes}</div>}
+        </div>
+        <div style={{ textAlign: "right", flexShrink: 0 }}>
+          <div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div>
+          <div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div>
+          {!isSwiped && <button onClick={function(ev) { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button>}
+        </div>
+      </div>
+      {isSwiped && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
+        <button onClick={function() { del(e.id); setSwipedId(null); }} style={{ width: "100%", height: "100%", background: "#ef4444", border: "none", color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Delete</button>
+      </div>}
+    </div>);
+  };
+
+  var exportFiltered = function() {
+    var h = ["Date","CPT","Description","Category","Type","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Patient","Notes"];
+    var rows = filtered.map(function(e) {
+      return [e.date, e.cptCode, '"' + (e.description || "").replace(/"/g, '""') + '"', e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.encounterId || "", '"' + (e.notes || "").replace(/"/g, '""') + '"'];
+    });
+    var csv = [h.join(",")].concat(rows.map(function(r) { return r.join(","); })).join("\n");
+    var b = new Blob([csv], { type: "text/csv" });
+    var u = URL.createObjectURL(b);
+    var a = document.createElement("a");
+    a.href = u;
+    var suffix = dateRange !== "all" ? "-" + dateRange : "";
+    a.download = "rvu-history" + suffix + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+    a.click();
+    URL.revokeObjectURL(u);
+  };
 
   const startEdit = (e) => {
     setEditId(e.id);
@@ -1345,6 +1685,8 @@ function History({ data, db, cptMap, categories, upd, setView }) {
     setEditMods(e.modifiers || []);
     setEditNotes(e.notes || "");
     setEditSearch("");
+    setEditPatient(e.encounterId || "");
+    setEditIsCall(!!e.isCall);
   };
 
   const cancelEdit = () => { setEditId(null); };
@@ -1355,7 +1697,7 @@ function History({ data, db, cptMap, categories, upd, setView }) {
     var desc = info ? info.desc : ("CPT " + editCode);
     var cat = info ? info.category : "Other";
     var adj = calcAdj(baseRVU, editMods);
-    upd(prev => ({ ...prev, entries: prev.entries.map(e => e.id === editId ? { ...e, date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes } : e) }));
+    upd(prev => ({ ...prev, entries: prev.entries.map(e => e.id === editId ? { ...e, date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes, encounterId: editPatient || undefined, isCall: editIsCall } : e) }));
     setEditId(null);
   };
 
@@ -1374,7 +1716,14 @@ function History({ data, db, cptMap, categories, upd, setView }) {
     var editAdj = calcAdj(editBase, editMods);
     return (<div style={S.page}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Edit Procedure</h1></div>
-      <div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} /></div>
+      <div style={{ display: "flex", gap: 8 }}>
+        <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} /></div></div>
+        <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { setEditPatient(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
+      </div>
+      <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
+        <button onClick={function() { setEditIsCall(false); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: !editIsCall ? "2px solid #0ea5e9" : "1px solid #334155", background: !editIsCall ? "rgba(14,165,233,0.1)" : "#1e293b", color: !editIsCall ? "#0ea5e9" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Private</button>
+        <button onClick={function() { setEditIsCall(true); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: editIsCall ? "2px solid #a78bfa" : "1px solid #334155", background: editIsCall ? "rgba(139,92,246,0.1)" : "#1e293b", color: editIsCall ? "#a78bfa" : "#64748b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Call</button>
+      </div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>CPT Code</label>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ flex: 1, padding: "8px 12px", background: "#1e293b", border: "1px solid #334155", borderRadius: 8, color: "#0ea5e9", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode}</div>
@@ -1385,21 +1734,70 @@ function History({ data, db, cptMap, categories, upd, setView }) {
       </div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
       <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#64748b" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#64748b" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "#64748b" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(editAdj * settings.ratePerRVU).toFixed(0)}</div></div></div></div>
-      <div style={S.fieldGroup}><label style={S.fieldLabel}>Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} style={S.notesInput} rows={2} /></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
       <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button><button onClick={saveEdit} style={{ ...S.saveBtn, flex: 1 }}>Save Changes</button></div>
     </div>);
   }
 
   return (<div style={S.page}>
-    <div style={S.header}><h1 style={S.title}>History</h1><p style={S.subtitle}>{entries.length} procedures  {tF.toFixed(1)} wRVUs</p></div>
-    <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search history..." style={S.searchInput} />
-    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>{["date","rvu","code"].map(s => <button key={s} onClick={() => setSortBy(s)} style={sortBy === s ? S.catBtnActive : S.catBtn}>Sort: {s === "rvu" ? "wRVU" : s}</button>)}<div style={{ width: 8 }} />{["date","category","none"].map(g => <button key={g} onClick={() => setGroupBy(g)} style={groupBy === g ? S.catBtnActive : S.catBtn}>Group: {g}</button>)}</div>
+    <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>History</h1><p style={S.subtitle}>{filteredCount === entries.length ? entries.length + " procedures" : filteredCount + " of " + entries.length + " procedures"}  {tF.toFixed(1)} wRVUs{filteredCount < entries.length ? " (filtered)" : ""}</p></div>{filtered.length > 0 && <button onClick={exportFiltered} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.05)", color: "#10b981", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", marginTop: 4 }}>Export CSV</button>}</div></div>
+    <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search procedures, codes, notes..." style={S.searchInput} />
+
+    {/* Date range filter */}
+    <div style={{ marginTop: 8 }}>
+      <div style={S.catRow}>{[
+        { id: "all", label: "All" },
+        { id: "today", label: "Today" },
+        { id: "week", label: "Week" },
+        { id: "month", label: "Month" },
+        { id: "lastMonth", label: "Last Mo" },
+        { id: "quarter", label: "Quarter" },
+        { id: "ytd", label: "YTD" },
+        { id: "custom", label: "Custom" }
+      ].map(function(r) { return <button key={r.id} onClick={function() { setDateRange(r.id); }} style={dateRange === r.id ? S.catBtnActive : S.catBtn}>{r.label}</button>; })}</div>
+      {dateRange === "custom" && <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
+        <div style={{ flex: 1 }}><label style={{ fontSize: 10, color: "#64748b" }}>From</label><input type="date" value={customStart} onChange={function(e) { setCustomStart(e.target.value); }} style={{ ...S.dateInput, width: "100%", fontSize: 12, padding: "6px 8px" }} /></div>
+        <div style={{ flex: 1 }}><label style={{ fontSize: 10, color: "#64748b" }}>To</label><input type="date" value={customEnd} onChange={function(e) { setCustomEnd(e.target.value); }} style={{ ...S.dateInput, width: "100%", fontSize: 12, padding: "6px 8px" }} /></div>
+      </div>}
+    </div>
+
+    {/* Type filter + Sort/Group */}
+    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>{["all","private","call"].map(function(t) { return <button key={t} onClick={function() { setShowCallFilter(t); }} style={showCallFilter === t ? S.catBtnActive : S.catBtn}>{t === "all" ? "All Types" : t === "private" ? "Private" : "Call"}</button>; })}<div style={{ width: 8 }} />{["date","rvu","code"].map(s => <button key={s} onClick={() => setSortBy(s)} style={sortBy === s ? S.catBtnActive : S.catBtn}>Sort: {s === "rvu" ? "wRVU" : s}</button>)}<div style={{ width: 8 }} />{["date","category","none"].map(g => <button key={g} onClick={() => setGroupBy(g)} style={groupBy === g ? S.catBtnActive : S.catBtn}>Group: {g}</button>)}</div>
+
+    {/* Filtered summary bar */}
+    {dateRange !== "all" && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+      <span style={{ fontSize: 11, color: "#0ea5e9" }}>{filteredCount} procedures | {tF.toFixed(1)} wRVUs | ${(tF * settings.ratePerRVU).toFixed(0)}</span>
+      <button onClick={function() { setDateRange("all"); setShowCallFilter("all"); }} style={{ fontSize: 10, color: "#64748b", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear filters</button>
+    </div>}
+
     <div style={{ marginTop: 12 }}>
-      {Object.keys(grouped).length === 0 && <div style={{ textAlign: "center", color: "#64748b", padding: 40 }}>No procedures logged yet</div>}
-      {Object.entries(grouped).map(([group, items]) => (<div key={group} style={{ marginBottom: 16 }}>
-        <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "#64748b", fontWeight: 400 }}>  {items.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU</span></div>
-        {items.map(e => (<div key={e.id} style={S.historyItem}><div style={{ flex: 1, cursor: "pointer" }} onClick={() => startEdit(e)}><div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}><span style={S.histCode}>{e.cptCode}</span>{e.modifiers.map(m => <span key={m} style={S.histMod}>{m}</span>)}{e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}{e.imported && <span style={{ fontSize: 9, color: "#64748b", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}</div><div style={S.histDesc}>{e.description}</div>{groupBy !== "date" && <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{fmtShort(e.date)}</div>}{e.notes && <div style={S.histNotes}>{e.notes}</div>}</div><div style={{ textAlign: "right", flexShrink: 0 }}><div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div><button onClick={(ev) => { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button></div></div>))}
-      </div>))}
+      {Object.keys(grouped).length === 0 && <div style={{ textAlign: "center", color: "#64748b", padding: 40 }}>{entries.length === 0 ? "No procedures logged yet" : "No procedures match your filters"}</div>}
+      {Object.entries(grouped).map(([group, items]) => {
+        var encounters = groupBy === "date" ? buildEncounters(items) : null;
+        return (<div key={group} style={{ marginBottom: 16 }}>
+          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "#64748b", fontWeight: 400 }}>  {items.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU  ({items.length})</span></div>
+          {encounters ? encounters.map(function(enc, ei) {
+            if (enc.type === "single") return renderProcRow(enc.entry, false);
+            return (<div key={enc.patient + "-" + ei} style={{ background: "rgba(14,165,233,0.03)", border: "1px solid rgba(14,165,233,0.12)", borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
+              <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(14,165,233,0.1)" }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: "#0ea5e9" }}>{enc.patient}</span>
+                  <span style={{ fontSize: 10, color: "#64748b" }}>{enc.entries.length} procedures</span>
+                  {enc.entries[0].isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
+                </div>
+                <div style={{ textAlign: "right" }}>
+                  <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 700 }}>{enc.totalRVU.toFixed(2)}</span>
+                  <span style={{ fontSize: 10, color: "#10b981", fontFamily: "JetBrains Mono", marginLeft: 6 }}>${(enc.totalRVU * settings.ratePerRVU).toFixed(0)}</span>
+                </div>
+              </div>
+              <div style={{ padding: "0 4px" }}>
+                {enc.entries.map(function(e) { return renderProcRow(e, true); })}
+              </div>
+              {enc.entries[0].notes && <div style={{ padding: "4px 12px 8px", fontSize: 11, color: "#64748b", fontStyle: "italic" }}>{enc.entries[0].notes}</div>}
+            </div>);
+          }) : items.map(function(e) { return renderProcRow(e, false); })}
+        </div>);
+      })}
     </div>
   </div>);
 }
@@ -2006,7 +2404,7 @@ function Compare({ data, upd, setView }) {
 // =======================================
 // SETTINGS (with wRVU Editor)
 // =======================================
-function Settings({ data, db, cptMap, categories, upd, setView }) {
+function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme }) {
   const { settings } = data;
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
@@ -2232,6 +2630,21 @@ function Settings({ data, db, cptMap, categories, upd, setView }) {
 
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>Settings</h1></div>
+
+    {/* Theme toggle */}
+    <div style={S.card}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+        <div>
+          <div style={S.cardLabel}>Appearance</div>
+          <div style={{ fontSize: 12, color: "#94a3b8", marginTop: 4 }}>{theme === "dark" ? "Dark mode" : "Light mode"}</div>
+        </div>
+        <button onClick={toggleTheme} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid #334155", background: theme === "dark" ? "#1e293b" : "rgba(14,165,233,0.1)", color: theme === "dark" ? "#e2e8f0" : "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+          <span style={{ fontSize: 16 }}>{theme === "dark" ? "\u2600" : "\u263D"}</span>
+          {theme === "dark" ? "Light Mode" : "Dark Mode"}
+        </button>
+      </div>
+    </div>
+
     <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ''); if (v === '' || v === '.') { set("ratePerRVU", v); } else if (v.endsWith('.') || v.endsWith('.0') || v.endsWith('.00') || (v.includes('.') && v.endsWith('0'))) { set("ratePerRVU", v); } else { set("ratePerRVU", parseFloat(v) || 0); } }} placeholder="0" style={S.numberInput} /></div></div>
     <div style={S.card}><div style={S.cardLabel}>Annual Goal</div><div style={S.fieldGroup}><label style={S.fieldLabel}>Target wRVUs per year</label><input type="text" inputMode="decimal" value={settings.annualGoal === 0 ? "" : String(settings.annualGoal)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ''); if (v === '' || v === '.') { set("annualGoal", v); } else if (v.endsWith('.') || v.endsWith('.0') || v.endsWith('.00') || (v.includes('.') && v.endsWith('0'))) { set("annualGoal", v); } else { set("annualGoal", parseFloat(v) || 0); } }} placeholder="0" style={S.numberInput} /></div><div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
 
