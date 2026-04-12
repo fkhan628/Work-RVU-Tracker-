@@ -23,38 +23,23 @@ input,textarea,select,button{font-family:inherit}
 <body>
 <div id="root"></div>
 <div id="pin-lock" style="display:none;position:fixed;inset:0;z-index:99999;background:#0f172a;font-family:'DM Sans',-apple-system,BlinkMacSystemFont,sans-serif;"></div>
-
-<!-- 1. PIN Lock & Crypto (plain JS, no Babel) -->
 <script src="js%20files/crypto.js"></script>
 <style>
 @keyframes shake { 0%,100%{transform:translateX(0)} 20%,60%{transform:translateX(-8px)} 40%,80%{transform:translateX(8px)} }
 </style>
-
-<!-- 2. CPT Database - 7,305 codes (plain JS, no Babel) -->
 <script src="js%20files/cpt-data.js"></script>
-
-<!-- 3. CDN Libraries -->
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js" crossorigin="anonymous"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.24.7/babel.min.js" crossorigin="anonymous"></script>
-
-<!-- 4. Shared utilities & constants (Babel - must load first) -->
 <script type="text/babel" data-presets="react" src="js%20files/utils.js"></script>
-
-<!-- 5. Shared styles object (Babel) -->
 <script type="text/babel" data-presets="react" src="js%20files/styles.js"></script>
-
-<!-- 6. Components (Babel - order doesn't matter among these) -->
 <script type="text/babel" data-presets="react" src="js%20files/dashboard.js"></script>
 <script type="text/babel" data-presets="react" src="js%20files/log.js"></script>
 <script type="text/babel" data-presets="react" src="js%20files/analytics.js"></script>
 <script type="text/babel" data-presets="react" src="js%20files/history.js"></script>
 <script type="text/babel" data-presets="react" src="js%20files/compare.js"></script>
 <script type="text/babel" data-presets="react" src="js%20files/settings.js"></script>
-
-<!-- 7. App root, ErrorBoundary, Nav & render (Babel - must load last) -->
 <script type="text/babel" data-presets="react" src="js%20files/app.js"></script>
-
 </body>
 </html>
