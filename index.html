@@ -2,13 +2,13 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover, maximum-scale=1, user-scalable=no">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1, user-scalable=no">
   <meta name="apple-mobile-web-app-capable" content="yes">
-  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
   <meta name="theme-color" content="#0f172a">
   <title>RVU Tracker</title>
 
-  <!-- Preload heavy resources so browser fetches them immediately -->
+  <!-- Preload heavy resources -->
   <link rel="preload" href="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js" as="script">
   <link rel="preload" href="https://unpkg.com/react@18.3.1/umd/react.production.min.js" as="script" crossorigin>
   <link rel="preload" href="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" as="script" crossorigin>
@@ -19,7 +19,6 @@
     body { background: #0f172a; }
     body.light-mode { background: #f1f5f9; }
     #pin-lock { display: none; position: fixed; inset: 0; z-index: 10000; background: #0f172a; }
-    /* Loading screen */
     #app-loader { display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; gap: 16px; }
     #app-loader .spinner { width: 36px; height: 36px; border: 3px solid #1e293b; border-top-color: #0ea5e9; border-radius: 50%; animation: spin 0.8s linear infinite; }
     #app-loader .label { color: #475569; font-family: -apple-system, sans-serif; font-size: 13px; }
@@ -35,17 +34,14 @@
     </div>
   </div>
 
-  <!-- Pinned CDN versions (avoids redirect lookups) -->
   <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
-  <!-- App data (plain JS, no Babel needed) -->
   <script src="js%20files/crypto.js"></script>
   <script src="js%20files/cpt-data.js"></script>
 
-  <!-- App modules (auto cache-bust with timestamp) -->
   <script>
     var v = Date.now();
     var js = ['utils','styles','dashboard','log','analytics','history','compare','settings','app'];
