@@ -10,10 +10,11 @@
   <link rel="manifest" href="manifest.json">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    body { background: #0f172a; overflow: hidden; }
+    html, body { height: 100%; }
+    body { background: #0f172a; }
     body.light-mode { background: #f1f5f9; }
     #pin-lock { display: none; position: fixed; inset: 0; z-index: 10000; background: #0f172a; }
-    #root { display: none; }
+    #root { height: 100%; overflow: hidden; }
   </style>
 </head>
 <body>
