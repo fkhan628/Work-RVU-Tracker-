@@ -7,43 +7,33 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="theme-color" content="#0f172a">
   <title>RVU Tracker</title>
-  <link rel="manifest" href="manifest.json">
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-    html, body { height: 100%; }
     body { background: #0f172a; }
     body.light-mode { background: #f1f5f9; }
     #pin-lock { display: none; position: fixed; inset: 0; z-index: 10000; background: #0f172a; }
-    #root { height: 100%; overflow: hidden; }
   </style>
 </head>
 <body>
   <div id="pin-lock"></div>
   <div id="root"></div>
 
-  <!-- React + Babel -->
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
-
-  <!-- SheetJS for Excel import/export -->
   <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
-  <!-- 1. Security: PIN lock + crypto (plain JS, runs first) -->
   <script src="js%20files/crypto.js"></script>
-
-  <!-- 2. CPT Database (plain JS, ~450KB data array) -->
   <script src="js%20files/cpt-data.js"></script>
 
-  <!-- 3. App modules (Babel-transpiled, load in dependency order) -->
-  <script type="text/babel" src="js%20files/utils.js"></script>
-  <script type="text/babel" src="js%20files/styles.js"></script>
-  <script type="text/babel" src="js%20files/dashboard.js"></script>
-  <script type="text/babel" src="js%20files/log.js"></script>
-  <script type="text/babel" src="js%20files/analytics.js"></script>
-  <script type="text/babel" src="js%20files/history.js"></script>
-  <script type="text/babel" src="js%20files/compare.js"></script>
-  <script type="text/babel" src="js%20files/settings.js"></script>
-  <script type="text/babel" src="js%20files/app.js"></script>
+  <script type="text/babel" src="js%20files/utils.js?v=2"></script>
+  <script type="text/babel" src="js%20files/styles.js?v=2"></script>
+  <script type="text/babel" src="js%20files/dashboard.js?v=2"></script>
+  <script type="text/babel" src="js%20files/log.js?v=2"></script>
+  <script type="text/babel" src="js%20files/analytics.js?v=2"></script>
+  <script type="text/babel" src="js%20files/history.js?v=2"></script>
+  <script type="text/babel" src="js%20files/compare.js?v=2"></script>
+  <script type="text/babel" src="js%20files/settings.js?v=2"></script>
+  <script type="text/babel" src="js%20files/app.js?v=2"></script>
 </body>
 </html>
