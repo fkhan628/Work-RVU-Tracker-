@@ -395,6 +395,9 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
             localStorage.removeItem(PIN_HASH_KEY);
             localStorage.removeItem(PIN_SALT_KEY);
             localStorage.removeItem(PIN_HINT_KEY);
+            // The old PIN lives on inside the biometric enrollment - clearing it
+            // here prevents an orphaned Face ID credential from resurrecting it.
+            disableBiometrics();
             try {
               var sk = DATA_KEY;
               var raw = localStorage.getItem(sk);
@@ -431,9 +434,24 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
           var btn = document.getElementById("bio-unlock-btn");
           if (btn) { btn.textContent = "Authenticating..."; btn.style.opacity = "0.6"; btn.style.pointerEvents = "none"; }
           authenticateWithBiometrics().then(function(pin) {
-            unlock(pin);
+            // Verify the biometric-decrypted PIN against the stored hash BEFORE
+            // unlocking. A stale enrollment (e.g. left over from a Forgot-PIN
+            // reset) must never bypass the current PIN. On mismatch: drop the
+            // stale enrollment, tell the user, and leave the manual pad in play.
+            return sha256(pin).then(function(hash) {
+              var stored = localStorage.getItem(PIN_HASH_KEY);
+              if (stored && hash === stored) {
+                unlock(pin);
+              } else {
+                disableBiometrics();
+                if (bioSection.parentNode) bioSection.parentNode.removeChild(bioSection);
+                var errEl = document.getElementById("pin-error");
+                if (errEl) errEl.textContent = "Biometric login was out of date and has been turned off. Enter your PIN.";
+              }
+            });
           }).catch(function(e) {
-            if (btn) { btn.innerHTML = "&#x1F9EC; Try Again"; btn.style.opacity = "1"; btn.style.pointerEvents = "auto"; }
+            var b = document.getElementById("bio-unlock-btn");
+            if (b) { b.textContent = "\uD83E\uDDEC Try Again"; b.style.opacity = "1"; b.style.pointerEvents = "auto"; }
           });
         }
         // Auto-trigger biometric on load
