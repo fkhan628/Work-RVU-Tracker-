@@ -233,6 +233,20 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     return null;
   };
 
+  // PHI rule: the scanned patient field must never store more than 2-letter
+  // initials, even if the model returns a fuller name.
+  var sanitizeInitials = function(v) {
+    if (!v) return "";
+    var words = String(v).trim().split(/\s+/).filter(function(w) { return /[A-Za-z]/.test(w); });
+    var init = "";
+    if (words.length >= 2) {
+      init = words[0].replace(/[^A-Za-z]/g, "").charAt(0) + words[1].replace(/[^A-Za-z]/g, "").charAt(0);
+    } else {
+      init = String(v).replace(/[^A-Za-z]/g, "").substring(0, 2);
+    }
+    return init.toUpperCase();
+  };
+
   var handleScanResponse = function(apiResp, label) {
     // Check for API errors first
     if (apiResp.error) {
@@ -249,12 +263,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     }
     var result = extractJSON(text);
     if (!result) {
-      console.warn("Scan parse failed. Raw response:", text.substring(0, 500));
+      // PHI rule: never log response CONTENT - an unparseable response is exactly
+      // the case where the model may have echoed note text. Metadata only.
+      console.warn("Scan parse failed. Response length: " + text.length + " chars; contains '{': " + (text.indexOf("{") !== -1) + "; contains '[': " + (text.indexOf("[") !== -1));
       setScanStatus(""); setScanError("Could not parse AI response. Try a clearer image or PDF."); scanning.current = false;
       return;
     }
     if (result.date) setDate(result.date);
-    if (result.patient) setPatientId(result.patient);
+    if (result.patient) setPatientId(sanitizeInitials(result.patient));
     if (result.codes && result.codes.length > 0) {
       var newProcs = [];
       result.codes.forEach(function(c) {

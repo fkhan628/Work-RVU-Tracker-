@@ -208,7 +208,15 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   }, [db, editCat, editSearch]);
 
   const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.notes || '']); const csv = [h.join(','), ...rows.map(r => r.map(csvField).join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".csv"; a.click(); URL.revokeObjectURL(u); };
-  const expJSON = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".json"; a.click(); URL.revokeObjectURL(u); };
+  const expJSON = () => {
+    // Key material is deliberately NOT part of the device-transfer export.
+    // (The separate encrypted clipboard backup is PIN-bound and unaffected.)
+    const clean = { ...data, settings: { ...data.settings } };
+    delete clean.settings.encryptedApiKey;
+    delete clean.settings.apiKey;
+    delete clean.settings.apiKeyLast4;
+    const b = new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".json"; a.click(); URL.revokeObjectURL(u);
+  };
 
   const expExcel = () => {
     try {

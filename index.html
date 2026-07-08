@@ -18,7 +18,7 @@
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png">
 
   <!-- Preload heavy resources -->
-  <link rel="preload" href="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js" as="script">
+  <link rel="preload" href="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js" as="script" crossorigin>
   <link rel="preload" href="https://unpkg.com/react@18.3.1/umd/react.production.min.js" as="script" crossorigin>
   <link rel="preload" href="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" as="script" crossorigin>
   <link rel="preload" href="js%20files/cpt-data.js" as="script">
@@ -43,10 +43,13 @@
     </div>
   </div>
 
-  <script crossorigin src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
-  <script crossorigin src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
-  <script src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
-  <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+  <!-- SRI: hashes computed from the pinned files, cross-checked byte-identical
+       against the jsdelivr npm mirror. If a pinned version is ever bumped, the
+       matching integrity hash MUST be recomputed or the script will be blocked. -->
+  <script crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script crossorigin="anonymous" integrity="sha384-BcI7nduYchENm39cFMEVJXHEE7fwHONANyn/pY2YTa+BNtrWF2bKBZeI0wqVithi" src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
+  <script crossorigin="anonymous" integrity="sha384-QCIdq2UMVEoSRhR3ZWZwdz2/pivLowr+eokFMdYyukq7qI26VYRxFa4Nl6FKetmL" src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
 
   <script src="js%20files/crypto.js"></script>
   <script src="js%20files/cpt-data.js"></script>
