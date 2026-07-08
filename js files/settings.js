@@ -174,6 +174,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
 
   const set = (k, v) => upd(prev => ({ ...prev, settings: { ...prev.settings, [k]: v } }));
 
+  // Single key-clearing path, reused by the Settings card's Remove button and the
+  // stranded-key affordance shown when scanning is disabled. Do not duplicate.
+  var removeApiKey = function() { upd(function(prev) { var s = { ...prev.settings }; delete s.encryptedApiKey; delete s.apiKey; delete s.apiKeyLast4; return { ...prev, settings: s }; }); };
+
   // Numeric settings inputs: keep the raw text in LOCAL state while typing and
   // commit only parseFloat-valid numbers to settings. Strings in the store used
   // to trip validateData and silently roll data back on the next launch.
@@ -408,8 +412,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={rateText} onChange={e => onNumericChange(e.target.value, setRateText, "ratePerRVU")} onBlur={function() { setRateText(settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)); }} placeholder="0" style={S.numberInput} /></div></div>
     <div style={S.card}><div style={S.cardLabel}>Annual Goal</div><div style={S.fieldGroup}><label style={S.fieldLabel}>Target wRVUs per year</label><input type="text" inputMode="decimal" value={goalText} onChange={e => onNumericChange(e.target.value, setGoalText, "annualGoal")} onBlur={function() { setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal)); }} placeholder="0" style={S.numberInput} /></div><div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
 
-    {/* API Key for Scan Features - Encrypted */}
-    <div style={{ ...S.card, border: hasApiKey(settings) ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)" }}>
+    {/* API Key for Scan Features - Encrypted (feature-flagged: hidden when SCAN_ENABLED is false) */}
+    {SCAN_ENABLED && (<div style={{ ...S.card, border: hasApiKey(settings) ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={S.cardLabel}>AI Scan Features</div>
         <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: hasApiKey(settings) ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: hasApiKey(settings) ? "#10b981" : "#f59e0b" }}>{hasApiKey(settings) ? "Active" : "Not configured"}</span>
@@ -424,7 +428,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <div style={{ flex: 1, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.4 }}>Key is AES-256-GCM encrypted with your PIN.</div>
             <button onClick={() => { setShowApiKeyInput(true); setNewApiKey(""); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Change</button>
-            <button onClick={() => { upd(prev => { var s = { ...prev.settings }; delete s.encryptedApiKey; delete s.apiKey; delete s.apiKeyLast4; return { ...prev, settings: s }; }); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
+            <button onClick={removeApiKey} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
           </div>
         </div>
       ) : (
@@ -439,7 +443,18 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           </div>
         </div>
       )}
-    </div>
+    </div>)}
+
+    {/* Stranded key: scanning is off but a key remains stored - let the user clear
+        it without re-enabling scanning. Only renders when a key actually exists. */}
+    {!SCAN_ENABLED && hasApiKey(settings) && (<div style={S.card}>
+      <div style={S.cardLabel}>AI Scan Features</div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Scanning is turned off. An API key is still stored on this device.</div>
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
+        <span style={{ flex: 1, fontSize: 12, color: "var(--text-dim)" }}>{"\u2022\u2022\u2022\u2022"}{settings.apiKeyLast4 || ""} (AES-256, encrypted with your PIN)</span>
+        <button onClick={removeApiKey} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
+      </div>
+    </div>)}
 
     {/* wRVU Editor */}
     <div style={S.card}>

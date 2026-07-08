@@ -3,6 +3,11 @@ const {useState,useEffect,useRef,useMemo,useCallback}=React;
 const DATA_VERSION = "CY2026-PFS-v1";
 const DATA_YEAR = 2026;
 
+var SCAN_ENABLED = false; // AI note scanning (op/clinic/inpatient). OFF by
+// default: sends note text to the Anthropic API, which has HIPAA/BAA
+// implications - review compliance before setting true. Flip to true to
+// re-enable everywhere.
+
 // --- Crypto helpers for API key ---
 async function getDecryptedApiKey(settings) {
   if (settings.encryptedApiKey) {

@@ -291,6 +291,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
 
   var scanNote = function(file) {
+    if (!SCAN_ENABLED) return; // feature flag: no PHI leaves the browser when off
     if (!file || scanning.current) return;
     getDecryptedApiKey(data.settings).then(function(apiKey) {
     if (!apiKey) { setScanError("No API key configured. Add one in Settings to enable scanning."); return; }
@@ -349,6 +350,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
 
   var scanClinicNote = function(file) {
+    if (!SCAN_ENABLED) return; // feature flag: no PHI leaves the browser when off
     if (!file || scanning.current) return;
     getDecryptedApiKey(data.settings).then(function(apiKey) {
     if (!apiKey) { setScanError("No API key configured. Add one in Settings to enable scanning."); return; }
@@ -396,6 +398,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
 
   var scanInpatient = function(file) {
+    if (!SCAN_ENABLED) return; // feature flag: no PHI leaves the browser when off
     if (!file || scanning.current) return;
     getDecryptedApiKey(data.settings).then(function(apiKey) {
     if (!apiKey) { setScanError("No API key configured. Add one in Settings to enable scanning."); return; }
@@ -486,8 +489,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     <div style={S.header}><h1 style={S.title}>Log Encounter</h1></div>
     {saved && <div style={S.successBanner}>Logged {procs.filter(function(p){return p.code;}).length} procedure(s) - {totalRVU.toFixed(2)} wRVUs</div>}
 
-    {/* Scan Buttons */}
-    {(function() { var hasKey = hasApiKey(data.settings); return (<div style={{ marginBottom: 12 }}>
+    {/* Scan Buttons (feature-flagged: hidden entirely when SCAN_ENABLED is false) */}
+    {SCAN_ENABLED && (function() { var hasKey = hasApiKey(data.settings); return (<div style={{ marginBottom: 12 }}>
       <div style={{ display: "flex", gap: 6 }}>
         <input ref={imgRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) scanNote(e.target.files[0]); e.target.value = ""; }} />
         <input ref={clinicRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) scanClinicNote(e.target.files[0]); e.target.value = ""; }} />
@@ -508,8 +511,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
       {!hasKey && <div style={{ marginTop: 6, fontSize: 11, color: "var(--text-faint)", textAlign: "center" }}>Add an API key in Settings to enable AI scanning</div>}
     </div>); })()}
 
-    {/* HIPAA Warning Modal */}
-    {showHipaaWarn && <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "var(--overlay-bg)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    {/* HIPAA Warning Modal (scan-consent only; suppressed when scanning is off) */}
+    {SCAN_ENABLED && showHipaaWarn && <div style={{ position: "fixed", top: 0, left: 0, right: 0, bottom: 0, background: "var(--overlay-bg)", zIndex: 9999, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
       <div style={{ maxWidth: 400, width: "100%", background: "var(--bg-card)", borderRadius: 16, border: "1px solid #f59e0b", overflow: "hidden" }}>
         <div style={{ padding: "16px 20px", background: "rgba(245,158,11,0.1)", borderBottom: "1px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 24 }}>&#9888;&#65039;</span>
