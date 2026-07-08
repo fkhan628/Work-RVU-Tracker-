@@ -8,6 +8,10 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
   var PIN_HASH_KEY = "rvu-pin-hash";
   var PIN_SALT_KEY = "rvu-pin-salt";
   var PIN_HINT_KEY = "rvu-pin-hint";
+  // Must equal SK in utils.js. crypto.js runs before the Babel-compiled files,
+  // so it cannot reference SK directly and owns its own copy of the literal.
+  // scripts/check.js asserts the two stay identical.
+  var DATA_KEY = "rvu-tracker-data";
   var AUTO_LOCK_MS = 5 * 60 * 1000; // 5 minutes
   var lockEl = document.getElementById("pin-lock");
   var rootEl = document.getElementById("root");
@@ -392,7 +396,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
             localStorage.removeItem(PIN_SALT_KEY);
             localStorage.removeItem(PIN_HINT_KEY);
             try {
-              var sk = "rvu-tracker-data-v6";
+              var sk = DATA_KEY;
               var raw = localStorage.getItem(sk);
               if (raw) {
                 var d = JSON.parse(raw);
@@ -441,7 +445,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
   function migrateApiKey(pin) {
     // If there's a plaintext API key in settings, encrypt it
     try {
-      var sk = "rvu-tracker-data-v6";
+      var sk = DATA_KEY;
       var raw = localStorage.getItem(sk);
       if (!raw) return Promise.resolve();
       var d = JSON.parse(raw);

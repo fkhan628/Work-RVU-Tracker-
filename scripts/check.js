@@ -79,6 +79,18 @@ check("utils.js defines CPT_DATABASE_DEFAULT", dIdx !== -1);
 check("KEYWORD_SUPPLEMENT above CPT_DATABASE_DEFAULT", kIdx !== -1 && dIdx !== -1 && kIdx < dIdx);
 check("FRIENDLY_DESC above CPT_DATABASE_DEFAULT", fIdx !== -1 && dIdx !== -1 && fIdx < dIdx);
 
+// 5b. Storage-key consistency: crypto.js loads before the Babel files, so it
+// owns its own copy of the app data key. The two literals must never drift
+// (a past drift left "-v6" in crypto.js and silently broke API-key migration
+// and the Forgot-PIN reset).
+const cryptoSrc = fs.readFileSync(path.join(JS_DIR, "crypto.js"), "utf8");
+const dkMatch = cryptoSrc.match(/var DATA_KEY = "([^"]+)"/);
+const skMatch = utils.match(/const SK = "([^"]+)"/);
+check("crypto.js defines DATA_KEY", !!dkMatch);
+check("utils.js defines SK", !!skMatch);
+check("crypto.js DATA_KEY === utils.js SK", !!dkMatch && !!skMatch && dkMatch[1] === skMatch[1],
+  (dkMatch ? dkMatch[1] : "(missing)") + " vs " + (skMatch ? skMatch[1] : "(missing)"));
+
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");
 let rows = null, evalErr = null;
