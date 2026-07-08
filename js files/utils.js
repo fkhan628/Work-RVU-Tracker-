@@ -24,14 +24,15 @@ function hasApiKey(settings) { return !!(settings.encryptedApiKey || settings.ap
 // Maps CPT codes to additional searchable terms (merged at DB build time)
 var KEYWORD_SUPPLEMENT = {
   // Soft tissue masses / lipoma
-  "21930": "lipoma soft tissue mass subcutaneous tumor back",
-  "21931": "lipoma soft tissue mass subcutaneous back flank",
-  "21932": "lipoma soft tissue mass subcutaneous back flank medium",
-  "21933": "lipoma soft tissue mass subcutaneous back flank large",
-  "21552": "lipoma neck soft tissue mass anterior chest",
-  "21554": "lipoma neck deep soft tissue tumor",
-  "21555": "lipoma neck soft tissue mass anterior chest subcutaneous",
-  "21556": "lipoma neck deep subfascial soft tissue tumor large",
+  // NOTE: size/depth terms verified against CMS CY2026 PFS official descriptors
+  "21930": "lipoma soft tissue mass subcutaneous tumor back flank less than 3cm",
+  "21931": "lipoma soft tissue mass subcutaneous back flank 3cm or more",
+  "21932": "lipoma soft tissue mass deep subfascial intramuscular back flank less than 5cm",
+  "21933": "lipoma soft tissue mass deep subfascial intramuscular back flank 5cm or more",
+  "21552": "lipoma neck soft tissue mass anterior chest subcutaneous 3cm or more",
+  "21554": "lipoma neck deep subfascial soft tissue tumor 5cm or more",
+  "21555": "lipoma neck soft tissue mass anterior chest subcutaneous less than 3cm",
+  "21556": "lipoma neck deep subfascial soft tissue tumor less than 5cm",
   "23071": "lipoma shoulder soft tissue mass",
   "23075": "lipoma shoulder soft tissue mass small",
   "24071": "lipoma arm elbow soft tissue mass",
@@ -54,8 +55,7 @@ var KEYWORD_SUPPLEMENT = {
   "22900": "lipoma abdominal wall deep soft tissue tumor",
 
   // Component separation / TAR
-  "15734": "tar transverse abdominis release component separation myofascial flap abdominal wall reconstruction",
-  "15734": "tar transversus abdominis release posterior component separation complex hernia abdominal wall reconstruction",
+  "15734": "tar transversus abdominis release posterior component separation complex hernia abdominal wall reconstruction myofascial flap",
   "15733": "component separation anterior face head neck myocutaneous flap",
   "49900": "repair abdominal wall component separation",
 
@@ -160,6 +160,111 @@ var KEYWORD_SUPPLEMENT = {
   "11443": "skin cyst excision benign lesion face",
   "11444": "skin cyst excision benign lesion face",
   "11446": "skin cyst excision benign lesion face large",
+};
+
+// --- Friendly plain-language labels for common procedures ---
+// Keyed by CPT code. Shown as the PRIMARY description in the UI; the official
+// CMS short descriptor stays visible as secondary text. Display-only: saved
+// entries and CSV/Excel exports keep the official descriptor.
+// ACCURACY RULE: every label must match the official CPT definition exactly
+// (site, depth, size cutoff) - verified against CMS 2026/PPRRVU2026_Jan.
+// MUST be defined above CPT_DATABASE_DEFAULT (var hoisting).
+var FRIENDLY_DESC = {
+  // Soft tissue tumor excision (lipoma) - subcutaneous vs deep, by site and size
+  "21930": "Lipoma / soft tissue tumor excision - back/flank, subcut, under 3 cm",
+  "21931": "Lipoma / soft tissue tumor excision - back/flank, subcut, 3 cm or larger",
+  "21932": "Lipoma / soft tissue tumor excision - back/flank, deep (subfascial/intramuscular), under 5 cm",
+  "21933": "Lipoma / soft tissue tumor excision - back/flank, deep (subfascial/intramuscular), 5 cm or larger",
+  "21555": "Lipoma / soft tissue tumor excision - neck/anterior chest, subcut, under 3 cm",
+  "21552": "Lipoma / soft tissue tumor excision - neck/anterior chest, subcut, 3 cm or larger",
+  "21556": "Lipoma / soft tissue tumor excision - neck/anterior chest, deep (subfascial), under 5 cm",
+  "21554": "Lipoma / soft tissue tumor excision - neck/anterior chest, deep (subfascial), 5 cm or larger",
+  "22902": "Lipoma / soft tissue tumor excision - abdominal wall, subcut, under 3 cm",
+  "22903": "Lipoma / soft tissue tumor excision - abdominal wall, subcut, 3 cm or larger",
+  "22900": "Lipoma / soft tissue tumor excision - abdominal wall, deep (subfascial), under 5 cm",
+  "22901": "Lipoma / soft tissue tumor excision - abdominal wall, deep (subfascial), 5 cm or larger",
+  "23075": "Lipoma / soft tissue tumor excision - shoulder, subcut, under 3 cm",
+  "23071": "Lipoma / soft tissue tumor excision - shoulder, subcut, 3 cm or larger",
+  "24075": "Lipoma / soft tissue tumor excision - upper arm/elbow, subcut, under 3 cm",
+  "24071": "Lipoma / soft tissue tumor excision - upper arm/elbow, subcut, 3 cm or larger",
+  "25075": "Lipoma / soft tissue tumor excision - forearm/wrist, subcut, under 3 cm",
+  "25071": "Lipoma / soft tissue tumor excision - forearm/wrist, subcut, 3 cm or larger",
+  "25073": "Lipoma / soft tissue tumor excision - forearm/wrist, deep (subfascial/intramuscular), 3 cm or larger",
+  "26115": "Lipoma / soft tissue tumor excision - hand/finger, subcut, under 1.5 cm",
+  "26111": "Lipoma / soft tissue tumor excision - hand/finger, subcut, 1.5 cm or larger",
+  "27047": "Lipoma / soft tissue tumor excision - hip/pelvis, subcut, under 3 cm",
+  "27043": "Lipoma / soft tissue tumor excision - hip/pelvis, subcut, 3 cm or larger",
+  "27045": "Lipoma / soft tissue tumor excision - hip/pelvis, deep (subfascial/intramuscular), 5 cm or larger",
+  "27327": "Lipoma / soft tissue tumor excision - thigh/knee, subcut, under 3 cm",
+  "27337": "Lipoma / soft tissue tumor excision - thigh/knee, subcut, 3 cm or larger",
+  "27618": "Lipoma / soft tissue tumor excision - lower leg/ankle, subcut, under 3 cm",
+  "27632": "Lipoma / soft tissue tumor excision - lower leg/ankle, subcut, 3 cm or larger",
+  "28043": "Lipoma / soft tissue tumor excision - foot/toe, subcut, under 1.5 cm",
+  "28039": "Lipoma / soft tissue tumor excision - foot/toe, subcut, 1.5 cm or larger",
+  "21011": "Lipoma / soft tissue tumor excision - face/scalp, subcut, under 2 cm",
+  "21012": "Lipoma / soft tissue tumor excision - face/scalp, subcut, 2 cm or larger",
+  "21013": "Lipoma / soft tissue tumor excision - face/scalp, deep (subfascial), under 2 cm",
+  "21014": "Lipoma / soft tissue tumor excision - face/scalp, deep (subfascial), 2 cm or larger",
+
+  // Benign skin lesion / cyst excision - size is EXCISED diameter incl margins
+  "11400": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - trunk/arm/leg, excised 0.5 cm or less incl margins",
+  "11401": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - trunk/arm/leg, excised 0.6-1 cm incl margins",
+  "11402": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - trunk/arm/leg, excised 1.1-2 cm incl margins",
+  "11403": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - trunk/arm/leg, excised 2.1-3 cm incl margins",
+  "11404": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - trunk/arm/leg, excised 3.1-4 cm incl margins",
+  "11406": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - trunk/arm/leg, excised over 4 cm incl margins",
+  "11420": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - scalp/neck/hand/foot/genitalia, excised 0.5 cm or less incl margins",
+  "11421": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - scalp/neck/hand/foot/genitalia, excised 0.6-1 cm incl margins",
+  "11422": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - scalp/neck/hand/foot/genitalia, excised 1.1-2 cm incl margins",
+  "11423": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - scalp/neck/hand/foot/genitalia, excised 2.1-3 cm incl margins",
+  "11424": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - scalp/neck/hand/foot/genitalia, excised 3.1-4 cm incl margins",
+  "11426": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - scalp/neck/hand/foot/genitalia, excised over 4 cm incl margins",
+  "11440": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - face/ear/eyelid/nose/lip/mucosa, excised 0.5 cm or less incl margins",
+  "11441": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - face/ear/eyelid/nose/lip/mucosa, excised 0.6-1 cm incl margins",
+  "11442": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - face/ear/eyelid/nose/lip/mucosa, excised 1.1-2 cm incl margins",
+  "11443": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - face/ear/eyelid/nose/lip/mucosa, excised 2.1-3 cm incl margins",
+  "11444": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - face/ear/eyelid/nose/lip/mucosa, excised 3.1-4 cm incl margins",
+  "11446": "Benign skin lesion excision (sebaceous/epidermal cyst, etc.) - face/ear/eyelid/nose/lip/mucosa, excised over 4 cm incl margins",
+
+  // Malignant skin lesion excision - size is EXCISED diameter incl margins
+  "11600": "Malignant skin lesion excision - trunk/arm/leg, excised 0.5 cm or less incl margins",
+  "11601": "Malignant skin lesion excision - trunk/arm/leg, excised 0.6-1 cm incl margins",
+  "11602": "Malignant skin lesion excision - trunk/arm/leg, excised 1.1-2 cm incl margins",
+  "11603": "Malignant skin lesion excision - trunk/arm/leg, excised 2.1-3 cm incl margins",
+  "11604": "Malignant skin lesion excision - trunk/arm/leg, excised 3.1-4 cm incl margins",
+  "11606": "Malignant skin lesion excision - trunk/arm/leg, excised over 4 cm incl margins",
+  "11620": "Malignant skin lesion excision - scalp/neck/hand/foot/genitalia, excised 0.5 cm or less incl margins",
+  "11621": "Malignant skin lesion excision - scalp/neck/hand/foot/genitalia, excised 0.6-1 cm incl margins",
+  "11622": "Malignant skin lesion excision - scalp/neck/hand/foot/genitalia, excised 1.1-2 cm incl margins",
+  "11623": "Malignant skin lesion excision - scalp/neck/hand/foot/genitalia, excised 2.1-3 cm incl margins",
+  "11624": "Malignant skin lesion excision - scalp/neck/hand/foot/genitalia, excised 3.1-4 cm incl margins",
+  "11626": "Malignant skin lesion excision - scalp/neck/hand/foot/genitalia, excised over 4 cm incl margins",
+  "11640": "Malignant skin lesion excision - face/ear/eyelid/nose/lip, excised 0.5 cm or less incl margins",
+  "11641": "Malignant skin lesion excision - face/ear/eyelid/nose/lip, excised 0.6-1 cm incl margins",
+  "11642": "Malignant skin lesion excision - face/ear/eyelid/nose/lip, excised 1.1-2 cm incl margins",
+  "11643": "Malignant skin lesion excision - face/ear/eyelid/nose/lip, excised 2.1-3 cm incl margins",
+  "11644": "Malignant skin lesion excision - face/ear/eyelid/nose/lip, excised 3.1-4 cm incl margins",
+  "11646": "Malignant skin lesion excision - face/ear/eyelid/nose/lip, excised over 4 cm incl margins",
+
+  // Pilonidal
+  "11770": "Pilonidal cyst/sinus excision - simple",
+  "11771": "Pilonidal cyst/sinus excision - extensive",
+  "11772": "Pilonidal cyst/sinus excision - complicated",
+  "10080": "Pilonidal cyst/abscess I&D - simple",
+  "10081": "Pilonidal cyst/abscess I&D - complicated",
+
+  // Incision & drainage
+  "10060": "Skin abscess I&D - simple or single",
+  "10061": "Skin abscess I&D - complicated or multiple",
+  "10140": "Hematoma / seroma / fluid collection I&D",
+
+  // Hidradenitis
+  "11450": "Hidradenitis excision - axilla, simple/intermediate repair",
+  "11451": "Hidradenitis excision - axilla, complex repair",
+  "11462": "Hidradenitis excision - inguinal, simple/intermediate repair",
+  "11463": "Hidradenitis excision - inguinal, complex repair",
+  "11470": "Hidradenitis excision - perianal/perineal/umbilical, simple/intermediate repair",
+  "11471": "Hidradenitis excision - perianal/perineal/umbilical, complex repair",
 };
 
 // =======================================
@@ -349,7 +454,7 @@ function getCompanionSuggestions(code, entries, cptMap, alreadySelected) {
       if (seen[c.code]) return;
       seen[c.code] = true;
       var info = cptMap[c.code];
-      results.push({ code: c.code, desc: info.desc, wRVU: info.wRVU, label: c.label, source: "clinical" });
+      results.push({ code: c.code, desc: info.desc, friendly: info.friendly, wRVU: info.wRVU, label: c.label, source: "clinical" });
     });
   }
 
@@ -377,15 +482,28 @@ function getCompanionSuggestions(code, entries, cptMap, alreadySelected) {
       if (count < 2 || seen[c] || !cptMap[c]) return; // require at least 2 occurrences
       seen[c] = true;
       var info = cptMap[c];
-      results.push({ code: c, desc: info.desc, wRVU: info.wRVU, label: "Logged together x" + count, source: "history" });
+      results.push({ code: c, desc: info.desc, friendly: info.friendly, wRVU: info.wRVU, label: "Logged together x" + count, source: "history" });
     });
   }
 
   return results;
 }
 
-const CPT_DATABASE_DEFAULT=CMS_RAW.map(function(r){var kw=r[4]||"";var extra=KEYWORD_SUPPLEMENT[r[0]];if(extra)kw=kw?(kw+" "+extra):extra;return {code:r[0],desc:r[1],wRVU:r[2],category:r[3],keywords:kw,globalDays:GLOBAL_DAYS[r[0]]}});
+const CPT_DATABASE_DEFAULT=CMS_RAW.map(function(r){var kw=r[4]||"";var extra=KEYWORD_SUPPLEMENT[r[0]];if(extra)kw=kw?(kw+" "+extra):extra;var fr=FRIENDLY_DESC[r[0]];if(fr)kw=kw?(kw+" "+fr):fr;return {code:r[0],desc:r[1],wRVU:r[2],category:r[3],keywords:kw,friendly:fr,globalDays:GLOBAL_DAYS[r[0]]}});
 const buildCPTMap = (db) => { const m = {}; db.forEach(c => { m[c.code] = c; }); return m; };
+
+// Multi-term CPT search: every whitespace-separated term must match somewhere
+// in code, desc, category, keywords, or friendly label (case-insensitive).
+// Makes queries like "sebaceous cyst" or "lipoma back" work.
+function matchesCPTQuery(c, query) {
+  var terms = query.toLowerCase().split(/\s+/).filter(function(t) { return t; });
+  if (terms.length === 0) return true;
+  var hay = (c.code + " " + c.desc + " " + c.category + " " + (c.keywords || "") + " " + (c.friendly || "")).toLowerCase();
+  for (var i = 0; i < terms.length; i++) {
+    if (hay.indexOf(terms[i]) === -1) return false;
+  }
+  return true;
+}
 const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();
 
 const MODIFIERS = [
@@ -427,6 +545,42 @@ fontLink.href = "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..4
 fontLink.rel = "stylesheet";
 document.head.appendChild(fontLink);
 
+// --- Local date helpers ---
+// ALWAYS use these for "today"/date-string derivation. new Date().toISOString()
+// yields the UTC date, which after ~6-7pm Central is TOMORROW - wrong dates on
+// real billing entries. localYMD formats any Date as local YYYY-MM-DD.
+function localYMD(d) {
+  var m = String(d.getMonth() + 1).padStart(2, "0");
+  var day = String(d.getDate()).padStart(2, "0");
+  return d.getFullYear() + "-" + m + "-" + day;
+}
+function todayLocal() { return localYMD(new Date()); }
+
+// --- Visible data alert (save/load failures must never be silent) ---
+// Plain-DOM banner so it works even if React is wedged. appendChild only.
+function showDataAlert(msg, onDismiss) {
+  try {
+    var existing = document.getElementById("rvu-data-alert");
+    if (existing && existing.parentNode) existing.parentNode.removeChild(existing);
+    var bar = document.createElement("div");
+    bar.id = "rvu-data-alert";
+    bar.style.cssText = "position:fixed;top:0;left:0;right:0;z-index:99999;background:#7f1d1d;color:#fecaca;font-family:-apple-system,sans-serif;font-size:13px;line-height:1.5;padding:12px 44px 12px 14px;border-bottom:2px solid #ef4444;box-shadow:0 2px 12px rgba(0,0,0,0.4);";
+    var text = document.createElement("span");
+    text.textContent = msg;
+    var btn = document.createElement("button");
+    btn.textContent = "\u2715";
+    btn.setAttribute("aria-label", "Dismiss");
+    btn.style.cssText = "position:absolute;top:8px;right:10px;background:none;border:none;color:#fecaca;font-size:16px;cursor:pointer;padding:4px 8px;";
+    btn.onclick = function() {
+      if (bar.parentNode) bar.parentNode.removeChild(bar);
+      if (onDismiss) { try { onDismiss(); } catch(e) {} }
+    };
+    bar.appendChild(text);
+    bar.appendChild(btn);
+    document.body.appendChild(bar);
+  } catch(e) { try { alert(msg); if (onDismiss) onDismiss(); } catch(e2) {} }
+}
+
 const fmt = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtShort = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 function fmtDollar(val, show) { if (!show) return "$\u2022\u2022\u2022\u2022\u2022"; return "$" + val.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
@@ -434,24 +588,77 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, yearStart: new Da
 const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
+// One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
+// copy of all entries incl. patient initials/notes, written by old Settings code
+// and never read anywhere). The encrypted clipboard backup feature is unrelated.
+try { localStorage.removeItem("rvu-backup"); localStorage.removeItem("rvu-backup-time"); } catch(e) {}
+
+// Forensic copy of a store that failed to load. SINGLE key, always overwritten,
+// never accumulates. Cleared on the next clean load and on user dismissal of the
+// recovery alert - it must never become a lingering plaintext copy of the data.
+var CORRUPT_KEY = "rvu-tracker-data-corrupt";
+function clearCorruptCopy() { try { localStorage.removeItem(CORRUPT_KEY); } catch(e) {} }
+
+// Repair-before-reject: coerce every field validateData requires to be numeric
+// (currently only settings.ratePerRVU) plus settings.annualGoal, which shares
+// the same text-input history. Returns the names of repaired fields.
+function repairData(d) {
+  var fixed = [];
+  if (d && d.settings) {
+    ["ratePerRVU", "annualGoal"].forEach(function(k) {
+      if (typeof d.settings[k] === "string") {
+        var v = parseFloat(d.settings[k]);
+        if (!isNaN(v)) { d.settings[k] = v; fixed.push(k); }
+      }
+    });
+  }
+  return fixed;
+}
+
+// Loud recovery: never silently substitute older data for newer. Preserve the
+// failing store first, tell the user exactly what state they are in, and make
+// clear the preserved copy is a forensic lifeboat, not a one-click restore.
+function recoverFromBad(raw, reason) {
+  var preserved = false;
+  try { if (raw) { localStorage.setItem(CORRUPT_KEY, raw); preserved = true; } } catch(e) {}
+  var preservedMsg = preserved
+    ? " The unreadable data was preserved as a raw forensic copy (it can NOT be restored with one click - recovery requires manual work). Dismissing this notice DISCARDS that copy."
+    : " The unreadable data could NOT be preserved (storage full).";
+  var lg = null;
+  try { lg = loadLastGood(); if (lg) repairData(lg); } catch(e) { lg = null; }
+  if (lg && validateData(lg)) {
+    var age = "";
+    try { var ts = localStorage.getItem(LAST_GOOD_TIME_KEY); if (ts) age = " (saved " + ts + ")"; } catch(e) {}
+    showDataAlert("DATA RECOVERY: your saved data " + reason + ". An older snapshot" + age + " was loaded instead - anything logged after that snapshot is NOT in the app right now." + preservedMsg + " Export a backup from Settings before continuing.", clearCorruptCopy);
+    return lg;
+  }
+  showDataAlert("DATA RECOVERY FAILED: your saved data " + reason + " and no valid snapshot exists, so the app is starting EMPTY." + preservedMsg, clearCorruptCopy);
+  return defState();
+}
+
 function loadData() {
+  var raw = null;
   try {
-    var raw = localStorage.getItem(SK);
-    if (!raw) return defState();
+    raw = localStorage.getItem(SK);
+    if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
     var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], dataVersion: s.dataVersion || DATA_VERSION };
-    if (validateData(d)) return d;
-    console.warn("RVU Tracker: primary data failed validation, trying last-good backup");
-    var lg = loadLastGood();
-    if (lg && validateData(lg)) return lg;
-    return defState();
+    var repaired = repairData(d);
+    if (validateData(d)) {
+      if (repaired.length > 0) {
+        // Persist the self-heal so the bad value is gone for good,
+        // not re-coerced on every boot.
+        try { localStorage.setItem(SK, JSON.stringify(d)); } catch(e) {}
+        console.warn("RVU Tracker: repaired non-numeric settings field(s): " + repaired.join(", "));
+      }
+      clearCorruptCopy();
+      return d;
+    }
+    console.warn("RVU Tracker: primary data failed validation even after repair");
+    return recoverFromBad(raw, "failed validation");
   } catch(e) {
     console.error("RVU Tracker: loadData error, attempting recovery:", e);
-    try {
-      var lg2 = loadLastGood();
-      if (lg2 && validateData(lg2)) return lg2;
-    } catch(e2) {}
-    return defState();
+    return recoverFromBad(raw, "could not be read (" + (e && e.message ? e.message : "parse error") + ")");
   }
 }
 var _saveGoodCounter = 0;
@@ -460,7 +667,10 @@ function saveData(d) {
     localStorage.setItem(SK, JSON.stringify(d));
     _saveGoodCounter++;
     if (_saveGoodCounter % 5 === 0 && validateData(d)) { saveLastGood(d); }
-  } catch(e) { console.error("RVU Tracker: saveData error:", e); }
+  } catch(e) {
+    console.error("RVU Tracker: saveData error:", e);
+    showDataAlert("SAVE FAILED - your latest change was NOT saved (" + (e && e.message ? e.message : "storage error") + "). Free up space or export a backup from Settings before closing the app.");
+  }
 }
 async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
 async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
@@ -481,6 +691,18 @@ function calcAdj(base, mods) {
   let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r;
 }
 
+// --- CSV field escaping (RFC 4180) ---
+// Shared by the History and Settings CSV exports - do not duplicate inline.
+// Quotes a field only when it contains a comma, quote, or newline; internal
+// quotes are doubled.
+function csvField(val) {
+  var s = (val === null || val === undefined) ? "" : String(val);
+  if (s.indexOf('"') !== -1 || s.indexOf(",") !== -1 || s.indexOf("\n") !== -1 || s.indexOf("\r") !== -1) {
+    return '"' + s.replace(/"/g, '""') + '"';
+  }
+  return s;
+}
+
 // --- CSV Parse (same as before) ---
 function parseLine(line) { const r = []; let cur = "", inQ = false; for (let i = 0; i < line.length; i++) { const c = line[i]; if (c === '"') inQ = !inQ; else if ((c === ',' || c === '\t') && !inQ) { r.push(cur.trim()); cur = ""; } else cur += c; } r.push(cur.trim()); return r; }
 function normH(h) { return h.toLowerCase().replace(/[^a-z0-9]/g, ''); }
@@ -490,7 +712,7 @@ function detectCols(headers) {
   headers.forEach((h, i) => { const n = normH(h); Object.entries(maps).forEach(([k, vals]) => { if (m[k] === -1 && vals.includes(n)) m[k] = i; }); });
   return m;
 }
-function parseDate2(val) { if (!val) return new Date().toISOString().slice(0, 10); const c = val.trim(); let x = c.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/); if (x) { const y = x[3].length === 2 ? '20' + x[3] : x[3]; return `${y}-${x[1].padStart(2,'0')}-${x[2].padStart(2,'0')}`; } x = c.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/); if (x) return `${x[1]}-${x[2].padStart(2,'0')}-${x[3].padStart(2,'0')}`; const d = new Date(c); if (!isNaN(d.getTime())) return d.toISOString().slice(0, 10); return new Date().toISOString().slice(0, 10); }
+function parseDate2(val) { if (!val) return todayLocal(); const c = val.trim(); let x = c.match(/^(\d{1,2})[\/\-](\d{1,2})[\/\-](\d{2,4})$/); if (x) { const y = x[3].length === 2 ? '20' + x[3] : x[3]; return `${y}-${x[1].padStart(2,'0')}-${x[2].padStart(2,'0')}`; } x = c.match(/^(\d{4})[\/\-](\d{1,2})[\/\-](\d{1,2})$/); if (x) return `${x[1]}-${x[2].padStart(2,'0')}-${x[3].padStart(2,'0')}`; const d = new Date(c); if (!isNaN(d.getTime())) return localYMD(d); return todayLocal(); }
 function extractCPT(val) { if (!val) return null; const x = val.replace(/[^0-9]/g, ' ').trim().match(/\b(\d{5})\b/); return x ? x[1] : null; }
 function extractMods(val) { if (!val) return []; const known = MODIFIERS.map(m => m.code); const mods = []; (val.match(/[-]?\d{2}/g) || []).forEach(raw => { const c = raw.startsWith('-') ? raw : '-' + raw; if (known.includes(c)) mods.push(c); }); return [...new Set(mods)]; }
 
@@ -530,7 +752,7 @@ function parseImport(text, cptMap) {
       const cols = parseLine(lines[i]);
       if (cols.length < 3) continue;
 
-      const date = dateCol >= 0 ? parseDate2(cols[dateCol]) : new Date().toISOString().slice(0, 10);
+      const date = dateCol >= 0 ? parseDate2(cols[dateCol]) : todayLocal();
       const ref = refCol >= 0 ? (cols[refCol] || '') : '';
       const loc = locCol >= 0 ? (cols[locCol] || '') : '';
       const codesStr = codesCol >= 0 ? cols[codesCol] : '';
@@ -600,7 +822,7 @@ function parseImport(text, cptMap) {
     var cols = parseLine(lines[i]); if (cols.length < 2) continue;
     var code = extractCPT(mapping.cpt >= 0 ? cols[mapping.cpt] : '');
     if (!code) { errors.push('Row ' + (i + 1) + ': No valid CPT code'); continue; }
-    var date = mapping.date >= 0 ? parseDate2(cols[mapping.date]) : new Date().toISOString().slice(0, 10);
+    var date = mapping.date >= 0 ? parseDate2(cols[mapping.date]) : todayLocal();
     var mods = mapping.modifier >= 0 ? extractMods(cols[mapping.modifier]) : [];
     var notes = mapping.notes >= 0 ? (cols[mapping.notes] || '') : '';
     var info = cptMap[code]; var desc = mapping.desc >= 0 ? (cols[mapping.desc] || '') : ''; var base;
@@ -616,9 +838,14 @@ function parseImport(text, cptMap) {
 // ERROR BOUNDARY & CRASH RECOVERY
 // =======================================
 var LAST_GOOD_KEY = "rvu-tracker-last-good";
+var LAST_GOOD_TIME_KEY = "rvu-tracker-last-good-time";
 
 function saveLastGood(d) {
-  try { localStorage.setItem(LAST_GOOD_KEY, JSON.stringify(d)); } catch(e) {}
+  try {
+    localStorage.setItem(LAST_GOOD_KEY, JSON.stringify(d));
+    // Stamped so a recovery alert can tell the user how old the snapshot is.
+    localStorage.setItem(LAST_GOOD_TIME_KEY, new Date().toLocaleString());
+  } catch(e) {}
 }
 
 function loadLastGood() {

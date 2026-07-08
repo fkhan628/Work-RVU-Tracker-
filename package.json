@@ -1,0 +1,14 @@
+{
+  "name": "rvu-tracker",
+  "version": "1.0.0",
+  "description": "Mobile-first PWA for tracking surgical wRVUs, CPT codes, and compensation. No build step - static files served from GitHub Pages. The only dependency here is @babel/parser, used by the regression smoke check (npm run check).",
+  "private": true,
+  "scripts": {
+    "check": "node scripts/check.js"
+  },
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@babel/parser": "^8.0.0"
+  }
+}

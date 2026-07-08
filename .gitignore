@@ -1,0 +1,15 @@
+# Dependencies (only needed locally for `npm run check`)
+node_modules/
+
+# NEVER commit real billing data or CMS licensed files
+RVU Wallet Data/
+CMS 2026/
+*.xlsx
+RVU_Wallet_Report*.csv
+
+# Local-only Claude Code session config
+.claude/settings.local.json
+
+# OS noise
+.DS_Store
+Thumbs.db

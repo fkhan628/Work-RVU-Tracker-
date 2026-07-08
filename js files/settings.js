@@ -16,9 +16,6 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     try { return localStorage.getItem("rvu-pin-hint") || ""; } catch(e) { return ""; }
   });
   const [editingHint, setEditingHint] = useState(false);
-  const [lastBackupTime, setLastBackupTime] = useState(function() {
-    try { return localStorage.getItem("rvu-backup-time") || ""; } catch(e) { return ""; }
-  });
   const [bioAvailable, setBioAvailable] = useState(false);
   const [bioEnabled, setBioEnabled] = useState(function() { try { return window.RVU_CRYPTO && window.RVU_CRYPTO.hasBiometrics && window.RVU_CRYPTO.hasBiometrics(); } catch(e) { return false; } });
   const [bioStatus, setBioStatus] = useState("");
@@ -31,18 +28,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     } catch(e) {}
   }, []);
 
-  // Auto-backup on mount
-  useEffect(function() {
-    if (data.entries.length > 0) {
-      try {
-        var backup = JSON.stringify(data);
-        localStorage.setItem("rvu-backup", backup);
-        var ts = new Date().toLocaleString();
-        localStorage.setItem("rvu-backup-time", ts);
-        setLastBackupTime(ts);
-      } catch(e) {}
-    }
-  }, [data]);
+  // (Removed: legacy plaintext auto-backup. It wrote an UNENCRYPTED copy of all
+  // entries incl. patient initials/notes to localStorage ("rvu-backup") and was
+  // never read anywhere. The encrypted clipboard backup below is the real one.)
 
   var copyBackup = function() {
     var pin = window.RVU_CRYPTO.getPin();
@@ -185,6 +173,25 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   };
 
   const set = (k, v) => upd(prev => ({ ...prev, settings: { ...prev.settings, [k]: v } }));
+
+  // Numeric settings inputs: keep the raw text in LOCAL state while typing and
+  // commit only parseFloat-valid numbers to settings. Strings in the store used
+  // to trip validateData and silently roll data back on the next launch.
+  const [rateText, setRateText] = useState(function() { return settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU); });
+  const [goalText, setGoalText] = useState(function() { return settings.annualGoal === 0 ? "" : String(settings.annualGoal); });
+  useEffect(function() {
+    if (parseFloat(rateText || "0") !== settings.ratePerRVU) setRateText(settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU));
+  }, [settings.ratePerRVU]);
+  useEffect(function() {
+    if (parseFloat(goalText || "0") !== settings.annualGoal) setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal));
+  }, [settings.annualGoal]);
+  var onNumericChange = function(raw, setText, key) {
+    var v = raw.replace(/[^0-9.]/g, "");
+    setText(v);
+    if (v === "") { set(key, 0); return; }
+    var n = parseFloat(v);
+    if (!isNaN(n) && n >= 0) set(key, n);
+  };
   const setOverride = (code, val) => upd(prev => {
     const o = { ...prev.rvuOverrides };
     const orig = CPT_DATABASE_DEFAULT.find(c => c.code === code);
@@ -196,12 +203,12 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const editFiltered = useMemo(() => {
     let items = db;
     if (editCat !== "All") items = items.filter(c => c.category === editCat);
-    if (editSearch.trim()) { const q = editSearch.toLowerCase(); items = items.filter(c => c.code.includes(q) || c.desc.toLowerCase().includes(q) || (c.keywords && c.keywords.toLowerCase().includes(q))); }
+    if (editSearch.trim()) { const q = editSearch.trim(); items = items.filter(c => matchesCPTQuery(c, q)); }
     return items;
   }, [db, editCat, editSearch]);
 
-  const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, '"' + e.description + '"', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), '"' + (e.notes || '') + '"']); const csv = [h.join(','), ...rows.map(r => r.join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + new Date().toISOString().slice(0,10) + ".csv"; a.click(); URL.revokeObjectURL(u); };
-  const expJSON = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + new Date().toISOString().slice(0,10) + ".json"; a.click(); URL.revokeObjectURL(u); };
+  const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.notes || '']); const csv = [h.join(','), ...rows.map(r => r.map(csvField).join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".csv"; a.click(); URL.revokeObjectURL(u); };
+  const expJSON = () => { const b = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".json"; a.click(); URL.revokeObjectURL(u); };
 
   const expExcel = () => {
     try {
@@ -278,7 +285,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       var ws4 = XLSX.utils.aoa_to_sheet(topData);
       ws4["!cols"] = [{ wch: 10 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
       XLSX.utils.book_append_sheet(wb, ws4, "Top Procedures");
-      XLSX.writeFile(wb, "RVU-Export-" + new Date().toISOString().slice(0, 10) + ".xlsx");
+      XLSX.writeFile(wb, "RVU-Export-" + todayLocal() + ".xlsx");
     } catch (e) {
       alert("Excel export failed: " + e.message);
     }
@@ -390,8 +397,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       </div>}
     </div>
 
-    <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ''); if (v === '' || v === '.') { set("ratePerRVU", v); } else if (v.endsWith('.') || v.endsWith('.0') || v.endsWith('.00') || (v.includes('.') && v.endsWith('0'))) { set("ratePerRVU", v); } else { set("ratePerRVU", parseFloat(v) || 0); } }} placeholder="0" style={S.numberInput} /></div></div>
-    <div style={S.card}><div style={S.cardLabel}>Annual Goal</div><div style={S.fieldGroup}><label style={S.fieldLabel}>Target wRVUs per year</label><input type="text" inputMode="decimal" value={settings.annualGoal === 0 ? "" : String(settings.annualGoal)} onChange={e => { const v = e.target.value.replace(/[^0-9.]/g, ''); if (v === '' || v === '.') { set("annualGoal", v); } else if (v.endsWith('.') || v.endsWith('.0') || v.endsWith('.00') || (v.includes('.') && v.endsWith('0'))) { set("annualGoal", v); } else { set("annualGoal", parseFloat(v) || 0); } }} placeholder="0" style={S.numberInput} /></div><div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
+    <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={rateText} onChange={e => onNumericChange(e.target.value, setRateText, "ratePerRVU")} onBlur={function() { setRateText(settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)); }} placeholder="0" style={S.numberInput} /></div></div>
+    <div style={S.card}><div style={S.cardLabel}>Annual Goal</div><div style={S.fieldGroup}><label style={S.fieldLabel}>Target wRVUs per year</label><input type="text" inputMode="decimal" value={goalText} onChange={e => onNumericChange(e.target.value, setGoalText, "annualGoal")} onBlur={function() { setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal)); }} placeholder="0" style={S.numberInput} /></div><div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
 
     {/* API Key for Scan Features - Encrypted */}
     <div style={{ ...S.card, border: hasApiKey(settings) ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)" }}>
@@ -448,7 +455,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                   <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: isOverridden ? "#fbbf24" : "#0ea5e9", fontWeight: 600 }}>{cpt.code}</span>
                   {isOverridden && <span style={{ fontSize: 9, color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: 3 }}>custom</span>}
                 </div>
-                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.desc}</div>
+                <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.friendly || cpt.desc}</div>
+                {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.desc}</div>}
               </div>
               <input type="text" inputMode="decimal" value={cpt.wRVU} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setOverride(cpt.code, v); }} style={{ width: 65, padding: "4px 6px", background: isOverridden ? "rgba(251,191,36,0.1)" : "var(--bg-inset)", border: "1px solid " + (isOverridden ? "rgba(251,191,36,0.3)" : "var(--border-default)"), borderRadius: 6, color: "var(--text-bright)", fontSize: 13, fontFamily: "JetBrains Mono", fontWeight: 600, textAlign: "right", outline: "none" }} />
             </div>);
@@ -475,7 +483,6 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         <textarea value={restoreText} onChange={function(e) { setRestoreText(e.target.value); }} placeholder="Paste your backup code here..." style={{ ...S.notesInput, minHeight: 80, fontSize: 11, fontFamily: "JetBrains Mono" }} />
         <button onClick={doRestore} disabled={!restoreText.trim()} style={{ ...S.saveBtn, width: "100%", marginTop: 8, opacity: restoreText.trim() ? 1 : 0.4 }}>Restore Data</button>
       </div>}
-      {lastBackupTime && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>Last auto-backup: {lastBackupTime}</div>}
     </div>
 
     {/* Share App */}

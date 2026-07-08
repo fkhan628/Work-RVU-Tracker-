@@ -55,12 +55,12 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
 
   var dateRangeBounds = useMemo(function() {
     var now = new Date();
-    var todayStr = now.toISOString().slice(0, 10);
+    var todayStr = localYMD(now);
     if (dateRange === "all") return null;
     if (dateRange === "today") return { start: todayStr, end: todayStr };
     if (dateRange === "week") {
       var ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
-      return { start: ws.toISOString().slice(0, 10), end: todayStr };
+      return { start: localYMD(ws), end: todayStr };
     }
     if (dateRange === "month") {
       return { start: now.getFullYear() + "-" + String(now.getMonth() + 1).padStart(2, "0") + "-01", end: todayStr };
@@ -68,11 +68,11 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     if (dateRange === "lastMonth") {
       var lm = new Date(now.getFullYear(), now.getMonth() - 1, 1);
       var lmEnd = new Date(now.getFullYear(), now.getMonth(), 0);
-      return { start: lm.toISOString().slice(0, 10), end: lmEnd.toISOString().slice(0, 10) };
+      return { start: localYMD(lm), end: localYMD(lmEnd) };
     }
     if (dateRange === "quarter") {
       var qStart = new Date(now.getFullYear(), Math.floor(now.getMonth() / 3) * 3, 1);
-      return { start: qStart.toISOString().slice(0, 10), end: todayStr };
+      return { start: localYMD(qStart), end: todayStr };
     }
     if (dateRange === "ytd") {
       var ys = settings.yearStart || (now.getFullYear() + "-01-01");
@@ -91,10 +91,18 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     }
     if (showCallFilter === "private") items = items.filter(function(e) { return !e.isCall; });
     if (showCallFilter === "call") items = items.filter(function(e) { return e.isCall; });
-    if (filter.trim()) { const q = filter.toLowerCase(); items = items.filter(e => e.cptCode.includes(q) || e.description.toLowerCase().includes(q) || e.category.toLowerCase().includes(q) || (e.notes && e.notes.toLowerCase().includes(q))); }
+    if (filter.trim()) {
+      const terms = filter.toLowerCase().split(/\s+/).filter(function(t) { return t; });
+      items = items.filter(function(e) {
+        var f = cptMap[e.cptCode];
+        var hay = (e.cptCode + " " + e.description + " " + e.category + " " + (e.notes || "") + " " + (f && f.friendly ? f.friendly : "")).toLowerCase();
+        for (var i = 0; i < terms.length; i++) { if (hay.indexOf(terms[i]) === -1) return false; }
+        return true;
+      });
+    }
     items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return new Date(b.date + "T12:00:00") - new Date(a.date + "T12:00:00"); });
     return items;
-  }, [entries, filter, sortBy, dateRangeBounds, showCallFilter]);
+  }, [entries, filter, sortBy, dateRangeBounds, showCallFilter, cptMap]);
   const grouped = useMemo(() => { if (groupBy === "none") return { "All": filtered }; const g = {}; filtered.forEach(e => { const k = groupBy === "date" ? e.date : e.category; if (!g[k]) g[k] = []; g[k].push(e); }); return g; }, [filtered, groupBy]);
   const del = function(id) {
     var entry = data.entries.find(function(e) { return e.id === id; });
@@ -160,7 +168,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
             {!compact && getGlobalDays(e.cptCode) && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.15)", color: getGlobalColor(e.cptCode), fontFamily: "JetBrains Mono", fontWeight: 600 }}>{getGlobalDays(e.cptCode)}</span>}
             {!compact && e.encounterId && <span style={{ fontSize: 9, color: "var(--text-muted)", background: "rgba(148,163,184,0.1)", padding: "1px 5px", borderRadius: 3 }}>{e.encounterId}</span>}
           </div>
-          <div style={S.histDesc}>{e.description}</div>
+          <div style={S.histDesc}>{(cptMap[e.cptCode] && cptMap[e.cptCode].friendly) || e.description}</div>
+          {cptMap[e.cptCode] && cptMap[e.cptCode].friendly && !compact && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 1 }}>{e.description}</div>}
           {groupBy !== "date" && <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>{fmtShort(e.date)}</div>}
           {e.notes && !compact && <div style={S.histNotes}>{e.notes}</div>}
         </div>
@@ -179,15 +188,15 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   var exportFiltered = function() {
     var h = ["Date","CPT","Description","Category","Type","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Patient","Notes"];
     var rows = filtered.map(function(e) {
-      return [e.date, e.cptCode, '"' + (e.description || "").replace(/"/g, '""') + '"', e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.encounterId || "", '"' + (e.notes || "").replace(/"/g, '""') + '"'];
+      return [e.date, e.cptCode, e.description || "", e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.encounterId || "", e.notes || ""];
     });
-    var csv = [h.join(",")].concat(rows.map(function(r) { return r.join(","); })).join("\n");
+    var csv = [h.join(",")].concat(rows.map(function(r) { return r.map(csvField).join(","); })).join("\n");
     var b = new Blob([csv], { type: "text/csv" });
     var u = URL.createObjectURL(b);
     var a = document.createElement("a");
     a.href = u;
     var suffix = dateRange !== "all" ? "-" + dateRange : "";
-    a.download = "rvu-history" + suffix + "-" + new Date().toISOString().slice(0, 10) + ".csv";
+    a.download = "rvu-history" + suffix + "-" + todayLocal() + ".csv";
     a.click();
     URL.revokeObjectURL(u);
   };
@@ -220,7 +229,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const editFiltered = useMemo(() => {
     if (!editSearch.trim()) return [];
     var q = editSearch.toLowerCase();
-    return db.filter(c => c.code.includes(q) || c.desc.toLowerCase().includes(q) || (c.keywords && c.keywords.toLowerCase().includes(q))).slice(0, 10);
+    return db.filter(c => matchesCPTQuery(c, q)).slice(0, 10);
   }, [editSearch, db]);
 
   // Edit mode
@@ -243,8 +252,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
           <div style={{ flex: 1, padding: "8px 12px", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: 8, color: "#0ea5e9", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode}</div>
         </div>
         <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search to change CPT code..." style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
-        {editFiltered.length > 0 && <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4 }}>{editFiltered.map(c => (<button key={c.code} onClick={() => { setEditCode(c.code); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9" }}>{c.code}</span><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.wRVU} wRVU</span></div><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.desc}</div></button>))}</div>}
-        {editInfo && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{editInfo.desc}</div>}
+        {editFiltered.length > 0 && <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4 }}>{editFiltered.map(c => (<button key={c.code} onClick={() => { setEditCode(c.code); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9" }}>{c.code}</span><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.wRVU} wRVU</span></div><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.friendly || c.desc}</div>{c.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{c.desc}</div>}</button>))}</div>}
+        {editInfo && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{editInfo.friendly || editInfo.desc}</div>}
+        {editInfo && editInfo.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{editInfo.desc}</div>}
       </div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
       <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(editAdj * settings.ratePerRVU).toFixed(0)}</div></div></div></div>

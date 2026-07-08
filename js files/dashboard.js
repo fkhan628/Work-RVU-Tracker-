@@ -76,7 +76,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
   // Today and this week from tracked entries (current year only)
   const ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
   const wRVU = isCurrent ? entries.filter(e => new Date(e.date + "T12:00:00") >= ws).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
-  const todayRVU = isCurrent ? entries.filter(e => e.date === now.toISOString().slice(0,10)).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
+  const todayRVU = isCurrent ? entries.filter(e => e.date === localYMD(now)).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
 
   // Projected annual based on current pace
   var monthsElapsed = instYTD.length || Math.max(1, dp / 30.44);

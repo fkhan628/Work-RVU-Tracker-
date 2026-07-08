@@ -473,7 +473,7 @@ function Compare({ data, upd, setView, showComp }) {
     {/* Action buttons */}
     <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
       <input ref={xlRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) handleExcelUpload(e.target.files[0]); e.target.value = ""; }} />
-      <button onClick={function() { if (showAdd) { resetForm(); } else { setShowAdd(true); setEditMonth(new Date().toISOString().slice(0, 7)); } }} style={{ ...S.secondaryBtn, flex: 1, color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>{showAdd ? "Cancel" : "+ Add Month"}</button>
+      <button onClick={function() { if (showAdd) { resetForm(); } else { setShowAdd(true); setEditMonth(todayLocal().slice(0, 7)); } }} style={{ ...S.secondaryBtn, flex: 1, color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>{showAdd ? "Cancel" : "+ Add Month"}</button>
       <button onClick={function() { xlRef.current && xlRef.current.click(); }} style={{ ...S.secondaryBtn, flex: 1, color: "#10b981", borderColor: "rgba(16,185,129,0.3)" }}>{"\u2191"} Upload Excel</button>
     </div>
 

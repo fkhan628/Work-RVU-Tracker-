@@ -279,7 +279,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
     function finishConfirm() {
       var errEl = document.getElementById("pin-error");
       if (pinVal === confirmVal) {
-        // PINs match — show recovery hint prompt before saving
+        // PINs match - show recovery hint prompt before saving
         showHintPrompt(pinVal);
       } else {
         errEl.textContent = "PINs don't match. Try again.";
@@ -287,7 +287,10 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
         confirming = false;
         pinVal = "";
         document.getElementById("pin-subtitle").textContent = "Set a 4-6 digit PIN to protect your data";
-        document.getElementById("pin-extra").innerHTML = "";
+        // Restore the hidden Set PIN button to its initial disabled state
+        // (wiping #pin-extra here destroyed the button node -> setup dead-end)
+        var cb = document.getElementById("pin-confirm-btn");
+        if (cb) { cb.style.display = ""; cb.style.opacity = "0.3"; cb.style.pointerEvents = "none"; }
         renderDots();
       }
     }

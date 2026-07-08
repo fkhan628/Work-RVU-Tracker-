@@ -2,7 +2,7 @@
 // LOG PROCEDURE
 // =======================================
 function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
-  const [date, setDate] = useState(new Date().toISOString().slice(0, 10));
+  const [date, setDate] = useState(todayLocal());
   const [patientId, setPatientId] = useState("");
   const [procs, setProcs] = useState([{ id: 1, code: null, search: "", mods: [] }]);
   const [notes, setNotes] = useState("");
@@ -101,6 +101,10 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   var [showModHelp, setShowModHelp] = useState(false);
   var pendingScanType = useRef(null);
   var nextId = useRef(2);
+  // Synchronous double-save lock: a fast double-tap fires both clicks before
+  // React re-renders, so the `saved` state alone is a stale closure - the ref
+  // is the real guard.
+  var savingRef = useRef(false);
 
   var favorites = data.favorites || [];
   var favCodes = useMemo(function() {
@@ -162,8 +166,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     var items = db;
     if (cat !== "All") items = items.filter(function(c) { return c.category === cat; });
     if (curSearch.trim()) {
-      var q = curSearch.toLowerCase().trim();
-      items = items.filter(function(c) { return c.code.includes(q) || c.desc.toLowerCase().includes(q) || c.category.toLowerCase().includes(q) || (c.keywords && c.keywords.toLowerCase().includes(q)); });
+      var q = curSearch.trim();
+      items = items.filter(function(c) { return matchesCPTQuery(c, q); });
     }
     return items;
   }, [curSearch, cat, db]);
@@ -175,7 +179,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
 
   var selectCode = function(cpt) {
-    updateProc(activeProc, { code: cpt.code, search: cpt.code + " - " + cpt.desc });
+    updateProc(activeProc, { code: cpt.code, search: cpt.code + " - " + (cpt.friendly || cpt.desc) });
   };
 
   var clearCode = function() {
@@ -424,7 +428,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
 
 
   var save = function() {
-    if (!canSave) return;
+    if (!canSave || saved || savingRef.current) return;
+    savingRef.current = true;
     var newEntries = [];
     procs.forEach(function(p) {
       if (!p.code) return;
@@ -432,7 +437,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
       if (!info) return;
       var adj = calcAdj(info.wRVU, p.mods);
       newEntries.push({
-        id: Date.now().toString() + "-" + p.id,
+        id: Date.now().toString() + "-" + p.id + "-" + Math.random().toString(36).slice(2, 8),
         date: date,
         cptCode: p.code,
         description: info.desc,
@@ -451,6 +456,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc (" + loggedRVU.toFixed(1) + " wRVUs)" });
     setSaved(true);
     setTimeout(function() {
+      savingRef.current = false;
       setSaved(false);
       setProcs([{ id: nextId.current++, code: null, search: "", mods: [] }]);
       setActiveProc(0);
@@ -581,7 +587,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
               <span style={S.resultCode}>{cpt.code}</span>
               {count > 0 && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>}
             </div>
-            <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.desc}</div>
+            <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.friendly || cpt.desc}</div>
+            {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{cpt.desc}</div>}
             <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 4 }}>
               <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{cpt.category}</span>
             </div>
@@ -617,7 +624,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
                   <span style={S.resultCode}>{cpt.code}</span>
                   <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>
                 </div>
-                <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.desc}</div>
+                <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.friendly || cpt.desc}</div>
+                {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{cpt.desc}</div>}
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>{cpt.category}</div>
               </div>
               <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4, flexShrink: 0, marginLeft: 8 }}>
@@ -647,7 +655,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
             <span style={S.resultCode}>{cpt.code}</span>
             {count > 0 && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>}
           </div>
-          <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.desc}</div>
+          <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.friendly || cpt.desc}</div>
+          {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{cpt.desc}</div>}
           <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 3 }}>
             <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{cpt.category}</span>
             {getGlobalDays(cpt.code) && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 4, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.15)", color: getGlobalColor(cpt.code), fontFamily: "JetBrains Mono", fontWeight: 600 }}>{getGlobalDays(cpt.code)}</span>}
@@ -666,13 +675,13 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
       </div>
     </button>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}</div>}
 
-    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "#fbbf24" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.desc}</div><div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(calcProcRVU(cur) * data.settings.ratePerRVU).toFixed(0)}</div></div></div></div>
+    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "#fbbf24" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(calcProcRVU(cur) * data.settings.ratePerRVU).toFixed(0)}</div></div></div></div>
     {(function() {
       var alreadyCodes = procs.map(function(p) { return p.code; }).filter(Boolean);
       var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes);
       if (suggestions.length === 0) return null;
       var addSuggestion = function(s) {
-        var newP = { id: nextId.current++, code: s.code, search: s.code + " - " + s.desc, mods: [] };
+        var newP = { id: nextId.current++, code: s.code, search: s.code + " - " + (s.friendly || s.desc), mods: [] };
         setProcs(function(prev) { return prev.concat([newP]); });
         setActiveProc(procs.length);
       };
@@ -721,7 +730,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
         var info = cptMap[p.code];
         var adj = calcProcRVU(p);
         return (<div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < procs.filter(function(x){return x.code;}).length - 1 ? "1px solid rgba(51,65,85,0.5)" : "none" }}>
-          <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span>{p.mods.map(function(m) { return <span key={m} style={{ fontSize: 10, color: "#fbbf24", marginLeft: 4 }}>{m}</span>; })}<div style={{ fontSize: 11, color: "var(--text-muted)" }}>{info ? info.desc : ""}</div></div>
+          <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span>{p.mods.map(function(m) { return <span key={m} style={{ fontSize: 10, color: "#fbbf24", marginLeft: 4 }}>{m}</span>; })}<div style={{ fontSize: 11, color: "var(--text-muted)" }}>{info ? (info.friendly || info.desc) : ""}</div></div>
           <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{adj.toFixed(2)}</div>
         </div>);
       })}</div>
@@ -735,7 +744,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     </div>}
 
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
-    {canSave && <button onClick={save} style={{ ...S.saveBtn, background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
+    {canSave && <button onClick={save} disabled={saved} style={{ ...S.saveBtn, opacity: saved ? 0.5 : 1, pointerEvents: saved ? "none" : "auto", background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
   </div>);
 }
 
