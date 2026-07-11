@@ -162,6 +162,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           rvuOverrides: restored.rvuOverrides || {},
           favorites: restored.favorites || [],
           institutionData: restored.institutionData || [],
+          reconMonths: restored.reconMonths || {},
           dataVersion: restored.dataVersion || DATA_VERSION
         };
       });
@@ -189,6 +190,60 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   useEffect(function() {
     if (parseFloat(goalText || "0") !== settings.annualGoal) setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal));
   }, [settings.annualGoal]);
+  const [reconGoalText, setReconGoalText] = useState(function() { return !settings.reconGoal ? "" : String(settings.reconGoal); });
+  useEffect(function() {
+    if (parseFloat(reconGoalText || "0") !== (settings.reconGoal || 0)) setReconGoalText(!settings.reconGoal ? "" : String(settings.reconGoal));
+  }, [settings.reconGoal]);
+
+  // --- Monthly Reconciliation entry state ---
+  // expandedMonth: which "YYYY-MM" row is open; monthDraft: raw text while typing
+  // (parseFloat committed on Save - Batch 1 discipline; strings never hit the store).
+  const [expandedMonth, setExpandedMonth] = useState(null);
+  const [monthDraft, setMonthDraft] = useState("");
+  var RECON_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  // 12 months of the goal year (yearStart-based), pure string math - no Date/UTC.
+  var reconYearMonths = useMemo(function() {
+    var startStr = (settings.yearStart || (new Date().getFullYear() + "-01-01")).slice(0, 7);
+    var y = parseInt(startStr.slice(0, 4), 10);
+    var m = parseInt(startStr.slice(5, 7), 10);
+    if (isNaN(y) || isNaN(m)) { y = new Date().getFullYear(); m = 1; }
+    var out = [];
+    for (var i = 0; i < 12; i++) {
+      var yy = y + Math.floor((m - 1 + i) / 12);
+      var mm = ((m - 1 + i) % 12) + 1;
+      out.push(yy + "-" + String(mm).padStart(2, "0"));
+    }
+    return out;
+  }, [settings.yearStart]);
+  var reconMonthLabel = function(mk) { return RECON_MONTH_NAMES[parseInt(mk.slice(5, 7), 10) - 1] + " " + mk.slice(0, 4); };
+  var saveReconMonth = function() {
+    var t = monthDraft.trim();
+    var key = expandedMonth;
+    if (!key) return;
+    upd(function(prev) {
+      var rm = { ...(prev.reconMonths || {}) };
+      if (t === "") { delete rm[key]; }
+      else {
+        var n = parseFloat(t);
+        if (isNaN(n) || n < 0) return prev;
+        rm[key] = n;
+      }
+      return { ...prev, reconMonths: rm };
+    });
+    setExpandedMonth(null);
+    setMonthDraft("");
+  };
+  var clearReconMonth = function() {
+    var key = expandedMonth;
+    if (!key) return;
+    upd(function(prev) {
+      var rm = { ...(prev.reconMonths || {}) };
+      delete rm[key];
+      return { ...prev, reconMonths: rm };
+    });
+    setExpandedMonth(null);
+    setMonthDraft("");
+  };
   var onNumericChange = function(raw, setText, key) {
     var v = raw.replace(/[^0-9.]/g, "");
     setText(v);
@@ -410,7 +465,44 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     </div>
 
     <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={rateText} onChange={e => onNumericChange(e.target.value, setRateText, "ratePerRVU")} onBlur={function() { setRateText(settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)); }} placeholder="0" style={S.numberInput} /></div></div>
-    <div style={S.card}><div style={S.cardLabel}>Annual Goal</div><div style={S.fieldGroup}><label style={S.fieldLabel}>Target wRVUs per year</label><input type="text" inputMode="decimal" value={goalText} onChange={e => onNumericChange(e.target.value, setGoalText, "annualGoal")} onBlur={function() { setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal)); }} placeholder="0" style={S.numberInput} /></div><div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
+    <div style={S.card}><div style={S.cardLabel}>Yearly Goals</div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>OR / Tracked goal (logged cases)</label><input type="text" inputMode="decimal" value={goalText} onChange={e => onNumericChange(e.target.value, setGoalText, "annualGoal")} onBlur={function() { setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal)); }} placeholder="0" style={S.numberInput} /></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Reconciliation goal (total incl. call + clinic)</label><input type="text" inputMode="decimal" value={reconGoalText} onChange={e => onNumericChange(e.target.value, setReconGoalText, "reconGoal")} onBlur={function() { setReconGoalText(!settings.reconGoal ? "" : String(settings.reconGoal)); }} placeholder="0" style={S.numberInput} /></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
+
+    {/* Monthly Reconciliation - manually entered institution monthly totals.
+        Authoritative, independent of logged cases. FORWARD-COMPAT: the expanded
+        panel below each month is a labeled-fields stack; future per-month fields
+        (acute-care pool, per-partner shift grid) join this panel - do not rebuild
+        it as a single-field widget. */}
+    <div style={S.card}>
+      <div style={S.cardLabel}>Monthly Reconciliation</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Your institution's monthly total wRVUs (incl. call + clinic), from the monthly report. Tap a month to add or edit.</div>
+      <div style={{ marginTop: 8 }}>
+        {reconYearMonths.map(function(mk) {
+          var rm = data.reconMonths || {};
+          var entered = rm[mk];
+          var isOpen = expandedMonth === mk;
+          return (<div key={mk} style={{ borderBottom: "1px solid rgba(51,65,85,0.4)" }}>
+            <div onClick={function() { if (isOpen) { setExpandedMonth(null); setMonthDraft(""); } else { setExpandedMonth(mk); setMonthDraft(entered !== undefined ? String(entered) : ""); } }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 2px", cursor: "pointer" }}>
+              <span style={{ fontSize: 13, color: entered !== undefined ? "var(--text-primary)" : "var(--text-dim)" }}>{reconMonthLabel(mk)}</span>
+              <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: entered !== undefined ? "#34d399" : "var(--text-faint)", fontWeight: entered !== undefined ? 600 : 400 }}>{entered !== undefined ? entered.toLocaleString() : "\u2014"}</span>
+            </div>
+            {isOpen && <div style={{ padding: "2px 2px 12px" }}>
+              {/* per-month fields stack: future fields append below this one */}
+              <div style={S.fieldGroup}><label style={S.fieldLabel}>Institution total wRVU (incl. call + clinic)</label>
+                <input type="text" inputMode="decimal" value={monthDraft} onChange={function(e) { setMonthDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" autoFocus style={S.numberInput} />
+              </div>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button onClick={saveReconMonth} disabled={monthDraft.trim() !== "" && isNaN(parseFloat(monthDraft))} style={{ ...S.saveBtn, flex: 1, padding: "8px 12px", fontSize: 12, opacity: (monthDraft.trim() !== "" && isNaN(parseFloat(monthDraft))) ? 0.4 : 1 }}>Save</button>
+                <button onClick={function() { setExpandedMonth(null); setMonthDraft(""); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                {entered !== undefined && <button onClick={clearReconMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>Clear</button>}
+              </div>
+            </div>}
+          </div>);
+        })}
+      </div>
+    </div>
 
     {/* API Key for Scan Features - Encrypted (feature-flagged: hidden when SCAN_ENABLED is false) */}
     {SCAN_ENABLED && (<div style={{ ...S.card, border: hasApiKey(settings) ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)" }}>

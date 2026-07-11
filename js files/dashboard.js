@@ -82,6 +82,37 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
   var monthsElapsed = instYTD.length || Math.max(1, dp / 30.44);
   var projected = hasInst && instYTD.length > 0 ? (instTotal / instYTD.length) * 12 : (trackedRVU / Math.max(1, dp / 30.44)) * 12;
 
+  // --- Two independent tracks (never blended) ---
+  // Track 1 "Tracked OR": logged entries only. Track 2 "Reconciliation":
+  // manually entered monthly institution totals (data.reconMonths).
+  // Year window as "YYYY-MM" strings - pure string math, no Date/UTC involved.
+  var reconMonths = data.reconMonths || {};
+  var startYM;
+  if (selectedYear === "current") {
+    startYM = (settings.yearStart || (now.getFullYear() + "-01-01")).slice(0, 7);
+  } else {
+    startYM = selectedYear + "-01";
+  }
+  var endYM = (parseInt(startYM.slice(0, 4), 10) + 1) + startYM.slice(4);
+  var reconKeys = Object.keys(reconMonths).filter(function(k) { return k >= startYM && k < endYM; }).sort();
+  var reconYTD = reconKeys.reduce(function(s, k) { return s + reconMonths[k]; }, 0);
+  var reconCount = reconKeys.length;
+  var reconGoal = settings.reconGoal || 0;
+  var reconPct = reconGoal > 0 ? Math.min((reconYTD / reconGoal) * 100, 100) : 0;
+  // Recon pace annualizes from months actually ENTERED, not days elapsed.
+  var reconPace = reconCount > 0 ? (reconYTD / reconCount) * 12 : 0;
+  // Tracked OR pace: annualized run-rate from logged entries ONLY - never
+  // institution data (retires the silently-switching projection for this card).
+  var orPace = (trackedRVU / Math.max(1, dp / 30.44)) * 12;
+  var orPct = settings.annualGoal > 0 ? Math.min((trackedRVU / settings.annualGoal) * 100, 100) : 0;
+  // Derived call + clinic: reconciliation minus tracked OR over the SAME months
+  // only. Negative means more OR logged than the institution credited - real
+  // information, shown plainly, never clamped.
+  var reconKeySet = {};
+  reconKeys.forEach(function(k) { reconKeySet[k] = true; });
+  var orSameMonths = ye.reduce(function(s, e) { return reconKeySet[e.date.slice(0, 7)] ? s + e.adjustedRVU : s; }, 0);
+  var derivedCallClinic = reconYTD - orSameMonths;
+
   // Previous year comparison
   var prevYearRVU = useMemo(function() {
     var prevStart = new Date(ys); prevStart.setFullYear(prevStart.getFullYear() - 1);
@@ -114,18 +145,33 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
       {availableYears.map(function(y) { return <button key={y} onClick={function() { setSelectedYear(y); }} style={selectedYear === y ? S.catBtnActive : S.catBtn}>{y}</button>; })}
     </div>}
 
-    <div style={S.cardMain}><div style={{ display: "flex", alignItems: "center", gap: 24 }}>
-      <svg width="100" height="100" viewBox="0 0 100 100"><circle cx="50" cy="50" r="42" fill="none" stroke="#1e293b" strokeWidth="8" /><circle cx="50" cy="50" r="42" fill="none" stroke={pace === "ahead" ? "#10b981" : "#f59e0b"} strokeWidth="8" strokeLinecap="round" strokeDasharray={`${gPct * 2.639} 263.9`} transform="rotate(-90 50 50)" style={{ transition: "stroke-dasharray 0.8s ease" }} /><text x="50" y="46" textAnchor="middle" fill="#f8fafc" fontSize="18" fontFamily="JetBrains Mono" fontWeight="600">{gPct.toFixed(0)}%</text><text x="50" y="62" textAnchor="middle" fill="#94a3b8" fontSize="9" fontFamily="DM Sans">of goal</text></svg>
-      <div><div style={S.metricBig}>{tRVU.toFixed(1)}</div><div style={S.metricLabel}>wRVUs {isCurrent ? "YTD" : yearBounds.label}</div>
-        {hasInst && <div style={{ fontSize: 10, color: "#64748b", marginTop: 1 }}>W: {instWork.toFixed(0)} | C: {instSplit.toFixed(0)}</div>}
-        <div style={{ ...S.paceTag, background: pace === "ahead" ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: pace === "ahead" ? "#34d399" : "#fbbf24" }}>{pDiff.toFixed(1)} wRVUs {pace}</div>
+    {/* Two independent goal tracks, equal weight. Wraps to stacked below ~340px. */}
+    <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
+      <div style={{ ...S.card, flex: "1 1 150px", marginBottom: 0 }}>
+        <div style={{ fontSize: 10, color: "#38bdf8", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Tracked OR wRVUs</div>
+        <div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", marginTop: 6 }}>{trackedRVU.toFixed(1)}</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{settings.annualGoal > 0 ? "of " + settings.annualGoal.toLocaleString() + " goal" : "no goal set"}</div>
+        <div style={{ height: 6, borderRadius: 3, background: "rgba(51,65,85,0.6)", marginTop: 8, overflow: "hidden" }}><div style={{ width: orPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #0ea5e9, #38bdf8)", transition: "width 0.5s" }} /></div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, minHeight: 13 }}>
+          <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{settings.annualGoal > 0 ? orPct.toFixed(0) + "%" : ""}</span>
+          {isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: settings.annualGoal > 0 ? (orPace >= settings.annualGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {orPace.toFixed(0)}/yr</span>}
+        </div>
+      </div>
+      <div style={{ ...S.card, flex: "1 1 150px", marginBottom: 0 }}>
+        <div style={{ fontSize: 10, color: "#34d399", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Reconciliation</div>
+        <div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", marginTop: 6 }}>{reconYTD.toFixed(1)}</div>
+        <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{reconGoal > 0 ? "of " + reconGoal.toLocaleString() + " goal" : "no goal set"}</div>
+        <div style={{ height: 6, borderRadius: 3, background: "rgba(51,65,85,0.6)", marginTop: 8, overflow: "hidden" }}><div style={{ width: reconPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #059669, #34d399)", transition: "width 0.5s" }} /></div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, minHeight: 13 }}>
+          <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{reconGoal > 0 && reconCount > 0 ? reconPct.toFixed(0) + "%" : ""}</span>
+          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span style={{ fontSize: 10, color: "var(--text-faint)" }}>enter months in Settings</span>}
+        </div>
       </div>
     </div>
-    {hasInst && <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, background: "rgba(139,92,246,0.08)", border: "1px solid rgba(139,92,246,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 10, color: "#a78bfa" }}>Source: Institution Data</span>
-      <span style={{ fontSize: 10, color: "#64748b" }}>Projected: {projected.toFixed(0)} wRVUs/yr</span>
+    {/* Quiet derived line - no goal, only shown once reconciliation data exists */}
+    {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+      Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
     </div>}
-    </div>
 
     <div style={S.statsRow}>
       {isCurrent ? <>
@@ -200,7 +246,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
     </div>}
 
     <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>{isCurrent ? "Monthly wRVUs" : yearBounds.label + " Monthly wRVUs"}</div>{hasInst && <div style={{ display: "flex", gap: 8 }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#a78bfa" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#a78bfa" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst (Compare)</span>
       <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#0ea5e9" }}><span style={{ display: "inline-block", width: 8, height: 3, borderRadius: 1, background: "#0ea5e9" }}></span>Tracked</span>
     </div>}</div>
     <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 110, marginTop: 12 }}>{months.map(function(m, i) {
@@ -225,12 +271,12 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
         <span style={{ fontSize: 18 }}>{"\u2194"}</span>
         <div>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#a78bfa" }}>Add Institution Data</div>
-          <div style={{ fontSize: 11, color: "#64748b" }}>Go to Compare tab to import your institution's RVU data for goal tracking</div>
+          <div style={{ fontSize: 11, color: "#64748b" }}>Go to Compare tab to import your institution's RVU data for month-by-month comparison</div>
         </div>
       </div>
     </div>}
 
-    <div style={{ ...S.card, background: "#0f172a", border: "1px solid #1e293b", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "#475569" }}>Data: {hasInst ? "Institution" : "Self-tracked"} | CMS {DATA_YEAR}</span><span style={{ fontSize: 10, color: "#334155", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
+    <div style={{ ...S.card, background: "#0f172a", border: "1px solid #1e293b", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "#475569" }}>Data: Tracked{hasInst ? " | Compare" : ""}{reconCount > 0 ? " | Recon" : ""} | CMS {DATA_YEAR}</span><span style={{ fontSize: 10, color: "#334155", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
     <button onClick={() => setView("log")} style={S.fabBtn}>+ Log Procedure</button>
   </div>);
 }

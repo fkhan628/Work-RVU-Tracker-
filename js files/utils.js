@@ -589,8 +589,13 @@ function showDataAlert(msg, onDismiss) {
 const fmt = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtShort = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 function fmtDollar(val, show) { if (!show) return "$\u2022\u2022\u2022\u2022\u2022"; return "$" + val.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
-const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, yearStart: new Date().getFullYear() + "-01-01" });
-const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], dataVersion: DATA_VERSION });
+// annualGoal = OR / Tracked goal (logged cases). reconGoal = yearly goal for the
+// manually-entered monthly reconciliation totals (incl. call + clinic). The two
+// tracks are independent and never mix.
+const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yearStart: new Date().getFullYear() + "-01-01" });
+// reconMonths: { "YYYY-MM": number } - authoritative institution monthly totals,
+// typed by the user. NOT derived from logged entries.
+const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], reconMonths: {}, dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -610,12 +615,39 @@ function clearCorruptCopy() { try { localStorage.removeItem(CORRUPT_KEY); } catc
 function repairData(d) {
   var fixed = [];
   if (d && d.settings) {
-    ["ratePerRVU", "annualGoal"].forEach(function(k) {
+    ["ratePerRVU", "annualGoal", "reconGoal"].forEach(function(k) {
       if (typeof d.settings[k] === "string") {
         var v = parseFloat(d.settings[k]);
         if (!isNaN(v)) { d.settings[k] = v; fixed.push(k); }
+        else if (k === "reconGoal") { d.settings[k] = 0; fixed.push(k); } // reverting to unset is visible in Settings
       }
     });
+  }
+  // reconMonths: typed monthly numbers. Coerce parseable strings silently; an
+  // unreadable value is REMOVED and announced loudly - a typed number vanishing
+  // silently is the exact loss class Batch 1 eliminated.
+  if (d && d.reconMonths !== undefined) {
+    if (typeof d.reconMonths !== "object" || d.reconMonths === null || Array.isArray(d.reconMonths)) {
+      d.reconMonths = {};
+      fixed.push("reconMonths");
+      showDataAlert("Monthly reconciliation data was unreadable and has been reset - please re-enter your monthly totals in Settings.");
+    } else {
+      var dropped = [];
+      Object.keys(d.reconMonths).forEach(function(mk) {
+        var mv = d.reconMonths[mk];
+        if (typeof mv === "number" && !isNaN(mv)) return;
+        if (typeof mv === "string") {
+          var pv = parseFloat(mv);
+          if (!isNaN(pv)) { d.reconMonths[mk] = pv; fixed.push("reconMonths." + mk); return; }
+        }
+        delete d.reconMonths[mk];
+        dropped.push(mk);
+      });
+      if (dropped.length > 0) {
+        fixed.push("reconMonths-dropped");
+        showDataAlert("Monthly reconciliation " + (dropped.length === 1 ? "entry" : "entries") + " for " + dropped.join(", ") + " " + (dropped.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (dropped.length === 1 ? "it" : "them") + " in Settings.");
+      }
+    }
   }
   return fixed;
 }
@@ -647,7 +679,7 @@ function loadData() {
     raw = localStorage.getItem(SK);
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
-    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], dataVersion: s.dataVersion || DATA_VERSION };
+    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], reconMonths: s.reconMonths || {}, dataVersion: s.dataVersion || DATA_VERSION };
     var repaired = repairData(d);
     if (validateData(d)) {
       if (repaired.length > 0) {
@@ -677,7 +709,7 @@ function saveData(d) {
     showDataAlert("SAVE FAILED - your latest change was NOT saved (" + (e && e.message ? e.message : "storage error") + "). Free up space or export a backup from Settings before closing the app.");
   }
 }
-async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
+async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], reconMonths: p.reconMonths || {}, dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
 async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
 
 // Apply user overrides to CPT database and include CMS imported codes
@@ -862,6 +894,9 @@ function validateData(d) {
   if (!Array.isArray(d.entries)) return false;
   if (!d.settings || typeof d.settings !== "object") return false;
   if (typeof d.settings.ratePerRVU !== "number") return false;
+  // reconMonths is optional (older stores lack it) but must be a plain object
+  // when present. repairData resets bad shapes before this runs; this is a backstop.
+  if (d.reconMonths !== undefined && (typeof d.reconMonths !== "object" || d.reconMonths === null || Array.isArray(d.reconMonths))) return false;
   return true;
 }
 
