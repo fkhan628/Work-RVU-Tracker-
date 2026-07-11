@@ -113,6 +113,35 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
   var orSameMonths = ye.reduce(function(s, e) { return reconKeySet[e.date.slice(0, 7)] ? s + e.adjustedRVU : s; }, 0);
   var derivedCallClinic = reconYTD - orSameMonths;
 
+  // --- Acute care: my share + derived decomposition (quiet lines, no cards) ---
+  // YTD = sum of per-month ROUNDED shares (matches how the group's monthly
+  // statements add up on paper; round-of-sum can differ by a cent).
+  var acuteMonthsAll = data.acuteMonths || {};
+  var acuteMe = data.acuteMe || "";
+  var acuteKeys = Object.keys(acuteMonthsAll).filter(function(k) { return k >= startYM && k < endYM; }).sort();
+  var myAcuteYTD = 0;
+  var myAcuteCount = 0;
+  acuteKeys.forEach(function(k) {
+    var sp = computeAcuteSplit(acuteMonthsAll[k]);
+    if (sp.empty || !acuteMe) return;
+    myAcuteYTD += round2(((acuteMonthsAll[k].shifts || {})[acuteMe] || 0) * sp.valuePerUnit);
+    myAcuteCount++;
+  });
+  myAcuteYTD = round2(myAcuteYTD);
+  // Decompose derived call+clinic over the recon-AND-acute overlapping months only.
+  var overlapKeys = reconKeys.filter(function(k) { return acuteKeys.indexOf(k) !== -1; });
+  var overlapKeySet = {};
+  overlapKeys.forEach(function(k) { overlapKeySet[k] = true; });
+  var overlapRecon = overlapKeys.reduce(function(s, k) { return s + reconMonths[k]; }, 0);
+  var overlapOR = ye.reduce(function(s, e) { return overlapKeySet[e.date.slice(0, 7)] ? s + e.adjustedRVU : s; }, 0);
+  var overlapMyAcute = 0;
+  overlapKeys.forEach(function(k) {
+    var sp = computeAcuteSplit(acuteMonthsAll[k]);
+    if (sp.empty || !acuteMe) return;
+    overlapMyAcute += round2(((acuteMonthsAll[k].shifts || {})[acuteMe] || 0) * sp.valuePerUnit);
+  });
+  var clinicOther = overlapRecon - overlapOR - overlapMyAcute;
+
   // Previous year comparison
   var prevYearRVU = useMemo(function() {
     var prevStart = new Date(ys); prevStart.setFullYear(prevStart.getFullYear() - 1);
@@ -168,9 +197,17 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
         </div>
       </div>
     </div>
-    {/* Quiet derived line - no goal, only shown once reconciliation data exists */}
-    {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
-      Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
+    {/* Quiet derived lines - no goals, no cards */}
+    {(reconCount > 0 || myAcuteCount > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+      {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
+        Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
+      </div>}
+      {myAcuteCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+        My acute share (YTD): <span style={{ fontFamily: "JetBrains Mono", color: "#34d399", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}
+      </div>}
+      {myAcuteCount > 0 && reconCount > 0 && overlapKeys.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
+        Clinic + other (derived): <span style={{ fontFamily: "JetBrains Mono", color: clinicOther >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(clinicOther >= 0 ? "+" : "") + clinicOther.toFixed(1)}</span> across {overlapKeys.length} overlapping month{overlapKeys.length === 1 ? "" : "s"}
+      </div>}
     </div>}
 
     <div style={S.statsRow}>

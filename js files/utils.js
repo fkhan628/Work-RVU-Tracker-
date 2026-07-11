@@ -595,7 +595,10 @@ function fmtDollar(val, show) { if (!show) return "$\u2022\u2022\u2022\u2022\u20
 const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yearStart: new Date().getFullYear() + "-01-01" });
 // reconMonths: { "YYYY-MM": number } - authoritative institution monthly totals,
 // typed by the user. NOT derived from logged entries.
-const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], reconMonths: {}, dataVersion: DATA_VERSION });
+// acuteRoster/acuteMe/acuteMonths: group acute-care pool tracking. Roster is
+// USER-ENTERED data only - never hardcode partner names anywhere in source.
+// acuteMonths: { "YYYY-MM": { pool: number, shifts: { name: number } } }.
+const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], reconMonths: {}, acuteRoster: [], acuteMe: "", acuteMonths: {}, dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -623,14 +626,16 @@ function repairData(d) {
       }
     });
   }
-  // reconMonths: typed monthly numbers. Coerce parseable strings silently; an
-  // unreadable value is REMOVED and announced loudly - a typed number vanishing
-  // silently is the exact loss class Batch 1 eliminated.
+  // Typed monthly numbers (recon + acute). Coerce parseable strings silently;
+  // anything unreadable is REMOVED and announced loudly - a typed number
+  // vanishing silently is the exact loss class Batch 1 eliminated. All loss
+  // notices are combined into ONE banner so none can overwrite another.
+  var lossMsgs = [];
   if (d && d.reconMonths !== undefined) {
     if (typeof d.reconMonths !== "object" || d.reconMonths === null || Array.isArray(d.reconMonths)) {
       d.reconMonths = {};
       fixed.push("reconMonths");
-      showDataAlert("Monthly reconciliation data was unreadable and has been reset - please re-enter your monthly totals in Settings.");
+      lossMsgs.push("Monthly reconciliation data was unreadable and has been reset - please re-enter your monthly totals in Settings.");
     } else {
       var dropped = [];
       Object.keys(d.reconMonths).forEach(function(mk) {
@@ -645,10 +650,49 @@ function repairData(d) {
       });
       if (dropped.length > 0) {
         fixed.push("reconMonths-dropped");
-        showDataAlert("Monthly reconciliation " + (dropped.length === 1 ? "entry" : "entries") + " for " + dropped.join(", ") + " " + (dropped.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (dropped.length === 1 ? "it" : "them") + " in Settings.");
+        lossMsgs.push("Monthly reconciliation " + (dropped.length === 1 ? "entry" : "entries") + " for " + dropped.join(", ") + " " + (dropped.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (dropped.length === 1 ? "it" : "them") + " in Settings.");
       }
     }
   }
+  // Acute care group data. A month is dropped WHOLE if any value in it is
+  // unreadable: units = sum of shifts, so silently dropping one partner's
+  // shifts would corrupt every partner's split.
+  if (d && d.acuteRoster !== undefined && !Array.isArray(d.acuteRoster)) { d.acuteRoster = []; fixed.push("acuteRoster"); console.warn("RVU Tracker: acuteRoster was malformed and was reset"); }
+  if (d && d.acuteMe !== undefined && typeof d.acuteMe !== "string") { d.acuteMe = ""; fixed.push("acuteMe"); }
+  if (d && d.acuteMonths !== undefined) {
+    if (typeof d.acuteMonths !== "object" || d.acuteMonths === null || Array.isArray(d.acuteMonths)) {
+      d.acuteMonths = {};
+      fixed.push("acuteMonths");
+      lossMsgs.push("Acute care data was unreadable and has been reset - please re-import or re-enter it in Settings.");
+    } else {
+      var droppedA = [];
+      Object.keys(d.acuteMonths).forEach(function(mk) {
+        var m = d.acuteMonths[mk];
+        var bad = false;
+        if (!m || typeof m !== "object" || Array.isArray(m)) bad = true;
+        else {
+          if (typeof m.pool === "string") { var ppv = parseFloat(m.pool); if (!isNaN(ppv)) { m.pool = ppv; fixed.push("acuteMonths." + mk + ".pool"); } }
+          if (typeof m.pool !== "number" || isNaN(m.pool)) bad = true;
+          if (m.shifts === undefined || m.shifts === null) { m.shifts = {}; }
+          else if (typeof m.shifts !== "object" || Array.isArray(m.shifts)) bad = true;
+          else {
+            var shKeys = Object.keys(m.shifts);
+            for (var si = 0; si < shKeys.length && !bad; si++) {
+              var sv = m.shifts[shKeys[si]];
+              if (typeof sv === "string") { var spv = parseFloat(sv); if (!isNaN(spv)) { m.shifts[shKeys[si]] = spv; fixed.push("acuteMonths." + mk + ".shifts"); sv = spv; } }
+              if (typeof sv !== "number" || isNaN(sv)) bad = true;
+            }
+          }
+        }
+        if (bad) { delete d.acuteMonths[mk]; droppedA.push(mk); }
+      });
+      if (droppedA.length > 0) {
+        fixed.push("acuteMonths-dropped");
+        lossMsgs.push("Acute care " + (droppedA.length === 1 ? "entry" : "entries") + " for " + droppedA.join(", ") + " " + (droppedA.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter or re-import " + (droppedA.length === 1 ? "it" : "them") + " in Settings.");
+      }
+    }
+  }
+  if (lossMsgs.length > 0) showDataAlert(lossMsgs.join(" "));
   return fixed;
 }
 
@@ -679,7 +723,7 @@ function loadData() {
     raw = localStorage.getItem(SK);
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
-    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], reconMonths: s.reconMonths || {}, dataVersion: s.dataVersion || DATA_VERSION };
+    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], reconMonths: s.reconMonths || {}, acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, dataVersion: s.dataVersion || DATA_VERSION };
     var repaired = repairData(d);
     if (validateData(d)) {
       if (repaired.length > 0) {
@@ -709,7 +753,7 @@ function saveData(d) {
     showDataAlert("SAVE FAILED - your latest change was NOT saved (" + (e && e.message ? e.message : "storage error") + "). Free up space or export a backup from Settings before closing the app.");
   }
 }
-async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], reconMonths: p.reconMonths || {}, dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
+async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], reconMonths: p.reconMonths || {}, acuteRoster: p.acuteRoster || [], acuteMe: p.acuteMe || "", acuteMonths: p.acuteMonths || {}, dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
 async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
 
 // Apply user overrides to CPT database and include CMS imported codes
@@ -726,6 +770,30 @@ function calcAdj(base, mods) {
   if (!mods || mods.length === 0) return base;
   if (mods.length === 1) { const m = MOD_MAP[mods[0]]; return m ? base * m.factor : base; }
   let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r;
+}
+
+// --- Acute care group split math (single implementation - do not duplicate) ---
+// Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in
+// decimal but 16.004999... in binary floats, and naive toFixed(2) would display
+// 16.00 where the group's official table says 16.01. Used for ALL acute displays.
+function round2(v) {
+  return Math.round(parseFloat((v * 100).toPrecision(12))) / 100;
+}
+
+// month = { pool, shifts: { name: number } }. Shares are computed at FULL
+// floating precision (shifts x pool/units) and rounded via round2 for DISPLAY
+// only - never multiply by a rounded value/unit (11 x 16.005 = 176.06 right;
+// 11 x 16.01 = 176.11 wrong). Guard divide-by-zero: no shifts -> empty: true.
+function computeAcuteSplit(month) {
+  var shifts = (month && month.shifts) || {};
+  var pool = (month && typeof month.pool === "number") ? month.pool : 0;
+  var units = 0;
+  Object.keys(shifts).forEach(function(k) { units += shifts[k]; });
+  if (!(units > 0)) return { pool: pool, units: units, valuePerUnit: 0, shares: {}, empty: true };
+  var vpu = pool / units;
+  var shares = {};
+  Object.keys(shifts).forEach(function(k) { shares[k] = shifts[k] * vpu; });
+  return { pool: pool, units: units, valuePerUnit: vpu, shares: shares, empty: false };
 }
 
 // --- CSV field escaping (RFC 4180) ---
@@ -894,9 +962,13 @@ function validateData(d) {
   if (!Array.isArray(d.entries)) return false;
   if (!d.settings || typeof d.settings !== "object") return false;
   if (typeof d.settings.ratePerRVU !== "number") return false;
-  // reconMonths is optional (older stores lack it) but must be a plain object
-  // when present. repairData resets bad shapes before this runs; this is a backstop.
+  // reconMonths/acute fields are optional (older stores lack them) but must have
+  // sane shapes when present. repairData resets bad shapes before this runs;
+  // these are backstops.
   if (d.reconMonths !== undefined && (typeof d.reconMonths !== "object" || d.reconMonths === null || Array.isArray(d.reconMonths))) return false;
+  if (d.acuteMonths !== undefined && (typeof d.acuteMonths !== "object" || d.acuteMonths === null || Array.isArray(d.acuteMonths))) return false;
+  if (d.acuteRoster !== undefined && !Array.isArray(d.acuteRoster)) return false;
+  if (d.acuteMe !== undefined && typeof d.acuteMe !== "string") return false;
   return true;
 }
 

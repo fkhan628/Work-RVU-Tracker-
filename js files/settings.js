@@ -163,6 +163,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           favorites: restored.favorites || [],
           institutionData: restored.institutionData || [],
           reconMonths: restored.reconMonths || {},
+          acuteRoster: restored.acuteRoster || [],
+          acuteMe: restored.acuteMe || "",
+          acuteMonths: restored.acuteMonths || {},
           dataVersion: restored.dataVersion || DATA_VERSION
         };
       });
@@ -216,22 +219,184 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     return out;
   }, [settings.yearStart]);
   var reconMonthLabel = function(mk) { return RECON_MONTH_NAMES[parseInt(mk.slice(5, 7), 10) - 1] + " " + mk.slice(0, 4); };
+
+  // --- Acute care group state ---
+  var acuteRoster = data.acuteRoster || [];
+  var acuteMonths = data.acuteMonths || {};
+  const [newPartner, setNewPartner] = useState("");
+  const [renaming, setRenaming] = useState(null);
+  const [renameDraft, setRenameDraft] = useState("");
+  const [showAcuteImport, setShowAcuteImport] = useState(false);
+  const [acuteImportText, setAcuteImportText] = useState("");
+  const [acuteImportStatus, setAcuteImportStatus] = useState("");
+  const [poolDraft, setPoolDraft] = useState("");
+  const [shiftsDraft, setShiftsDraft] = useState({});
+  const [showSplitFor, setShowSplitFor] = useState(null);
+  const [copyStatus, setCopyStatus] = useState("");
+
+  var addPartner = function() {
+    var n = newPartner.trim();
+    if (!n) return;
+    upd(function(prev) {
+      var r = (prev.acuteRoster || []).slice();
+      if (r.indexOf(n) !== -1) return prev;
+      r.push(n);
+      return { ...prev, acuteRoster: r };
+    });
+    setNewPartner("");
+  };
+  var renamePartner = function(oldName) {
+    var n = renameDraft.trim();
+    if (!n || n === oldName) { setRenaming(null); setRenameDraft(""); return; }
+    upd(function(prev) {
+      var r = (prev.acuteRoster || []).slice();
+      if (r.indexOf(n) !== -1) return prev; // collision with existing name: no-op
+      var i = r.indexOf(oldName);
+      if (i === -1) return prev;
+      r[i] = n;
+      // Migrate the name key inside every month so history follows the rename.
+      var am = {};
+      Object.keys(prev.acuteMonths || {}).forEach(function(mk) {
+        var m = prev.acuteMonths[mk];
+        var sh = { ...((m && m.shifts) || {}) };
+        if (Object.prototype.hasOwnProperty.call(sh, oldName)) { sh[n] = sh[oldName]; delete sh[oldName]; }
+        am[mk] = { pool: m.pool, shifts: sh };
+      });
+      return { ...prev, acuteRoster: r, acuteMonths: am, acuteMe: prev.acuteMe === oldName ? n : prev.acuteMe };
+    });
+    setRenaming(null);
+    setRenameDraft("");
+  };
+  var removePartner = function(name) {
+    var monthsWith = Object.keys(acuteMonths).filter(function(mk) { var s = (acuteMonths[mk] || {}).shifts || {}; return Object.prototype.hasOwnProperty.call(s, name); }).length;
+    var warn = "Remove " + name + " from the roster?";
+    if ((data.acuteMe || "") === name) warn += " NOTE: this partner is marked as YOU - your acute share lines will stop showing until you mark a new Me.";
+    if (monthsWith > 0) warn += " " + monthsWith + " historical month(s) keep their entries; the name only stops appearing for new months.";
+    if (!confirm(warn)) return;
+    upd(function(prev) { return { ...prev, acuteRoster: (prev.acuteRoster || []).filter(function(x) { return x !== name; }) }; });
+  };
+  var setAcuteMe = function(name) { upd(function(prev) { return { ...prev, acuteMe: name }; }); };
+
+  // All-or-nothing JSON import: numeric-coerce everything into a clean copy
+  // first; if ANY month is malformed, import NOTHING and name the bad month.
+  var doAcuteImport = function() {
+    var txt = acuteImportText.trim();
+    if (!txt) return;
+    var parsed;
+    try { parsed = JSON.parse(txt); } catch(e) { setAcuteImportStatus("Import failed: not valid JSON. Nothing was imported."); return; }
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed) || !parsed.acuteMonths || typeof parsed.acuteMonths !== "object" || Array.isArray(parsed.acuteMonths)) {
+      setAcuteImportStatus("Import failed: missing acuteMonths object. Nothing was imported."); return;
+    }
+    var cleanMonths = {};
+    var namesSeen = {};
+    var monthKeys = Object.keys(parsed.acuteMonths);
+    for (var i = 0; i < monthKeys.length; i++) {
+      var mk = monthKeys[i];
+      if (!/^\d{4}-\d{2}$/.test(mk)) { setAcuteImportStatus("Import failed: bad month key \"" + mk + "\" (expected YYYY-MM). Nothing was imported."); return; }
+      var m = parsed.acuteMonths[mk];
+      if (!m || typeof m !== "object" || Array.isArray(m)) { setAcuteImportStatus("Import failed: month " + mk + " is not an object. Nothing was imported."); return; }
+      var pool = typeof m.pool === "string" ? parseFloat(m.pool) : m.pool;
+      if (typeof pool !== "number" || isNaN(pool) || pool < 0) { setAcuteImportStatus("Import failed: month " + mk + " has an unreadable pool value. Nothing was imported."); return; }
+      var shifts = {};
+      var sk = Object.keys(m.shifts || {});
+      for (var j = 0; j < sk.length; j++) {
+        var nm = String(sk[j]).trim();
+        if (!nm) { setAcuteImportStatus("Import failed: month " + mk + " has an empty partner name. Nothing was imported."); return; }
+        var sv = m.shifts[sk[j]];
+        if (typeof sv === "string") sv = parseFloat(sv);
+        if (typeof sv !== "number" || isNaN(sv) || sv < 0) { setAcuteImportStatus("Import failed: month " + mk + " has an unreadable shift count for " + nm + ". Nothing was imported."); return; }
+        shifts[nm] = sv;
+        namesSeen[nm] = true;
+      }
+      cleanMonths[mk] = { pool: pool, shifts: shifts };
+    }
+    var pastedRoster = Array.isArray(parsed.acuteRoster) ? parsed.acuteRoster.map(function(x) { return String(x).trim(); }).filter(function(x) { return x; }) : [];
+    var pastedMe = (typeof parsed.acuteMe === "string" && parsed.acuteMe.trim()) ? parsed.acuteMe.trim() : null;
+    upd(function(prev) {
+      var roster = (prev.acuteRoster || []).slice();
+      pastedRoster.forEach(function(n) { if (roster.indexOf(n) === -1) roster.push(n); });
+      Object.keys(namesSeen).forEach(function(n) { if (roster.indexOf(n) === -1) roster.push(n); });
+      var am = { ...(prev.acuteMonths || {}) };
+      Object.keys(cleanMonths).forEach(function(k) { am[k] = cleanMonths[k]; });
+      return { ...prev, acuteRoster: roster, acuteMonths: am, acuteMe: pastedMe !== null ? pastedMe : (prev.acuteMe || "") };
+    });
+    setAcuteImportStatus("Imported " + monthKeys.length + " month" + (monthKeys.length === 1 ? "" : "s") + ", " + Object.keys(namesSeen).length + " partner" + (Object.keys(namesSeen).length === 1 ? "" : "s") + ".");
+    setAcuteImportText("");
+  };
+
+  // Clipboard with the mandated hidden-textarea fallback.
+  var copyText = function(text, doneMsg) {
+    var fallback = function() {
+      var ta = document.createElement("textarea");
+      ta.value = text;
+      ta.style.cssText = "position:fixed;left:-9999px;top:0;";
+      document.body.appendChild(ta);
+      ta.focus();
+      ta.select();
+      try { document.execCommand("copy"); } catch(e) {}
+      document.body.removeChild(ta);
+      setCopyStatus(doneMsg);
+      setTimeout(function() { setCopyStatus(""); }, 3000);
+    };
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      navigator.clipboard.writeText(text).then(function() {
+        setCopyStatus(doneMsg);
+        setTimeout(function() { setCopyStatus(""); }, 3000);
+      }).catch(fallback);
+    } else { fallback(); }
+  };
+  var copyAcuteTable = function(mk) {
+    var m = acuteMonths[mk];
+    if (!m) return;
+    var sp = computeAcuteSplit(m);
+    var lines = ["Acute care split - " + reconMonthLabel(mk)];
+    if (sp.empty) {
+      lines.push("Pool: " + round2(sp.pool).toFixed(2) + " | no shifts entered");
+    } else {
+      lines.push("Pool: " + round2(sp.pool).toFixed(2) + " | Units: " + (sp.units % 1 === 0 ? String(sp.units) : round2(sp.units).toFixed(2)) + " | Value/unit: " + round2(sp.valuePerUnit).toFixed(2));
+      Object.keys(m.shifts).forEach(function(n) {
+        lines.push(n + ": " + m.shifts[n] + " shift" + (m.shifts[n] === 1 ? "" : "s") + " = " + round2(sp.shares[n]).toFixed(2));
+      });
+    }
+    copyText(lines.join("\n"), "Split table copied!");
+  };
+  // One Save commits the whole month panel: recon total + acute pool + shifts.
   var saveReconMonth = function() {
     var t = monthDraft.trim();
     var key = expandedMonth;
     if (!key) return;
+    var pd = poolDraft.trim();
+    var shiftEntries = {};
+    var anyShift = false;
+    Object.keys(shiftsDraft).forEach(function(nm) {
+      var st = String(shiftsDraft[nm]).trim();
+      if (st === "") return; // blank = not entered (never zero)
+      var sv = parseFloat(st);
+      if (isNaN(sv) || sv < 0) return;
+      shiftEntries[nm] = sv;
+      anyShift = true;
+    });
     upd(function(prev) {
       var rm = { ...(prev.reconMonths || {}) };
       if (t === "") { delete rm[key]; }
       else {
         var n = parseFloat(t);
-        if (isNaN(n) || n < 0) return prev;
-        rm[key] = n;
+        if (!isNaN(n) && n >= 0) rm[key] = n;
       }
-      return { ...prev, reconMonths: rm };
+      var am = { ...(prev.acuteMonths || {}) };
+      if (pd === "" && !anyShift) { delete am[key]; }
+      else {
+        var pv = pd === "" ? 0 : parseFloat(pd);
+        if (isNaN(pv) || pv < 0) pv = 0;
+        am[key] = { pool: pv, shifts: shiftEntries };
+      }
+      return { ...prev, reconMonths: rm, acuteMonths: am };
     });
     setExpandedMonth(null);
     setMonthDraft("");
+    setPoolDraft("");
+    setShiftsDraft({});
+    setShowSplitFor(null);
   };
   var clearReconMonth = function() {
     var key = expandedMonth;
@@ -239,10 +404,15 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     upd(function(prev) {
       var rm = { ...(prev.reconMonths || {}) };
       delete rm[key];
-      return { ...prev, reconMonths: rm };
+      var am = { ...(prev.acuteMonths || {}) };
+      delete am[key];
+      return { ...prev, reconMonths: rm, acuteMonths: am };
     });
     setExpandedMonth(null);
     setMonthDraft("");
+    setPoolDraft("");
+    setShiftsDraft({});
+    setShowSplitFor(null);
   };
   var onNumericChange = function(raw, setText, key) {
     var v = raw.replace(/[^0-9.]/g, "");
@@ -266,7 +436,33 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     return items;
   }, [db, editCat, editSearch]);
 
-  const expCSV = () => { const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"]; const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.notes || '']); const csv = [h.join(','), ...rows.map(r => r.map(csvField).join(','))].join('\n'); const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".csv"; a.click(); URL.revokeObjectURL(u); };
+  const expCSV = () => {
+    const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"];
+    const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.notes || '']);
+    var csv = [h.join(','), ...rows.map(r => r.map(csvField).join(','))].join('\n');
+    // Acute block appended as a second long-form table. Round-trip safety: under
+    // the entries header the CPT column is index 1; every acute row (incl. its
+    // header) has the "YYYY-MM" month there - never a 5-digit run - so the app's
+    // own CSV importer rejects these rows instead of minting junk entries.
+    var amKeys = Object.keys(acuteMonths).sort();
+    if (amKeys.length > 0) {
+      var acuteRows = [["Section","Month","Partner","Shifts","Share","Pool","Units","ValuePerUnit"]];
+      amKeys.forEach(function(mk) {
+        var m = acuteMonths[mk];
+        var sp = computeAcuteSplit(m);
+        var names = Object.keys((m && m.shifts) || {});
+        if (names.length === 0) {
+          acuteRows.push(["Acute", mk, "", "", "", round2(sp.pool).toFixed(2), "", ""]);
+        } else {
+          names.forEach(function(nm) {
+            acuteRows.push(["Acute", mk, nm, m.shifts[nm], round2(sp.shares[nm] || 0).toFixed(2), round2(sp.pool).toFixed(2), sp.units, round2(sp.valuePerUnit).toFixed(2)]);
+          });
+        }
+      });
+      csv += "\n\n" + acuteRows.map(function(r) { return r.map(csvField).join(","); }).join("\n");
+    }
+    const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".csv"; a.click(); URL.revokeObjectURL(u);
+  };
   const expJSON = () => {
     // Key material is deliberately NOT part of the device-transfer export.
     // (The separate encrypted clipboard backup is PIN-bound and unaffected.)
@@ -482,25 +678,114 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         {reconYearMonths.map(function(mk) {
           var rm = data.reconMonths || {};
           var entered = rm[mk];
+          var acuteEntry = acuteMonths[mk];
           var isOpen = expandedMonth === mk;
+          // Grid rows: roster order first, then any historical names in this
+          // month that are no longer on the roster (so Save round-trips them).
+          var gridNames = acuteRoster.slice();
+          if (acuteEntry && acuteEntry.shifts) Object.keys(acuteEntry.shifts).forEach(function(n) { if (gridNames.indexOf(n) === -1) gridNames.push(n); });
+          var openRow = function() {
+            if (isOpen) { setExpandedMonth(null); setMonthDraft(""); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); return; }
+            setExpandedMonth(mk);
+            setMonthDraft(entered !== undefined ? String(entered) : "");
+            setPoolDraft(acuteEntry && acuteEntry.pool !== undefined ? String(acuteEntry.pool) : "");
+            var sd = {};
+            if (acuteEntry && acuteEntry.shifts) Object.keys(acuteEntry.shifts).forEach(function(n) { sd[n] = String(acuteEntry.shifts[n]); });
+            setShiftsDraft(sd);
+            setShowSplitFor(null);
+          };
+          var saveDisabled = (monthDraft.trim() !== "" && isNaN(parseFloat(monthDraft))) || (poolDraft.trim() !== "" && isNaN(parseFloat(poolDraft)));
           return (<div key={mk} style={{ borderBottom: "1px solid rgba(51,65,85,0.4)" }}>
-            <div onClick={function() { if (isOpen) { setExpandedMonth(null); setMonthDraft(""); } else { setExpandedMonth(mk); setMonthDraft(entered !== undefined ? String(entered) : ""); } }} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 2px", cursor: "pointer" }}>
-              <span style={{ fontSize: 13, color: entered !== undefined ? "var(--text-primary)" : "var(--text-dim)" }}>{reconMonthLabel(mk)}</span>
-              <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: entered !== undefined ? "#34d399" : "var(--text-faint)", fontWeight: entered !== undefined ? 600 : 400 }}>{entered !== undefined ? entered.toLocaleString() : "\u2014"}</span>
+            <div onClick={openRow} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 2px", cursor: "pointer" }}>
+              <span style={{ fontSize: 13, color: (entered !== undefined || acuteEntry) ? "var(--text-primary)" : "var(--text-dim)" }}>{reconMonthLabel(mk)}</span>
+              <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
+                {acuteEntry && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-faint)" }}>P {round2(acuteEntry.pool).toFixed(1)}</span>}
+                <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: entered !== undefined ? "#34d399" : "var(--text-faint)", fontWeight: entered !== undefined ? 600 : 400 }}>{entered !== undefined ? entered.toLocaleString() : "\u2014"}</span>
+              </span>
             </div>
             {isOpen && <div style={{ padding: "2px 2px 12px" }}>
-              {/* per-month fields stack: future fields append below this one */}
+              {/* per-month fields stack */}
               <div style={S.fieldGroup}><label style={S.fieldLabel}>Institution total wRVU (incl. call + clinic)</label>
                 <input type="text" inputMode="decimal" value={monthDraft} onChange={function(e) { setMonthDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" autoFocus style={S.numberInput} />
               </div>
+              {acuteRoster.length > 0 && <>
+                <div style={{ fontSize: 10, color: "#34d399", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, margin: "6px 0 6px" }}>Acute care (group)</div>
+                <div style={S.fieldGroup}><label style={S.fieldLabel}>Pool wRVU (group total)</label>
+                  <input type="text" inputMode="decimal" value={poolDraft} onChange={function(e) { setPoolDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" style={S.numberInput} />
+                </div>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 10px", marginBottom: 8 }}>
+                  {gridNames.map(function(nm) {
+                    return (<div key={nm} style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                      <span style={{ flex: 1, fontSize: 11, color: acuteRoster.indexOf(nm) === -1 ? "var(--text-faint)" : "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nm}</span>
+                      <input type="text" inputMode="decimal" value={shiftsDraft[nm] !== undefined ? shiftsDraft[nm] : ""} onChange={function(e) { var v = e.target.value.replace(/[^0-9.]/g, ""); setShiftsDraft(function(prev) { var c = { ...prev }; c[nm] = v; return c; }); }} placeholder="-" style={{ width: 52, padding: "5px 6px", background: "var(--bg-inset)", border: "1px solid var(--border-default)", borderRadius: 6, color: "var(--text-bright)", fontSize: 12, fontFamily: "JetBrains Mono", textAlign: "right", outline: "none" }} />
+                    </div>);
+                  })}
+                </div>
+              </>}
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={saveReconMonth} disabled={monthDraft.trim() !== "" && isNaN(parseFloat(monthDraft))} style={{ ...S.saveBtn, flex: 1, padding: "8px 12px", fontSize: 12, opacity: (monthDraft.trim() !== "" && isNaN(parseFloat(monthDraft))) ? 0.4 : 1 }}>Save</button>
-                <button onClick={function() { setExpandedMonth(null); setMonthDraft(""); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                {entered !== undefined && <button onClick={clearReconMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>Clear</button>}
+                <button onClick={saveReconMonth} disabled={saveDisabled} style={{ ...S.saveBtn, flex: 1, padding: "8px 12px", fontSize: 12, opacity: saveDisabled ? 0.4 : 1 }}>Save</button>
+                {acuteEntry && <button onClick={function() { setShowSplitFor(showSplitFor === mk ? null : mk); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(52,211,153,0.3)", background: "transparent", color: "#34d399", fontSize: 12, cursor: "pointer" }}>{showSplitFor === mk ? "Hide split" : "View split"}</button>}
+                <button onClick={function() { setExpandedMonth(null); setMonthDraft(""); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                {(entered !== undefined || acuteEntry) && <button onClick={clearReconMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>Clear</button>}
               </div>
+              {showSplitFor === mk && (function() {
+                var m = acuteMonths[mk];
+                if (!m) return <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>No acute data saved for this month yet.</div>;
+                var sp = computeAcuteSplit(m);
+                if (sp.empty) return <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8 }}>Pool {round2(sp.pool).toFixed(2)} - no shifts entered.</div>;
+                return (<div style={{ marginTop: 10, padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid rgba(52,211,153,0.2)" }}>
+                  <div style={{ fontSize: 11, fontFamily: "JetBrains Mono", color: "var(--text-muted)", marginBottom: 6 }}>Pool {round2(sp.pool).toFixed(2)} | Units {sp.units % 1 === 0 ? sp.units : round2(sp.units).toFixed(2)} | Value/unit {round2(sp.valuePerUnit).toFixed(2)}</div>
+                  {Object.keys(m.shifts).map(function(nm) {
+                    return (<div key={nm} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderTop: "1px solid rgba(51,65,85,0.4)" }}>
+                      <span style={{ fontSize: 12, color: nm === (data.acuteMe || "") ? "#34d399" : "var(--text-primary)", fontWeight: nm === (data.acuteMe || "") ? 600 : 400 }}>{nm}</span>
+                      <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)" }}>{m.shifts[nm]} <span style={{ color: "var(--text-bright)", fontWeight: 600 }}>{round2(sp.shares[nm]).toFixed(2)}</span></span>
+                    </div>);
+                  })}
+                  <button onClick={function() { copyAcuteTable(mk); }} style={{ marginTop: 8, padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Copy table</button>
+                  {copyStatus && <span style={{ marginLeft: 8, fontSize: 11, color: "#34d399" }}>{copyStatus}</span>}
+                </div>);
+              })()}
             </div>}
           </div>);
         })}
+      </div>
+    </div>
+
+    {/* Acute Care Group - roster + JSON import. Partner names are USER-ENTERED
+        data only; never hardcode names in source (public repo). */}
+    <div style={S.card}>
+      <div style={S.cardLabel}>Acute Care Group</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Partner roster for the monthly acute-care pool split. Enter each month's pool and shifts in Monthly Reconciliation above; shares are computed from shifts. Tap Me to mark yourself.</div>
+      <div style={{ marginTop: 8 }}>
+        {acuteRoster.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>No partners yet - add names below or import JSON.</div>}
+        {acuteRoster.map(function(nm) {
+          var isMe = (data.acuteMe || "") === nm;
+          return (<div key={nm} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid rgba(51,65,85,0.4)" }}>
+            <button onClick={function() { setAcuteMe(nm); }} style={{ padding: "2px 8px", borderRadius: 10, border: isMe ? "1px solid rgba(52,211,153,0.5)" : "1px solid var(--border-default)", background: isMe ? "rgba(16,185,129,0.12)" : "transparent", color: isMe ? "#34d399" : "var(--text-faint)", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Me</button>
+            {renaming === nm ? (<>
+              <input type="text" value={renameDraft} onChange={function(e) { setRenameDraft(e.target.value); }} autoFocus style={{ ...S.searchInput, flex: 1, padding: "5px 8px", fontSize: 12, marginBottom: 0 }} />
+              <button onClick={function() { renamePartner(nm); }} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              <button onClick={function() { setRenaming(null); setRenameDraft(""); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Cancel</button>
+            </>) : (<>
+              <span style={{ flex: 1, fontSize: 13, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nm}</span>
+              <button onClick={function() { setRenaming(nm); setRenameDraft(nm); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Rename</button>
+              <button onClick={function() { removePartner(nm); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer" }}>x</button>
+            </>)}
+          </div>);
+        })}
+        <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+          <input type="text" value={newPartner} onChange={function(e) { setNewPartner(e.target.value); }} placeholder="New partner name" style={{ ...S.searchInput, flex: 1, marginBottom: 0, fontSize: 12 }} />
+          <button onClick={addPartner} disabled={!newPartner.trim()} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: newPartner.trim() ? 1 : 0.4 }}>Add</button>
+        </div>
+      </div>
+      <div style={{ marginTop: 12, borderTop: "1px solid var(--border-default)", paddingTop: 10 }}>
+        <button onClick={function() { setShowAcuteImport(!showAcuteImport); setAcuteImportStatus(""); }} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 6, color: showAcuteImport ? "#0ea5e9" : "var(--text-muted)", fontSize: 11, cursor: "pointer", padding: "4px 10px" }}>{showAcuteImport ? "Hide import" : "Import acute data (JSON)"}</button>
+        {showAcuteImport && <div style={{ marginTop: 8 }}>
+          <div style={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5, marginBottom: 6 }}>{'Paste: {"acuteRoster": [..], "acuteMe": "..", "acuteMonths": {"YYYY-MM": {"pool": n, "shifts": {"name": n}}}}. Pasted months overwrite same months; other months untouched. All-or-nothing: one bad month imports nothing.'}</div>
+          <textarea value={acuteImportText} onChange={function(e) { setAcuteImportText(e.target.value); }} placeholder="Paste acute JSON here..." style={{ ...S.notesInput, minHeight: 80, fontSize: 11, fontFamily: "JetBrains Mono" }} />
+          <button onClick={doAcuteImport} disabled={!acuteImportText.trim()} style={{ ...S.saveBtn, width: "100%", marginTop: 6, padding: "8px 12px", fontSize: 12, opacity: acuteImportText.trim() ? 1 : 0.4 }}>Import</button>
+        </div>}
+        {acuteImportStatus && <div style={{ marginTop: 6, fontSize: 11, color: acuteImportStatus.indexOf("failed") !== -1 ? "#ef4444" : "#34d399" }}>{acuteImportStatus}</div>}
       </div>
     </div>
 
