@@ -24,7 +24,7 @@ A mobile-first Progressive Web App for physicians to track surgical procedure wo
 
 ## Architecture
 
-The app is split into 12 files and loaded as a plain static site — no npm install, no bundler, no build step.
+The app is split into 13 files and loaded as a plain static site — no npm install, no bundler, no build step.
 
 ```
 index.html              # ~60-line shell, loads scripts in order
@@ -42,6 +42,7 @@ js files/
   analytics.js          # Trends and projections
   history.js            # History browser + CSV import
   compare.js            # Period comparison
+  acute.js              # Acute-care history table (read-only, nav-less view)
   settings.js           # Settings, backup/restore, theme toggle
   app.js                # ErrorBoundary, App root, Nav, render entry point
 ```
@@ -52,7 +53,7 @@ js files/
 2. Babel standalone 7.26.10 (from unpkg)
 3. SheetJS xlsx 0.20.1 (for Excel imports)
 4. `crypto.js` and `cpt-data.js` — loaded as plain `<script>` tags to bypass Babel (data is too large to parse through Babel, and crypto uses only ES5)
-5. The remaining 9 files — loaded via `document.write` with `type="text/babel"` and a `Date.now()` cache-buster so every page load gets fresh code
+5. The remaining 10 files — loaded via `document.write` with `type="text/babel"` and a `Date.now()` cache-buster so every page load gets fresh code (order: utils, styles, dashboard, log, analytics, history, compare, acute, settings, app)
 
 ### Design principles
 

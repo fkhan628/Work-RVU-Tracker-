@@ -1,7 +1,7 @@
 // =======================================
 // DASHBOARD
 // =======================================
-function Dashboard({ data, db, setView, showComp, toggleComp }) {
+function Dashboard({ data, db, setView, showComp, toggleComp, openAcute }) {
   const { entries, settings } = data;
   const instData = data.institutionData || [];
   const now = new Date();
@@ -12,8 +12,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
     var ySet = {};
     entries.forEach(function(e) { ySet[e.date.slice(0, 4)] = true; });
     instData.forEach(function(d) { ySet[d.month.slice(0, 4)] = true; });
+    Object.keys(data.acuteMonths || {}).forEach(function(mk) { ySet[mk.slice(0, 4)] = true; });
     return Object.keys(ySet).sort().reverse();
-  }, [entries, instData]);
+  }, [entries, instData, data.acuteMonths]);
 
   var currentFiscalYear = settings.yearStart ? settings.yearStart.slice(0, 4) : String(now.getFullYear());
   var [selectedYear, setSelectedYear] = useState("current");
@@ -84,9 +85,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
 
   // --- Two independent tracks (never blended) ---
   // Track 1 "Tracked OR": logged entries only. Track 2 "Reconciliation":
-  // manually entered monthly institution totals (data.reconMonths).
+  // institution monthly totals read directly from institutionData (Compare).
   // Year window as "YYYY-MM" strings - pure string math, no Date/UTC involved.
-  var reconMonths = data.reconMonths || {};
+  var instByMonth = {};
+  instData.forEach(function(row) { if (row && row.month) instByMonth[row.month] = (row.workRVU || 0) + (row.splitRVU || 0); });
   var startYM;
   if (selectedYear === "current") {
     startYM = (settings.yearStart || (now.getFullYear() + "-01-01")).slice(0, 7);
@@ -94,8 +96,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
     startYM = selectedYear + "-01";
   }
   var endYM = (parseInt(startYM.slice(0, 4), 10) + 1) + startYM.slice(4);
-  var reconKeys = Object.keys(reconMonths).filter(function(k) { return k >= startYM && k < endYM; }).sort();
-  var reconYTD = reconKeys.reduce(function(s, k) { return s + reconMonths[k]; }, 0);
+  var reconKeys = Object.keys(instByMonth).filter(function(k) { return k >= startYM && k < endYM; }).sort();
+  var reconYTD = reconKeys.reduce(function(s, k) { return s + instByMonth[k]; }, 0);
   var reconCount = reconKeys.length;
   var reconGoal = settings.reconGoal || 0;
   var reconPct = reconGoal > 0 ? Math.min((reconYTD / reconGoal) * 100, 100) : 0;
@@ -132,7 +134,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
   var overlapKeys = reconKeys.filter(function(k) { return acuteKeys.indexOf(k) !== -1; });
   var overlapKeySet = {};
   overlapKeys.forEach(function(k) { overlapKeySet[k] = true; });
-  var overlapRecon = overlapKeys.reduce(function(s, k) { return s + reconMonths[k]; }, 0);
+  var overlapRecon = overlapKeys.reduce(function(s, k) { return s + instByMonth[k]; }, 0);
   var overlapOR = ye.reduce(function(s, e) { return overlapKeySet[e.date.slice(0, 7)] ? s + e.adjustedRVU : s; }, 0);
   var overlapMyAcute = 0;
   overlapKeys.forEach(function(k) {
@@ -168,11 +170,38 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
       <button onClick={toggleComp} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: showComp ? "#10b981" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0, marginTop: 4 }} title={showComp ? "Hide compensation" : "Show compensation"}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>
     </div></div>
 
-    {/* Year selector - only show if multi-year data exists */}
-    {availableYears.length > 1 && <div style={S.catRow}>
-      <button onClick={function() { setSelectedYear("current"); }} style={selectedYear === "current" ? S.catBtnActive : S.catBtn}>Current</button>
-      {availableYears.map(function(y) { return <button key={y} onClick={function() { setSelectedYear(y); }} style={selectedYear === y ? S.catBtnActive : S.catBtn}>{y}</button>; })}
-    </div>}
+    {/* Year selector - Compare's pattern: Current + 2 prior years pinned,
+        older data-years in a dropdown */}
+    {availableYears.length > 1 && (function() {
+      var nowY = now.getFullYear();
+      var pinned = [String(nowY - 1), String(nowY - 2)].filter(function(y) { return availableYears.indexOf(y) !== -1; });
+      var older = availableYears.filter(function(y) { return y !== String(nowY) && pinned.indexOf(y) === -1; });
+      var olderSelected = older.indexOf(selectedYear) !== -1;
+      return (<div style={S.catRow}>
+        <button onClick={function() { setSelectedYear("current"); }} style={selectedYear === "current" ? S.catBtnActive : S.catBtn}>Current</button>
+        {pinned.map(function(y) { return (
+          <button key={y} onClick={function() { setSelectedYear(y); }} style={selectedYear === y ? S.catBtnActive : S.catBtn}>{y}</button>
+        ); })}
+        {older.length > 0 && <select
+          value={olderSelected ? selectedYear : ""}
+          onChange={function(e) { if (e.target.value) setSelectedYear(e.target.value); }}
+          style={{
+            flexShrink: 0, padding: "6px 22px 6px 12px", borderRadius: 20,
+            background: olderSelected ? "#0ea5e9" : "var(--bg-card)",
+            border: olderSelected ? "1px solid #0ea5e9" : "1px solid var(--border-default)",
+            color: olderSelected ? "#fff" : "var(--text-muted)",
+            fontSize: 12, fontWeight: olderSelected ? 600 : 400, cursor: "pointer",
+            appearance: "none", WebkitAppearance: "none", MozAppearance: "none",
+            backgroundImage: "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 10 10'><path d='M2 4l3 3 3-3' stroke='" + (olderSelected ? "%23fff" : "%2394a3b8") + "' stroke-width='1.5' fill='none' stroke-linecap='round'/></svg>\")",
+            backgroundRepeat: "no-repeat", backgroundPosition: "right 6px center",
+            fontFamily: "'DM Sans', sans-serif"
+          }}
+        >
+          <option value="">{olderSelected ? selectedYear : "Older"}</option>
+          {older.map(function(y) { return <option key={y} value={y}>{y}</option>; })}
+        </select>}
+      </div>);
+    })()}
 
     {/* Two independent goal tracks, equal weight. Wraps to stacked below ~340px. */}
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
@@ -193,7 +222,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
         <div style={{ height: 6, borderRadius: 3, background: "rgba(51,65,85,0.6)", marginTop: 8, overflow: "hidden" }}><div style={{ width: reconPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #059669, #34d399)", transition: "width 0.5s" }} /></div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, minHeight: 13 }}>
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{reconGoal > 0 && reconCount > 0 ? reconPct.toFixed(0) + "%" : ""}</span>
-          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span style={{ fontSize: 10, color: "var(--text-faint)" }}>enter months in Settings</span>}
+          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span style={{ fontSize: 10, color: "var(--text-faint)" }}>add months in Compare</span>}
         </div>
       </div>
     </div>
@@ -202,8 +231,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp }) {
       {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
         Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
       </div>}
-      {myAcuteCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-        My acute share (YTD): <span style={{ fontFamily: "JetBrains Mono", color: "#34d399", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}
+      {myAcuteCount > 0 && <div onClick={function() { if (openAcute) openAcute("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, cursor: "pointer", display: "flex", alignItems: "center" }}>
+        <span>My acute share (YTD): <span style={{ fontFamily: "JetBrains Mono", color: "#34d399", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}</span>
+        <span style={{ marginLeft: 6, color: "#34d399", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
       {myAcuteCount > 0 && reconCount > 0 && overlapKeys.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
         Clinic + other (derived): <span style={{ fontFamily: "JetBrains Mono", color: clinicOther >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(clinicOther >= 0 ? "+" : "") + clinicOther.toFixed(1)}</span> across {overlapKeys.length} overlapping month{overlapKeys.length === 1 ? "" : "s"}

@@ -593,12 +593,13 @@ function fmtDollar(val, show) { if (!show) return "$\u2022\u2022\u2022\u2022\u20
 // manually-entered monthly reconciliation totals (incl. call + clinic). The two
 // tracks are independent and never mix.
 const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yearStart: new Date().getFullYear() + "-01-01" });
-// reconMonths: { "YYYY-MM": number } - authoritative institution monthly totals,
-// typed by the user. NOT derived from logged entries.
+// The Reconciliation track reads institution monthly totals directly from
+// institutionData (Compare tab). The old hand-typed reconMonths store was
+// migrated into institutionData and removed (see repairData migration).
 // acuteRoster/acuteMe/acuteMonths: group acute-care pool tracking. Roster is
 // USER-ENTERED data only - never hardcode partner names anywhere in source.
 // acuteMonths: { "YYYY-MM": { pool: number, shifts: { name: number } } }.
-const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], reconMonths: {}, acuteRoster: [], acuteMe: "", acuteMonths: {}, dataVersion: DATA_VERSION });
+const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -631,27 +632,41 @@ function repairData(d) {
   // vanishing silently is the exact loss class Batch 1 eliminated. All loss
   // notices are combined into ONE banner so none can overwrite another.
   var lossMsgs = [];
+  // ONE-TIME MIGRATION: reconMonths -> institutionData. The Reconciliation
+  // track now reads institution monthly totals (Compare tab) directly; the
+  // hand-typed reconMonths store was a duplicate of the same fact. Rules:
+  // institutionData wins on conflict (it carries the work/call split) - but a
+  // hand-typed total that DIFFERS beyond rounding is surfaced loudly before
+  // being dropped (this runs on every partner's phone; a differing number
+  // must not vanish silently). A month missing from institutionData is
+  // carried over with its total intact in workRVU and totalOnly: true marking
+  // that the work/call split is unknown. Lives in repairData so loadData,
+  // last-good recovery, and encrypted-backup restore all share the same path.
   if (d && d.reconMonths !== undefined) {
-    if (typeof d.reconMonths !== "object" || d.reconMonths === null || Array.isArray(d.reconMonths)) {
-      d.reconMonths = {};
-      fixed.push("reconMonths");
-      lossMsgs.push("Monthly reconciliation data was unreadable and has been reset - please re-enter your monthly totals in Settings.");
-    } else {
-      var dropped = [];
+    if (typeof d.reconMonths === "object" && d.reconMonths !== null && !Array.isArray(d.reconMonths)) {
+      if (!Array.isArray(d.institutionData)) d.institutionData = [];
+      var instHave = {};
+      d.institutionData.forEach(function(row) { if (row && row.month) instHave[row.month] = (row.workRVU || 0) + (row.splitRVU || 0); });
       Object.keys(d.reconMonths).forEach(function(mk) {
-        var mv = d.reconMonths[mk];
-        if (typeof mv === "number" && !isNaN(mv)) return;
-        if (typeof mv === "string") {
-          var pv = parseFloat(mv);
-          if (!isNaN(pv)) { d.reconMonths[mk] = pv; fixed.push("reconMonths." + mk); return; }
+        var v = d.reconMonths[mk];
+        if (typeof v === "string") v = parseFloat(v);
+        if (typeof v !== "number" || isNaN(v)) {
+          lossMsgs.push("Monthly reconciliation entry for " + mk + " was unreadable and could not be migrated - re-enter it in Compare if needed.");
+          return;
         }
-        delete d.reconMonths[mk];
-        dropped.push(mk);
+        if (Object.prototype.hasOwnProperty.call(instHave, mk)) {
+          if (Math.abs(instHave[mk] - v) > 0.1) {
+            lossMsgs.push("Monthly entry " + mk + " (" + round2(v).toFixed(1) + ") differed from Compare (" + round2(instHave[mk]).toFixed(1) + "); Compare's value was kept.");
+          }
+          return; // duplicate of institutionData: drop silently when totals match
+        }
+        d.institutionData.push({ month: mk, workRVU: v, splitRVU: 0, totalOnly: true });
       });
-      if (dropped.length > 0) {
-        fixed.push("reconMonths-dropped");
-        lossMsgs.push("Monthly reconciliation " + (dropped.length === 1 ? "entry" : "entries") + " for " + dropped.join(", ") + " " + (dropped.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (dropped.length === 1 ? "it" : "them") + " in Settings.");
-      }
+      delete d.reconMonths;
+      fixed.push("reconMonths-migrated");
+    } else {
+      delete d.reconMonths; // malformed legacy field - nothing recoverable
+      fixed.push("reconMonths-removed");
     }
   }
   // Acute care group data. A month is dropped WHOLE if any value in it is
@@ -723,7 +738,10 @@ function loadData() {
     raw = localStorage.getItem(SK);
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
-    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], reconMonths: s.reconMonths || {}, acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, dataVersion: s.dataVersion || DATA_VERSION };
+    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, dataVersion: s.dataVersion || DATA_VERSION };
+    // Legacy field: carried through so repairData can run the one-time
+    // reconMonths -> institutionData migration, after which it is deleted.
+    if (s.reconMonths !== undefined) d.reconMonths = s.reconMonths;
     var repaired = repairData(d);
     if (validateData(d)) {
       if (repaired.length > 0) {
@@ -753,7 +771,7 @@ function saveData(d) {
     showDataAlert("SAVE FAILED - your latest change was NOT saved (" + (e && e.message ? e.message : "storage error") + "). Free up space or export a backup from Settings before closing the app.");
   }
 }
-async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); return { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], reconMonths: p.reconMonths || {}, acuteRoster: p.acuteRoster || [], acuteMe: p.acuteMe || "", acuteMonths: p.acuteMonths || {}, dataVersion: p.dataVersion || DATA_VERSION }; } } catch {} return null; }
+async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); var lp = { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], acuteRoster: p.acuteRoster || [], acuteMe: p.acuteMe || "", acuteMonths: p.acuteMonths || {}, dataVersion: p.dataVersion || DATA_VERSION }; if (p.reconMonths !== undefined) lp.reconMonths = p.reconMonths; repairData(lp); return lp; } } catch {} return null; }
 async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
 
 // Apply user overrides to CPT database and include CMS imported codes
@@ -962,10 +980,9 @@ function validateData(d) {
   if (!Array.isArray(d.entries)) return false;
   if (!d.settings || typeof d.settings !== "object") return false;
   if (typeof d.settings.ratePerRVU !== "number") return false;
-  // reconMonths/acute fields are optional (older stores lack them) but must have
-  // sane shapes when present. repairData resets bad shapes before this runs;
-  // these are backstops.
-  if (d.reconMonths !== undefined && (typeof d.reconMonths !== "object" || d.reconMonths === null || Array.isArray(d.reconMonths))) return false;
+  // Acute fields are optional (older stores lack them) but must have sane
+  // shapes when present. repairData resets bad shapes (and migrates away any
+  // legacy reconMonths field) before this runs; these are backstops.
   if (d.acuteMonths !== undefined && (typeof d.acuteMonths !== "object" || d.acuteMonths === null || Array.isArray(d.acuteMonths))) return false;
   if (d.acuteRoster !== undefined && !Array.isArray(d.acuteRoster)) return false;
   if (d.acuteMe !== undefined && typeof d.acuteMe !== "string") return false;

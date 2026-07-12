@@ -1,7 +1,7 @@
 // =======================================
 // SETTINGS (with wRVU Editor)
 // =======================================
-function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp }) {
+function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute }) {
   const { settings } = data;
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
@@ -155,6 +155,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     }
     var msg = "Restore " + restored.entries.length + " procedures? This will replace your current data (" + data.entries.length + " procedures).";
     if (confirm(msg)) {
+      // Same repair/migration path as loadData - old backups containing the
+      // legacy reconMonths field migrate into institutionData with zero loss.
+      repairData(restored);
       upd(function() {
         return {
           entries: restored.entries || [],
@@ -162,7 +165,6 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           rvuOverrides: restored.rvuOverrides || {},
           favorites: restored.favorites || [],
           institutionData: restored.institutionData || [],
-          reconMonths: restored.reconMonths || {},
           acuteRoster: restored.acuteRoster || [],
           acuteMe: restored.acuteMe || "",
           acuteMonths: restored.acuteMonths || {},
@@ -199,10 +201,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   }, [settings.reconGoal]);
 
   // --- Monthly Reconciliation entry state ---
-  // expandedMonth: which "YYYY-MM" row is open; monthDraft: raw text while typing
-  // (parseFloat committed on Save - Batch 1 discipline; strings never hit the store).
+  // expandedMonth: which "YYYY-MM" row is open. Drafts hold raw text while
+  // typing (parseFloat committed on Save - Batch 1 discipline; strings never
+  // hit the store).
   const [expandedMonth, setExpandedMonth] = useState(null);
-  const [monthDraft, setMonthDraft] = useState("");
   var RECON_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   // 12 months of the goal year (yearStart-based), pure string math - no Date/UTC.
   var reconYearMonths = useMemo(function() {
@@ -360,9 +362,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     }
     copyText(lines.join("\n"), "Split table copied!");
   };
-  // One Save commits the whole month panel: recon total + acute pool + shifts.
-  var saveReconMonth = function() {
-    var t = monthDraft.trim();
+  // Save commits the month's acute entry (pool + shifts). Institution totals
+  // are read-only here - they live in Compare.
+  var saveAcuteMonth = function() {
     var key = expandedMonth;
     if (!key) return;
     var pd = poolDraft.trim();
@@ -377,12 +379,6 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       anyShift = true;
     });
     upd(function(prev) {
-      var rm = { ...(prev.reconMonths || {}) };
-      if (t === "") { delete rm[key]; }
-      else {
-        var n = parseFloat(t);
-        if (!isNaN(n) && n >= 0) rm[key] = n;
-      }
       var am = { ...(prev.acuteMonths || {}) };
       if (pd === "" && !anyShift) { delete am[key]; }
       else {
@@ -390,26 +386,22 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         if (isNaN(pv) || pv < 0) pv = 0;
         am[key] = { pool: pv, shifts: shiftEntries };
       }
-      return { ...prev, reconMonths: rm, acuteMonths: am };
+      return { ...prev, acuteMonths: am };
     });
     setExpandedMonth(null);
-    setMonthDraft("");
     setPoolDraft("");
     setShiftsDraft({});
     setShowSplitFor(null);
   };
-  var clearReconMonth = function() {
+  var clearAcuteMonth = function() {
     var key = expandedMonth;
     if (!key) return;
     upd(function(prev) {
-      var rm = { ...(prev.reconMonths || {}) };
-      delete rm[key];
       var am = { ...(prev.acuteMonths || {}) };
       delete am[key];
-      return { ...prev, reconMonths: rm, acuteMonths: am };
+      return { ...prev, acuteMonths: am };
     });
     setExpandedMonth(null);
-    setMonthDraft("");
     setPoolDraft("");
     setShiftsDraft({});
     setShowSplitFor(null);
@@ -666,18 +658,17 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Reconciliation goal (total incl. call + clinic)</label><input type="text" inputMode="decimal" value={reconGoalText} onChange={e => onNumericChange(e.target.value, setReconGoalText, "reconGoal")} onBlur={function() { setReconGoalText(!settings.reconGoal ? "" : String(settings.reconGoal)); }} placeholder="0" style={S.numberInput} /></div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
 
-    {/* Monthly Reconciliation - manually entered institution monthly totals.
-        Authoritative, independent of logged cases. FORWARD-COMPAT: the expanded
-        panel below each month is a labeled-fields stack; future per-month fields
-        (acute-care pool, per-partner shift grid) join this panel - do not rebuild
-        it as a single-field widget. */}
+    {/* Monthly Acute Care - the group pool + per-partner shifts, per month.
+        Institution monthly totals are read-only here; they live in Compare.
+        The expanded panel is a labeled-fields stack - future per-month fields
+        join it; do not rebuild it as a single-field widget. */}
     <div style={S.card}>
-      <div style={S.cardLabel}>Monthly Reconciliation</div>
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Your institution's monthly total wRVUs (incl. call + clinic), from the monthly report. Tap a month to add or edit.</div>
+      <div style={S.cardLabel}>Monthly Acute Care</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>The group's acute-care pool and each partner's shifts, per month. Tap a month to add or edit. Institution totals are shown for reference - edit those in Compare.</div>
       <div style={{ marginTop: 8 }}>
         {reconYearMonths.map(function(mk) {
-          var rm = data.reconMonths || {};
-          var entered = rm[mk];
+          var instRow = (data.institutionData || []).find(function(r) { return r && r.month === mk; });
+          var instTotalRef = instRow ? (instRow.workRVU || 0) + (instRow.splitRVU || 0) : undefined;
           var acuteEntry = acuteMonths[mk];
           var isOpen = expandedMonth === mk;
           // Grid rows: roster order first, then any historical names in this
@@ -685,33 +676,32 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           var gridNames = acuteRoster.slice();
           if (acuteEntry && acuteEntry.shifts) Object.keys(acuteEntry.shifts).forEach(function(n) { if (gridNames.indexOf(n) === -1) gridNames.push(n); });
           var openRow = function() {
-            if (isOpen) { setExpandedMonth(null); setMonthDraft(""); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); return; }
+            if (isOpen) { setExpandedMonth(null); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); return; }
             setExpandedMonth(mk);
-            setMonthDraft(entered !== undefined ? String(entered) : "");
             setPoolDraft(acuteEntry && acuteEntry.pool !== undefined ? String(acuteEntry.pool) : "");
             var sd = {};
             if (acuteEntry && acuteEntry.shifts) Object.keys(acuteEntry.shifts).forEach(function(n) { sd[n] = String(acuteEntry.shifts[n]); });
             setShiftsDraft(sd);
             setShowSplitFor(null);
           };
-          var saveDisabled = (monthDraft.trim() !== "" && isNaN(parseFloat(monthDraft))) || (poolDraft.trim() !== "" && isNaN(parseFloat(poolDraft)));
+          var saveDisabled = poolDraft.trim() !== "" && isNaN(parseFloat(poolDraft));
           return (<div key={mk} style={{ borderBottom: "1px solid rgba(51,65,85,0.4)" }}>
             <div onClick={openRow} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 2px", cursor: "pointer" }}>
-              <span style={{ fontSize: 13, color: (entered !== undefined || acuteEntry) ? "var(--text-primary)" : "var(--text-dim)" }}>{reconMonthLabel(mk)}</span>
+              <span style={{ fontSize: 13, color: acuteEntry ? "var(--text-primary)" : "var(--text-dim)" }}>{reconMonthLabel(mk)}</span>
               <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
-                {acuteEntry && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-faint)" }}>P {round2(acuteEntry.pool).toFixed(1)}</span>}
-                <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: entered !== undefined ? "#34d399" : "var(--text-faint)", fontWeight: entered !== undefined ? 600 : 400 }}>{entered !== undefined ? entered.toLocaleString() : "\u2014"}</span>
+                {instTotalRef !== undefined && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-faint)" }}>inst {round2(instTotalRef).toFixed(1)}</span>}
+                <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: acuteEntry ? "#34d399" : "var(--text-faint)", fontWeight: acuteEntry ? 600 : 400 }}>{acuteEntry ? round2(acuteEntry.pool).toLocaleString() : "\u2014"}</span>
               </span>
             </div>
             {isOpen && <div style={{ padding: "2px 2px 12px" }}>
               {/* per-month fields stack */}
-              <div style={S.fieldGroup}><label style={S.fieldLabel}>Institution total wRVU (incl. call + clinic)</label>
-                <input type="text" inputMode="decimal" value={monthDraft} onChange={function(e) { setMonthDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" autoFocus style={S.numberInput} />
-              </div>
+              {instTotalRef !== undefined && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8, padding: "6px 10px", borderRadius: 6, background: "var(--bg-inset)", border: "1px dashed var(--border-default)" }}>
+                Institution total (Compare): <span style={{ fontFamily: "JetBrains Mono", color: "var(--text-muted)" }}>{round2(instTotalRef).toLocaleString()}</span> - read-only, edit in Compare
+              </div>}
               {acuteRoster.length > 0 && <>
                 <div style={{ fontSize: 10, color: "#34d399", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, margin: "6px 0 6px" }}>Acute care (group)</div>
                 <div style={S.fieldGroup}><label style={S.fieldLabel}>Pool wRVU (group total)</label>
-                  <input type="text" inputMode="decimal" value={poolDraft} onChange={function(e) { setPoolDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" style={S.numberInput} />
+                  <input type="text" inputMode="decimal" value={poolDraft} onChange={function(e) { setPoolDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" autoFocus style={S.numberInput} />
                 </div>
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "4px 10px", marginBottom: 8 }}>
                   {gridNames.map(function(nm) {
@@ -723,10 +713,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                 </div>
               </>}
               <div style={{ display: "flex", gap: 8 }}>
-                <button onClick={saveReconMonth} disabled={saveDisabled} style={{ ...S.saveBtn, flex: 1, padding: "8px 12px", fontSize: 12, opacity: saveDisabled ? 0.4 : 1 }}>Save</button>
+                <button onClick={saveAcuteMonth} disabled={saveDisabled} style={{ ...S.saveBtn, flex: 1, padding: "8px 12px", fontSize: 12, opacity: saveDisabled ? 0.4 : 1 }}>Save</button>
                 {acuteEntry && <button onClick={function() { setShowSplitFor(showSplitFor === mk ? null : mk); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(52,211,153,0.3)", background: "transparent", color: "#34d399", fontSize: 12, cursor: "pointer" }}>{showSplitFor === mk ? "Hide split" : "View split"}</button>}
-                <button onClick={function() { setExpandedMonth(null); setMonthDraft(""); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                {(entered !== undefined || acuteEntry) && <button onClick={clearReconMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>Clear</button>}
+                <button onClick={function() { setExpandedMonth(null); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+                {acuteEntry && <button onClick={clearAcuteMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>Clear</button>}
               </div>
               {showSplitFor === mk && (function() {
                 var m = acuteMonths[mk];
@@ -755,7 +745,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         data only; never hardcode names in source (public repo). */}
     <div style={S.card}>
       <div style={S.cardLabel}>Acute Care Group</div>
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Partner roster for the monthly acute-care pool split. Enter each month's pool and shifts in Monthly Reconciliation above; shares are computed from shifts. Tap Me to mark yourself.</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Partner roster for the monthly acute-care pool split. Enter each month's pool and shifts in Monthly Acute Care above; shares are computed from shifts. Tap Me to mark yourself.</div>
+      <button onClick={function() { if (openAcute) openAcute("settings"); }} style={{ marginTop: 8, padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(52,211,153,0.3)", background: "rgba(16,185,129,0.06)", color: "#34d399", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>View full history</button>
       <div style={{ marginTop: 8 }}>
         {acuteRoster.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>No partners yet - add names below or import JSON.</div>}
         {acuteRoster.map(function(nm) {

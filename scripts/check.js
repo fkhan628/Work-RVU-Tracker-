@@ -37,7 +37,7 @@ function walk(node, cb) {
 }
 
 const jsFiles = fs.readdirSync(JS_DIR).filter(f => f.endsWith(".js")).sort();
-check("found 11 js files", jsFiles.length === 11, "got " + jsFiles.length + ": " + jsFiles.join(", "));
+check("found 12 js files", jsFiles.length === 12, "got " + jsFiles.length + ": " + jsFiles.join(", "));
 
 jsFiles.forEach(f => {
   const src = fs.readFileSync(path.join(JS_DIR, f), "utf8");
@@ -67,6 +67,20 @@ jsFiles.forEach(f => {
 // 4. index.html must NOT use viewport-fit=cover (iPhone status-bar overlap)
 const html = fs.readFileSync(path.join(APP, "index.html"), "utf8");
 check("index.html has no viewport-fit=cover", html.indexOf("viewport-fit=cover") === -1);
+
+// 4b. Atomic deploy set: every name in index.html's Babel load array must
+// exist on disk, and every Babel file must be in the array. A new js file
+// shipped without its index.html entry (or vice versa) is a broken deploy.
+const jsArrMatch = html.match(/var js = \[([^\]]+)\]/);
+check("index.html has js load array", !!jsArrMatch);
+if (jsArrMatch) {
+  const loadNames = jsArrMatch[1].split(",").map(s => s.trim().replace(/'/g, ""));
+  const missingOnDisk = loadNames.filter(n => !fs.existsSync(path.join(JS_DIR, n + ".js")));
+  check("all index.html-loaded scripts exist on disk", missingOnDisk.length === 0, "missing: " + missingOnDisk.join(", "));
+  const babelNames = jsFiles.filter(f => f !== "crypto.js" && f !== "cpt-data.js").map(f => f.replace(/\.js$/, ""));
+  const unlisted = babelNames.filter(n => loadNames.indexOf(n) === -1);
+  check("all Babel js files listed in index.html load array", unlisted.length === 0, "unlisted: " + unlisted.join(", "));
+}
 
 // 5. utils.js: keyword/friendly maps must be defined ABOVE CPT_DATABASE_DEFAULT
 const utils = fs.readFileSync(path.join(JS_DIR, "utils.js"), "utf8");
