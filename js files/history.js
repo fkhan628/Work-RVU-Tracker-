@@ -47,6 +47,14 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [editSearch, setEditSearch] = useState("");
   const [editPatient, setEditPatient] = useState("");
   const [editIsCall, setEditIsCall] = useState(false);
+  // Add-mode: editId === ADD_SENTINEL means the panel is creating a NEW
+  // sibling procedure instead of editing one. addSourceId is the entry the
+  // panel was opened from - needed to backfill initials onto a standalone
+  // source entry so the pair merges into an encounter card (buildEncounters
+  // keys on encounterId). Real ids are Date.now()-based; no collision.
+  const [addSourceId, setAddSourceId] = useState(null);
+  const addSavingRef = useRef(false);
+  var ADD_SENTINEL = "__add__";
   const [dateRange, setDateRange] = useState("all");
   const [customStart, setCustomStart] = useState("");
   const [customEnd, setCustomEnd] = useState("");
@@ -212,7 +220,77 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     setEditIsCall(!!e.isCall);
   };
 
-  const cancelEdit = () => { setEditId(null); };
+  const cancelEdit = () => { setEditId(null); setAddSourceId(null); };
+
+  // Open the panel in add mode, inheriting the encounter context (date,
+  // initials, call status, notes) from a source entry. Notes are copied
+  // verbatim: siblings logged together share one identical notes string, and
+  // the encounter-count fallback keys on notes.substring(0,2).
+  var startAdd = function(src) {
+    setEditId(ADD_SENTINEL);
+    setAddSourceId(src.id);
+    setEditDate(src.date);
+    setEditCode("");
+    setEditMods([]);
+    setEditNotes(src.notes || "");
+    setEditSearch("");
+    setEditPatient(src.encounterId || "");
+    setEditIsCall(!!src.isCall);
+    addSavingRef.current = false;
+  };
+
+  // From inside the edit panel: commit the current edits first (so the new
+  // sibling inherits exactly what was just saved), then reopen in add mode.
+  var addAnother = function() {
+    var srcId = editId;
+    saveEdit();
+    setAddSourceId(srcId);
+    setEditId(ADD_SENTINEL);
+    setEditCode("");
+    setEditMods([]);
+    setEditSearch("");
+    addSavingRef.current = false;
+  };
+
+  // Add-mode save: appends a NEW entry in the Log flow's shape. Unlike
+  // saveEdit, an unknown code is refused (the Log flow skips unknown codes;
+  // a 0-RVU orphan would be silent junk). Append is not idempotent, so the
+  // ref lock guards double-taps; it resets on the next startAdd/addAnother.
+  var saveAdd = function() {
+    var info = cptMap[editCode];
+    if (!info || addSavingRef.current) return;
+    addSavingRef.current = true;
+    var adj = calcAdj(info.wRVU, editMods);
+    var newEntry = {
+      id: Date.now().toString() + "-h-" + Math.random().toString(36).slice(2, 8),
+      date: editDate,
+      cptCode: editCode,
+      description: info.desc,
+      category: info.category,
+      baseRVU: info.wRVU,
+      modifiers: editMods.slice(),
+      adjustedRVU: adj,
+      notes: editNotes,
+      encounterId: editPatient || undefined,
+      isCall: editIsCall,
+      imported: false
+    };
+    var srcId = addSourceId;
+    var pat = editPatient;
+    upd(function(prev) {
+      var next = prev.entries.concat([newEntry]);
+      // Backfill initials onto a source entry that had none so the pair
+      // groups into one encounter card. Undo removes only the new entry;
+      // the backfilled initials stay (harmless).
+      if (pat && srcId) {
+        next = next.map(function(x) { return x.id === srcId && !x.encounterId ? { ...x, encounterId: pat } : x; });
+      }
+      return { ...prev, entries: next };
+    });
+    showUndo({ type: "log", ids: [newEntry.id], message: "Added " + editCode + " (" + adj.toFixed(2) + " wRVU)" });
+    setEditId(null);
+    setAddSourceId(null);
+  };
 
   const saveEdit = () => {
     var info = cptMap[editCode];
@@ -232,13 +310,15 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     return db.filter(c => matchesCPTQuery(c, q)).slice(0, 10);
   }, [editSearch, db]);
 
-  // Edit mode
+  // Edit / add panel (add mode when editId is the sentinel)
   if (editId) {
+    var isAddMode = editId === ADD_SENTINEL;
     var editInfo = cptMap[editCode];
     var editBase = editInfo ? editInfo.wRVU : 0;
     var editAdj = calcAdj(editBase, editMods);
     return (<div style={S.page}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Edit Procedure</h1></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{isAddMode ? "Add Procedure" : "Edit Procedure"}</h1></div>
+      {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, and call status are carried over. Pick the CPT code below.</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} /></div></div>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { setEditPatient(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
@@ -249,9 +329,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       </div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>CPT Code</label>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-          <div style={{ flex: 1, padding: "8px 12px", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: 8, color: "#0ea5e9", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode}</div>
+          <div style={{ flex: 1, padding: "8px 12px", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: 8, color: editCode ? "#0ea5e9" : "var(--text-faint)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode || "\u2014"}</div>
         </div>
-        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search to change CPT code..." style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
+        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder={isAddMode ? "Search for the CPT code..." : "Search to change CPT code..."} autoFocus={isAddMode} style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
         {editFiltered.length > 0 && <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4 }}>{editFiltered.map(c => (<button key={c.code} onClick={() => { setEditCode(c.code); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9" }}>{c.code}</span><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.wRVU} wRVU</span></div><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.friendly || c.desc}</div>{c.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{c.desc}</div>}</button>))}</div>}
         {editInfo && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{editInfo.friendly || editInfo.desc}</div>}
         {editInfo && editInfo.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{editInfo.desc}</div>}
@@ -259,7 +339,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
       <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(editAdj * settings.ratePerRVU).toFixed(0)}</div></div></div></div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
-      <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button><button onClick={saveEdit} style={{ ...S.saveBtn, flex: 1 }}>Save Changes</button></div>
+      {!isAddMode && <button onClick={addAnother} style={{ width: "100%", marginBottom: 10, padding: "9px 12px", borderRadius: 10, border: "1px dashed rgba(14,165,233,0.4)", background: "rgba(14,165,233,0.04)", color: "#0ea5e9", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Save + add another procedure to this encounter</button>}
+      <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button>{isAddMode
+        ? <button onClick={saveAdd} disabled={!editInfo} style={{ ...S.saveBtn, flex: 1, opacity: editInfo ? 1 : 0.4 }}>Add Procedure</button>
+        : <button onClick={saveEdit} style={{ ...S.saveBtn, flex: 1 }}>Save Changes</button>}</div>
     </div>);
   }
 
@@ -309,9 +392,12 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
                   <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{enc.entries.length} procedures</span>
                   {enc.entries[0].isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
                 </div>
-                <div style={{ textAlign: "right" }}>
-                  <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 700 }}>{enc.totalRVU.toFixed(2)}</span>
-                  <span style={{ fontSize: 10, color: "#10b981", fontFamily: "JetBrains Mono", marginLeft: 6 }}>${(enc.totalRVU * settings.ratePerRVU).toFixed(0)}</span>
+                <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 8 }}>
+                  <div>
+                    <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 700 }}>{enc.totalRVU.toFixed(2)}</span>
+                    <span style={{ fontSize: 10, color: "#10b981", fontFamily: "JetBrains Mono", marginLeft: 6 }}>${(enc.totalRVU * settings.ratePerRVU).toFixed(0)}</span>
+                  </div>
+                  <button onClick={function() { startAdd(enc.entries[0]); }} style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid rgba(14,165,233,0.35)", background: "transparent", color: "#0ea5e9", fontSize: 10, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>+ Add</button>
                 </div>
               </div>
               <div style={{ padding: "0 4px" }}>
