@@ -11,6 +11,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [cat, setCat] = useState("All");
   const [showFavs, setShowFavs] = useState(true);
   const [isCall, setIsCall] = useState(false);
+  // Procedure templates: PRE-FILL only. applyTemplate composes the exact
+  // state manual entry writes (selectCode / companion addSuggestion draft
+  // shapes) and then STOPS - it never saves, never touches the save
+  // guards, and never adds a second save path.
+  const [tplNotice, setTplNotice] = useState(null); // { text, warn }
+  const [tplSaving, setTplSaving] = useState(false);
+  const [tplName, setTplName] = useState("");
+  const [tplNote, setTplNote] = useState("");
   var scanning = useRef(false);
   var scanAbort = useRef(null);
   var [scanStatus, setScanStatus] = useState("");
@@ -195,6 +203,62 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     var newP = { id: nextId.current++, code: null, search: "", mods: [] };
     setProcs(function(prev) { return prev.concat([newP]); });
     setActiveProc(procs.length);
+  };
+
+  // Apply a template: resolve codes against the CURRENT db (correct across
+  // yearly CPT updates), fill the first empty draft, append the rest as new
+  // drafts - the identical shapes selectCode and the companion-chip
+  // addSuggestion write, same nextId counter. Codes missing from the db are
+  // listed in a visible notice; known ones still apply; nothing is zeroed.
+  // Duplicates are applied literally (visible in the Encounter Summary
+  // before save, exactly like manual double-entry). Default note fills only
+  // an empty note field. Then it STOPS - save and its guards are untouched.
+  var applyTemplate = function(tpl) {
+    var known = [];
+    var missing = [];
+    tpl.codes.forEach(function(code) {
+      var info = cptMap[code];
+      if (info) known.push(info); else missing.push(code);
+    });
+    if (known.length > 0) {
+      var next = procs.slice();
+      var lastIdx = activeProc;
+      known.forEach(function(info) {
+        var draft = { code: info.code, search: info.code + " - " + (info.friendly || info.desc), mods: [] };
+        var emptyIdx = -1;
+        for (var i = 0; i < next.length; i++) { if (!next[i].code) { emptyIdx = i; break; } }
+        if (emptyIdx !== -1) { next[emptyIdx] = Object.assign({}, next[emptyIdx], draft); lastIdx = emptyIdx; }
+        else { next = next.concat([Object.assign({ id: nextId.current++ }, draft)]); lastIdx = next.length - 1; }
+      });
+      setProcs(next);
+      setActiveProc(lastIdx);
+      setShowFavs(false);
+    }
+    if (tpl.note && !notes.trim()) setNotes(tpl.note);
+    if (missing.length > 0) {
+      setTplNotice({ warn: true, text: '"' + tpl.name + '": ' + known.length + " code" + (known.length === 1 ? "" : "s") + " added. Not in the current database, skipped: " + missing.join(", ") });
+    } else if (known.length > 0) {
+      setTplNotice(null);
+    } else {
+      setTplNotice({ warn: true, text: '"' + tpl.name + '": none of its codes are in the current database - nothing added.' });
+    }
+  };
+
+  var openTplForm = function() {
+    setTplName("");
+    setTplNote(notes); // VISIBLE prefill - edit or clear before saving
+    setTplSaving(true);
+  };
+  var saveTemplate = function() {
+    var name = tplName.trim();
+    var codes = procs.filter(function(p) { return p.code; }).map(function(p) { return p.code; });
+    if (!name || codes.length === 0) return;
+    var t = { id: "tpl-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 6), name: name, codes: codes };
+    var dn = tplNote.trim();
+    if (dn) t.note = dn;
+    upd(function(prev) { return { ...prev, templates: (prev.templates || []).concat([t]) }; });
+    setTplSaving(false);
+    setTplNotice({ warn: false, text: 'Template "' + name + '" saved (' + codes.length + " code" + (codes.length === 1 ? "" : "s") + ")." });
   };
 
   var removeProc = function(idx) {
@@ -565,6 +629,25 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
       </button>
     </div>
 
+    {/* Template chips - one-tap pre-fill of the selection below. 44pt min
+        touch height; green lane (favorites own amber, companions blue/violet). */}
+    {(data.templates || []).length > 0 && <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginBottom: 8 }}>
+      {(data.templates || []).map(function(t) {
+        return (<button key={t.id} onClick={function() { applyTemplate(t); }} style={{
+          minHeight: 44, padding: "6px 12px", borderRadius: 10, cursor: "pointer",
+          border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.06)",
+          display: "flex", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 1
+        }}>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "#34d399" }}>{t.name}</span>
+          <span style={{ fontSize: 9, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{t.codes.length + " code" + (t.codes.length === 1 ? "" : "s")}</span>
+        </button>);
+      })}
+    </div>}
+    {tplNotice && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: tplNotice.warn ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)", border: tplNotice.warn ? "1px solid rgba(245,158,11,0.25)" : "1px solid rgba(16,185,129,0.25)", color: tplNotice.warn ? "#f59e0b" : "#34d399", fontSize: 11, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+      <span>{tplNotice.text}</span>
+      <span onClick={function() { setTplNotice(null); }} style={{ cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>x</span>
+    </div>}
+
     {/* Procedure tabs */}
     <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
       {procs.map(function(p, i) {
@@ -743,8 +826,22 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
     {canSave && <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: isCall ? "1px solid rgba(139,92,246,0.3)" : "1px solid var(--border-default)", marginTop: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={S.cardLabel}>Encounter Summary</div>
-        <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "#a78bfa" : "#0ea5e9", fontWeight: 600 }}>{isCall ? "Call" : "Private"}</span>
+        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+          {!tplSaving && <button onClick={openTplForm} style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid rgba(16,185,129,0.3)", background: "transparent", color: "#34d399", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Save as template</button>}
+          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "#a78bfa" : "#0ea5e9", fontWeight: 600 }}>{isCall ? "Call" : "Private"}</span>
+        </div>
       </div>
+      {tplSaving && <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid rgba(16,185,129,0.25)" }}>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "#34d399", marginBottom: 6 }}>New template from this selection ({procs.filter(function(p) { return p.code; }).length} code{procs.filter(function(p) { return p.code; }).length === 1 ? "" : "s"})</div>
+        <input type="text" value={tplName} onChange={function(e) { setTplName(e.target.value); }} placeholder="Template name (e.g. Lap chole + IOC)" autoFocus style={{ ...S.searchInput, fontSize: 13, marginBottom: 6 }} />
+        <label style={{ ...S.fieldLabel, fontSize: 10 }}>Default note (optional - applied only when the note field is empty)</label>
+        <input type="text" value={tplNote} onChange={function(e) { setTplNote(e.target.value); }} placeholder="No default note" style={{ ...S.searchInput, fontSize: 12, marginBottom: 6 }} />
+        <div style={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5, marginBottom: 8 }}>Templates store CPT codes only - keep names and default notes free of patient info. The note above was copied from the current case; edit or clear it before saving.</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          <button onClick={function() { setTplSaving(false); }} style={{ padding: "7px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
+          <button onClick={saveTemplate} disabled={!tplName.trim()} style={{ ...S.saveBtn, flex: 1, padding: "7px 12px", fontSize: 12, opacity: tplName.trim() ? 1 : 0.4 }}>Save template</button>
+        </div>
+      </div>}
       <div style={{ marginTop: 8 }}>{procs.filter(function(p){return p.code;}).map(function(p, i) {
         var info = cptMap[p.code];
         var adj = calcProcRVU(p);

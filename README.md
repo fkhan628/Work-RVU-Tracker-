@@ -51,9 +51,10 @@ js files/
 
 1. React 18.3.1 and ReactDOM (UMD, from unpkg)
 2. Babel standalone 7.26.10 (from unpkg)
-3. SheetJS xlsx 0.20.1 (for Excel imports)
-4. `crypto.js` and `cpt-data.js` — loaded as plain `<script>` tags to bypass Babel (data is too large to parse through Babel, and crypto uses only ES5)
-5. The remaining 10 files — loaded via `document.write` with `type="text/babel"` and a `Date.now()` cache-buster so every page load gets fresh code (order: utils, styles, dashboard, log, analytics, history, compare, acute, settings, app)
+3. **Plain scripts** (execute during parse, in document order): `crypto`, `cpt-data`, `utils`, `styles` — all JSX-free. utils/styles were moved out of Babel to skip two compiles; their top-level `const` names become parse-time global bindings that no Babel file may redeclare.
+4. **Babel scripts** (`type="text/babel"`, execute after transform at DOMContentLoaded): `dashboard`, `log`, `analytics`, `history`, `compare`, `acute`, `settings`, `app`.
+5. All local script URLs carry `?v=ASSET_V` — a hand-bumped constant in index.html's head. **Every deploy that changes any js file must bump ASSET_V** (build reports state the new value). Browsers cache and revalidate per GitHub Pages headers (~10-min max-age), so updates propagate even without a bump; the bump forces immediate refetch.
+6. SheetJS xlsx 0.20.1 is **not loaded at boot** — Compare's Excel upload and Settings' Excel export lazy-load it via `loadXLSX()` (utils.js) with the same pinned SRI hash.
 
 ### Design principles
 

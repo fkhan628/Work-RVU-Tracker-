@@ -17,11 +17,16 @@
   <link rel="apple-touch-icon" sizes="192x192" href="icon-192.png">
   <link rel="apple-touch-icon" sizes="512x512" href="icon-512.png">
 
-  <!-- Preload heavy resources -->
+  <!-- Preload heavy resources. ASSET_V is the hand-bumped cache version for
+       ALL local scripts: bump it on EVERY deploy that changes any js file
+       (build reports must state the value). The cpt-data preload is written
+       from the same constant so its URL can never drift from the script tag
+       below (a drift means the 500KB database downloads twice). -->
+  <script>var ASSET_V = "2";</script>
   <link rel="preload" href="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js" as="script" crossorigin>
   <link rel="preload" href="https://unpkg.com/react@18.3.1/umd/react.production.min.js" as="script" crossorigin>
   <link rel="preload" href="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js" as="script" crossorigin>
-  <link rel="preload" href="js%20files/cpt-data.js" as="script">
+  <script>document.write('<link rel="preload" href="js%20files/cpt-data.js?v=' + ASSET_V + '" as="script">');</script>
 
   <style>
     * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
@@ -49,16 +54,23 @@
   <script crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
   <script crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
   <script crossorigin="anonymous" integrity="sha384-BcI7nduYchENm39cFMEVJXHEE7fwHONANyn/pY2YTa+BNtrWF2bKBZeI0wqVithi" src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
-  <script crossorigin="anonymous" integrity="sha384-QCIdq2UMVEoSRhR3ZWZwdz2/pivLowr+eokFMdYyukq7qI26VYRxFa4Nl6FKetmL" src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
-
-  <script src="js%20files/crypto.js"></script>
-  <script src="js%20files/cpt-data.js"></script>
+  <!-- SheetJS is NOT loaded at boot: Compare's Excel upload and Settings'
+       Excel export lazy-load it via loadXLSX (utils.js) with the same
+       pinned version + SRI hash. -->
 
   <script>
-    var v = Date.now();
-    var js = ['utils','styles','dashboard','log','analytics','history','compare','acute','settings','app'];
+    // plain scripts execute during parse, in this order, BEFORE any
+    // text/babel file runs (Babel standalone processes its queue at
+    // DOMContentLoaded). utils.js and styles.js are JSX-free and belong
+    // here; every file in js must stay text/babel (they contain JSX).
+    // ?v=ASSET_V (head) makes browsers cache these; bump on every deploy.
+    var plain = ['crypto','cpt-data','utils','styles'];
+    var js = ['dashboard','log','analytics','history','compare','acute','settings','app'];
+    plain.forEach(function(f) {
+      document.write('<script src="js%20files/' + f + '.js?v=' + ASSET_V + '"><\/script>');
+    });
     js.forEach(function(f) {
-      document.write('<script type="text/babel" src="js%20files/' + f + '.js?' + v + '"><\/script>');
+      document.write('<script type="text/babel" src="js%20files/' + f + '.js?v=' + ASSET_V + '"><\/script>');
     });
   </script>
 </body>

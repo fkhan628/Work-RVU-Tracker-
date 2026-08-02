@@ -68,18 +68,31 @@ jsFiles.forEach(f => {
 const html = fs.readFileSync(path.join(APP, "index.html"), "utf8");
 check("index.html has no viewport-fit=cover", html.indexOf("viewport-fit=cover") === -1);
 
-// 4b. Atomic deploy set: every name in index.html's Babel load array must
-// exist on disk, and every Babel file must be in the array. A new js file
-// shipped without its index.html entry (or vice versa) is a broken deploy.
+// 4b. Atomic deploy set + loader structure. index.html carries TWO literal
+// arrays: `plain` (classic scripts, execute during parse - must stay
+// JSX-free) and `js` (text/babel). Every js file on disk must appear in
+// exactly one array, the plain set is pinned (a JSX file drifting into it
+// is a white screen; utils/styles drifting out doubles their execution),
+// and the hand-bumped ASSET_V constant must exist - it is the deploy cache
+// contract (bump on every deploy that changes any js file).
+const plainArrMatch = html.match(/var plain = \[([^\]]+)\]/);
 const jsArrMatch = html.match(/var js = \[([^\]]+)\]/);
-check("index.html has js load array", !!jsArrMatch);
-if (jsArrMatch) {
-  const loadNames = jsArrMatch[1].split(",").map(s => s.trim().replace(/'/g, ""));
+check("index.html has plain + js load arrays", !!plainArrMatch && !!jsArrMatch);
+if (plainArrMatch && jsArrMatch) {
+  const parseArr = m => m[1].split(",").map(s => s.trim().replace(/'/g, ""));
+  const plainNames = parseArr(plainArrMatch);
+  const babelNames = parseArr(jsArrMatch);
+  const loadNames = plainNames.concat(babelNames);
   const missingOnDisk = loadNames.filter(n => !fs.existsSync(path.join(JS_DIR, n + ".js")));
   check("all index.html-loaded scripts exist on disk", missingOnDisk.length === 0, "missing: " + missingOnDisk.join(", "));
-  const babelNames = jsFiles.filter(f => f !== "crypto.js" && f !== "cpt-data.js").map(f => f.replace(/\.js$/, ""));
-  const unlisted = babelNames.filter(n => loadNames.indexOf(n) === -1);
-  check("all Babel js files listed in index.html load array", unlisted.length === 0, "unlisted: " + unlisted.join(", "));
+  const diskNames = jsFiles.map(f => f.replace(/\.js$/, ""));
+  const unlisted = diskNames.filter(n => loadNames.indexOf(n) === -1);
+  check("every js file on disk is in a load array", unlisted.length === 0, "unlisted: " + unlisted.join(", "));
+  const dup = loadNames.filter((n, i) => loadNames.indexOf(n) !== i);
+  check("no file in both load arrays", dup.length === 0, "duplicated: " + dup.join(", "));
+  const EXPECTED_PLAIN = ["cpt-data", "crypto", "styles", "utils"];
+  check("plain set is exactly crypto/cpt-data/utils/styles", plainNames.slice().sort().join(",") === EXPECTED_PLAIN.join(","), "got: " + plainNames.join(", "));
+  check("index.html defines hand-bumped ASSET_V", /var ASSET_V = "[^"]+"/.test(html));
 }
 
 // 5. utils.js: keyword/friendly maps must be defined ABOVE CPT_DATABASE_DEFAULT

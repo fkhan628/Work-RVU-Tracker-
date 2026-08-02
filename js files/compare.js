@@ -19,6 +19,7 @@ function Compare({ data, upd, setView, showComp }) {
   var [xlSheet, setXlSheet] = useState(0);
   var [xlSheets, setXlSheets] = useState([]);
   var [xlRawWb, setXlRawWb] = useState(null);
+  var [xlLoading, setXlLoading] = useState(false);
   var xlRef = useRef(null);
 
   // Excel cell value -> "YYYY-MM". ALL LOCAL, no UTC anywhere: the old path
@@ -116,6 +117,19 @@ function Compare({ data, upd, setView, showComp }) {
     if (!file) return;
     setXlError("");
     setXlPreview(null);
+    // SheetJS is lazy-loaded on first use (loadXLSX in utils.js). The
+    // in-flight guard lives in the helper; the visible state lives here.
+    setXlLoading(true);
+    loadXLSX().then(function() {
+      setXlLoading(false);
+      readExcelFile(file);
+    }).catch(function(err) {
+      setXlLoading(false);
+      setXlError(err && err.message ? err.message : "Could not load the Excel library.");
+    });
+  };
+
+  var readExcelFile = function(file) {
     var reader = new FileReader();
     reader.onload = function(ev) {
       try {
@@ -494,7 +508,7 @@ function Compare({ data, upd, setView, showComp }) {
     <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
       <input ref={xlRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) handleExcelUpload(e.target.files[0]); e.target.value = ""; }} />
       <button onClick={function() { if (showAdd) { resetForm(); } else { setShowAdd(true); setEditMonth(todayLocal().slice(0, 7)); } }} style={{ ...S.secondaryBtn, flex: 1, color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>{showAdd ? "Cancel" : "+ Add Month"}</button>
-      <button onClick={function() { xlRef.current && xlRef.current.click(); }} style={{ ...S.secondaryBtn, flex: 1, color: "#10b981", borderColor: "rgba(16,185,129,0.3)" }}>{"\u2191"} Upload Excel</button>
+      <button onClick={function() { if (!xlLoading && xlRef.current) xlRef.current.click(); }} disabled={xlLoading} style={{ ...S.secondaryBtn, flex: 1, color: "#10b981", borderColor: "rgba(16,185,129,0.3)", opacity: xlLoading ? 0.6 : 1 }}>{xlLoading ? "Loading Excel engine..." : "\u2191 Upload Excel"}</button>
     </div>
 
     {xlError && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: xlError.startsWith("Imported") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", color: xlError.startsWith("Imported") ? "#10b981" : "#ef4444", fontSize: 13, textAlign: "center" }}>{xlError}</div>}

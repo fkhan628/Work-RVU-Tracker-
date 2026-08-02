@@ -1,3 +1,10 @@
+// PLAIN SCRIPT - executes during HTML parse, BEFORE every text/babel file.
+// Its top-level const/let names (useState, CPT_DATABASE_DEFAULT, MODIFIERS,
+// SK, fmt, ...) are global LEXICAL bindings owned at parse time: a babel
+// file that later declares any of these names at ITS top level throws
+// "Identifier has already been declared" and that whole file dies. Never
+// redeclare a utils.js or styles.js top-level name in a component file.
+// Also: no JSX may ever be added here - this file is not Babel-transformed.
 const {useState,useEffect,useRef,useMemo,useCallback}=React;
 
 const DATA_VERSION = "CY2026-PFS-v1";
@@ -599,7 +606,11 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // acuteRoster/acuteMe/acuteMonths: group acute-care pool tracking. Roster is
 // USER-ENTERED data only - never hardcode partner names anywhere in source.
 // acuteMonths: { "YYYY-MM": { pool: number, shifts: { name: number } } }.
-const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, dataVersion: DATA_VERSION });
+// templates: saved procedure code bundles for one-tap Log pre-fill.
+// [{ id, name, codes: ["47562", ...] (order preserved), note? }] - codes
+// only, never wRVU values (those resolve from the current db at apply
+// time) and never patient info.
+const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -707,6 +718,36 @@ function repairData(d) {
       }
     }
   }
+  // Procedure templates: code bundles only. Tolerant repair - a malformed
+  // list resets loudly; an individual template is dropped WHOLE (with a
+  // notice) when unreadable or left codeless after cleaning, never silently
+  // truncated to a partial bundle.
+  if (d && d.templates !== undefined) {
+    if (!Array.isArray(d.templates)) {
+      d.templates = [];
+      fixed.push("templates");
+      lossMsgs.push("Procedure templates were unreadable and have been reset.");
+    } else {
+      var droppedT = [];
+      var cleanT = [];
+      d.templates.forEach(function(t, ti) {
+        if (!t || typeof t !== "object" || Array.isArray(t)) { droppedT.push("#" + (ti + 1)); return; }
+        var tName = typeof t.name === "string" ? t.name : "";
+        var tCodes = Array.isArray(t.codes) ? t.codes.filter(function(c) { return typeof c === "string" && c.trim() !== ""; }) : [];
+        if (Array.isArray(t.codes) && tCodes.length !== t.codes.length) fixed.push("templates." + (ti + 1) + ".codes");
+        if (tName.trim() === "" || tCodes.length === 0) { droppedT.push(tName.trim() || "#" + (ti + 1)); return; }
+        var ct = { id: (typeof t.id === "string" && t.id) ? t.id : "", name: tName, codes: tCodes };
+        if (!ct.id) { ct.id = "tpl-" + Date.now().toString(36) + "-" + ti; fixed.push("templates." + (ti + 1) + ".id"); }
+        if (typeof t.note === "string" && t.note.trim() !== "") ct.note = t.note;
+        cleanT.push(ct);
+      });
+      if (droppedT.length > 0) {
+        fixed.push("templates-dropped");
+        lossMsgs.push("Procedure template" + (droppedT.length === 1 ? "" : "s") + " " + droppedT.join(", ") + " " + (droppedT.length === 1 ? "was" : "were") + " unreadable and removed.");
+      }
+      d.templates = cleanT;
+    }
+  }
   if (lossMsgs.length > 0) showDataAlert(lossMsgs.join(" "));
   return fixed;
 }
@@ -738,7 +779,7 @@ function loadData() {
     raw = localStorage.getItem(SK);
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
-    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, dataVersion: s.dataVersion || DATA_VERSION };
+    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, templates: s.templates || [], dataVersion: s.dataVersion || DATA_VERSION };
     // Legacy field: carried through so repairData can run the one-time
     // reconMonths -> institutionData migration, after which it is deleted.
     if (s.reconMonths !== undefined) d.reconMonths = s.reconMonths;
@@ -771,7 +812,7 @@ function saveData(d) {
     showDataAlert("SAVE FAILED - your latest change was NOT saved (" + (e && e.message ? e.message : "storage error") + "). Free up space or export a backup from Settings before closing the app.");
   }
 }
-async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); var lp = { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], acuteRoster: p.acuteRoster || [], acuteMe: p.acuteMe || "", acuteMonths: p.acuteMonths || {}, dataVersion: p.dataVersion || DATA_VERSION }; if (p.reconMonths !== undefined) lp.reconMonths = p.reconMonths; repairData(lp); return lp; } } catch {} return null; }
+async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); var lp = { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], acuteRoster: p.acuteRoster || [], acuteMe: p.acuteMe || "", acuteMonths: p.acuteMonths || {}, templates: p.templates || [], dataVersion: p.dataVersion || DATA_VERSION }; if (p.reconMonths !== undefined) lp.reconMonths = p.reconMonths; repairData(lp); return lp; } } catch {} return null; }
 async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
 
 // Apply user overrides to CPT database and include CMS imported codes
@@ -823,6 +864,37 @@ function availableDataYears(data) {
   (data.institutionData || []).forEach(function(d) { if (d && d.month) ySet[d.month.slice(0, 4)] = true; });
   Object.keys(data.acuteMonths || {}).forEach(function(mk) { ySet[mk.slice(0, 4)] = true; });
   return Object.keys(ySet).sort().reverse();
+}
+
+// --- Lazy SheetJS loader ---
+// SheetJS (~1MB) is used only by Compare's Excel upload and Settings' Excel
+// export, so it is injected on first use instead of loading at boot. Same
+// pinned version + SRI hash + crossorigin as the old index.html head tag -
+// if the version is ever bumped, recompute the sha384 or the script is
+// blocked. A single in-flight promise guards double-injection; on failure
+// the promise resets so the next tap retries cleanly.
+var XLSX_SRC = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
+var XLSX_SRI = "sha384-QCIdq2UMVEoSRhR3ZWZwdz2/pivLowr+eokFMdYyukq7qI26VYRxFa4Nl6FKetmL";
+var _xlsxLoad = null;
+function loadXLSX() {
+  if (window.XLSX) return Promise.resolve();
+  if (_xlsxLoad) return _xlsxLoad;
+  _xlsxLoad = new Promise(function(resolve, reject) {
+    var s = document.createElement("script");
+    s.src = XLSX_SRC;
+    s.integrity = XLSX_SRI;
+    s.crossOrigin = "anonymous";
+    s.onload = function() {
+      if (window.XLSX) { resolve(); }
+      else { _xlsxLoad = null; reject(new Error("The Excel library loaded but did not initialize - try again.")); }
+    };
+    s.onerror = function() {
+      _xlsxLoad = null;
+      reject(new Error("Could not load the Excel library - check your connection and try again."));
+    };
+    document.head.appendChild(s);
+  });
+  return _xlsxLoad;
 }
 
 // --- CSV field escaping (RFC 4180) ---
@@ -997,6 +1069,7 @@ function validateData(d) {
   if (d.acuteMonths !== undefined && (typeof d.acuteMonths !== "object" || d.acuteMonths === null || Array.isArray(d.acuteMonths))) return false;
   if (d.acuteRoster !== undefined && !Array.isArray(d.acuteRoster)) return false;
   if (d.acuteMe !== undefined && typeof d.acuteMe !== "string") return false;
+  if (d.templates !== undefined && !Array.isArray(d.templates)) return false;
   return true;
 }
 

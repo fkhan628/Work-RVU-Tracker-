@@ -168,6 +168,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           acuteRoster: restored.acuteRoster || [],
           acuteMe: restored.acuteMe || "",
           acuteMonths: restored.acuteMonths || {},
+          templates: restored.templates || [],
           dataVersion: restored.dataVersion || DATA_VERSION
         };
       });
@@ -228,6 +229,31 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const [newPartner, setNewPartner] = useState("");
   const [renaming, setRenaming] = useState(null);
   const [renameDraft, setRenameDraft] = useState("");
+  // Procedure template management (create lives in Log, where a selection exists)
+  const [tplRenaming, setTplRenaming] = useState(null);
+  const [tplRenameDraft, setTplRenameDraft] = useState("");
+  var moveTemplate = function(id, dir) {
+    upd(function(prev) {
+      var l = (prev.templates || []).slice();
+      var i = -1;
+      l.forEach(function(t, ix) { if (t.id === id) i = ix; });
+      var j = i + dir;
+      if (i < 0 || j < 0 || j >= l.length) return prev;
+      var tmp = l[i]; l[i] = l[j]; l[j] = tmp;
+      return { ...prev, templates: l };
+    });
+  };
+  var renameTemplate = function(id) {
+    var n = tplRenameDraft.trim();
+    if (!n) { setTplRenaming(null); setTplRenameDraft(""); return; }
+    upd(function(prev) { return { ...prev, templates: (prev.templates || []).map(function(t) { return t.id === id ? { ...t, name: n } : t; }) }; });
+    setTplRenaming(null);
+    setTplRenameDraft("");
+  };
+  var deleteTemplate = function(t) {
+    if (!confirm('Delete template "' + t.name + '"? This does not affect any logged procedures.')) return;
+    upd(function(prev) { return { ...prev, templates: (prev.templates || []).filter(function(x) { return x.id !== t.id; }) }; });
+  };
   const [showAcuteImport, setShowAcuteImport] = useState(false);
   const [acuteImportText, setAcuteImportText] = useState("");
   const [acuteImportStatus, setAcuteImportStatus] = useState("");
@@ -465,7 +491,18 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     const b = new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".json"; a.click(); URL.revokeObjectURL(u);
   };
 
+  // SheetJS is lazy-loaded on first use (loadXLSX in utils.js) - the
+  // library is no longer present at boot.
+  const [excelBusy, setExcelBusy] = useState(false);
   const expExcel = () => {
+    if (excelBusy) return;
+    setExcelBusy(true);
+    loadXLSX().then(function() { setExcelBusy(false); doExcelExport(); }).catch(function(err) {
+      setExcelBusy(false);
+      alert(err && err.message ? err.message : "Could not load the Excel library.");
+    });
+  };
+  const doExcelExport = () => {
     try {
       var wb = XLSX.utils.book_new();
       var monthMap = {};
@@ -813,6 +850,37 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       )}
     </div>)}
 
+    {/* Procedure templates - management only; creation lives in Log */}
+    <div style={S.card}>
+      <div style={S.cardLabel}>Procedure Templates</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>One-tap code bundles for the Log tab. To create one: build a selection in Log, then tap "Save as template" in the Encounter Summary.</div>
+      <div style={{ marginTop: 8 }}>
+        {(data.templates || []).length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "6px 0" }}>No templates yet.</div>}
+        {(data.templates || []).map(function(t, ti) {
+          var list = data.templates || [];
+          return (<div key={t.id} style={{ display: "flex", alignItems: "center", gap: 6, padding: "8px 0", borderBottom: ti < list.length - 1 ? "1px solid rgba(51,65,85,0.4)" : "none" }}>
+            <div style={{ display: "flex", flexDirection: "column", gap: 0 }}>
+              {ti > 0 ? <span onClick={function() { moveTemplate(t.id, -1); }} style={{ fontSize: 13, cursor: "pointer", color: "var(--text-faint)", padding: "0 4px", lineHeight: 1.1 }}>{"\u25B2"}</span> : <span style={{ fontSize: 13, padding: "0 4px", lineHeight: 1.1, visibility: "hidden" }}>{"\u25B2"}</span>}
+              {ti < list.length - 1 ? <span onClick={function() { moveTemplate(t.id, 1); }} style={{ fontSize: 13, cursor: "pointer", color: "var(--text-faint)", padding: "0 4px", lineHeight: 1.1 }}>{"\u25BC"}</span> : <span style={{ fontSize: 13, padding: "0 4px", lineHeight: 1.1, visibility: "hidden" }}>{"\u25BC"}</span>}
+            </div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              {tplRenaming === t.id
+                ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
+                    <input type="text" value={tplRenameDraft} onChange={function(e) { setTplRenameDraft(e.target.value); }} autoFocus style={{ ...S.searchInput, flex: 1, padding: "5px 8px", fontSize: 12, marginBottom: 0 }} />
+                    <button onClick={function() { renameTemplate(t.id); }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
+                  </div>
+                : <div>
+                    <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>
+                    <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.codes.join(", ")}{t.note ? " | note" : ""}</div>
+                  </div>}
+            </div>
+            {tplRenaming !== t.id && <button onClick={function() { setTplRenaming(t.id); setTplRenameDraft(t.name); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>Rename</button>}
+            <button onClick={function() { deleteTemplate(t); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>x</button>
+          </div>);
+        })}
+      </div>
+    </div>
+
     {/* Stranded key: scanning is off but a key remains stored - let the user clear
         it without re-enabling scanning. Only renders when a key actually exists. */}
     {!SCAN_ENABLED && hasApiKey(settings) && (<div style={S.card}>
@@ -859,7 +927,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     </div>
 
     <div style={S.card}><div style={S.cardLabel}>Summary Stats</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", data.entries.length, "var(--text-primary)"], ["Total wRVUs", tRVU.toFixed(1), "var(--text-primary)"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", fmtDollar(tRVU * settings.ratePerRVU, showComp), "#10b981"]].map(function(item) { return (<div key={item[0]}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>{item[0]}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: item[2], fontWeight: 600 }}>{item[1]}</div></div>); })}</div></div>
-    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} style={{ ...S.secondaryBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.3)" }}>Export Excel</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} disabled={excelBusy} style={{ ...S.secondaryBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.3)", opacity: excelBusy ? 0.6 : 1 }}>{excelBusy ? "Loading..." : "Export Excel"}</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
 
     {/* Backup & Restore */}
     <div style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
