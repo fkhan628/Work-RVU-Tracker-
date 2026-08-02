@@ -21,25 +21,41 @@ function Compare({ data, upd, setView, showComp }) {
   var [xlRawWb, setXlRawWb] = useState(null);
   var xlRef = useRef(null);
 
-  // Excel date serial to JS date
-  var excelDateToYM = function(serial) {
-    if (!serial) return null;
-    // If it's already a date string like "2024-01"
-    if (typeof serial === "string" && serial.match(/^\d{4}-\d{2}/)) return serial.slice(0, 7);
-    // If it's a JS Date object from SheetJS
-    if (serial instanceof Date) {
-      var y = serial.getFullYear();
-      var m = (serial.getMonth() + 1).toString().padStart(2, "0");
-      if (y > 2000 && y < 2100) return y + "-" + m;
-      return null;
+  // Excel cell value -> "YYYY-MM". ALL LOCAL, no UTC anywhere: the old path
+  // built an absolute UTC instant ((serial - 25569) * 86400000) and read it
+  // with local getters - at UTC-6 a Jan-1 serial reads as Dec-31 18:00
+  // local, shifting the month (and at year boundaries the year). Serials
+  // now map through local date PARTS from the Excel epoch (1899-12-30);
+  // the Date constructor's day-field overflow does the calendar walk with
+  // no timezone involved. Text month labels are parsed as text.
+  var excelDateToYM = function(v) {
+    if (v === null || v === undefined || v === "") return null;
+    var y = 0, m = 0, mm;
+    if (typeof v === "string") {
+      var s = v.trim();
+      mm = s.match(/^(\d{4})-(\d{1,2})/);                 // "2026-01", "2026-1-15"
+      if (mm) { y = parseInt(mm[1], 10); m = parseInt(mm[2], 10); }
+      if (!y) {                                           // "Mar 2026", "March, 2026", "Mar-2026"
+        mm = s.match(/^([A-Za-z]{3,})\.?[\s,-]+(\d{4})$/);
+        if (mm) {
+          var abbr = { jan: 1, feb: 2, mar: 3, apr: 4, may: 5, jun: 6, jul: 7, aug: 8, sep: 9, oct: 10, nov: 11, dec: 12 };
+          var mn = abbr[mm[1].slice(0, 3).toLowerCase()];
+          if (mn) { y = parseInt(mm[2], 10); m = mn; }
+        }
+      }
+      if (!y) {                                           // "1/2026", "01/15/2026"
+        mm = s.match(/^(\d{1,2})[\/\-](?:\d{1,2}[\/\-])?(\d{4})$/);
+        if (mm) { m = parseInt(mm[1], 10); y = parseInt(mm[2], 10); }
+      }
+    } else if (v instanceof Date) {
+      // Defensive only: XLSX.read runs with cellDates off, so date cells
+      // arrive as serial numbers and take the branch below.
+      y = v.getFullYear(); m = v.getMonth() + 1;
+    } else if (typeof v === "number" && v > 40000 && v < 60000) {
+      var d = new Date(1899, 11, 30 + Math.round(v));     // Excel epoch, local parts
+      y = d.getFullYear(); m = d.getMonth() + 1;
     }
-    // Excel serial number
-    if (typeof serial === "number" && serial > 40000 && serial < 60000) {
-      var d = new Date((serial - 25569) * 86400000);
-      var y = d.getFullYear();
-      var m = (d.getMonth() + 1).toString().padStart(2, "0");
-      if (y > 2000 && y < 2100) return y + "-" + m;
-    }
+    if (y > 2000 && y < 2100 && m >= 1 && m <= 12) return y + "-" + String(m).padStart(2, "0");
     return null;
   };
 
@@ -104,7 +120,11 @@ function Compare({ data, upd, setView, showComp }) {
     reader.onload = function(ev) {
       try {
         var ab = ev.target.result;
-        var wb = XLSX.read(ab, { type: "array", cellDates: true });
+        // cellDates deliberately OFF: date cells stay raw serial numbers so
+        // excelDateToYM's explicit local math is the ONLY serial conversion
+        // path - no SheetJS-constructed Date objects with their own
+        // epoch/timezone behavior in the pipeline.
+        var wb = XLSX.read(ab, { type: "array" });
         setXlRawWb(wb);
         setXlSheets(wb.SheetNames);
         // Auto-pick: prefer sheet with "work rvu" in name, then first sheet with data

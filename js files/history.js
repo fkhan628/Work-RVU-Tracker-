@@ -47,6 +47,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [editSearch, setEditSearch] = useState("");
   const [editPatient, setEditPatient] = useState("");
   const [editIsCall, setEditIsCall] = useState(false);
+  // Manual wRVU draft, used ONLY when the user actively changes an entry's
+  // code to one the database doesn't know. Prefilled with the entry's prior
+  // base value, so leaving it untouched means "keep prior value".
+  const [editManualBase, setEditManualBase] = useState("");
   // Add-mode: editId === ADD_SENTINEL means the panel is creating a NEW
   // sibling procedure instead of editing one. addSourceId is the entry the
   // panel was opened from - needed to backfill initials onto a standalone
@@ -218,6 +222,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     setEditSearch("");
     setEditPatient(e.encounterId || "");
     setEditIsCall(!!e.isCall);
+    setEditManualBase(String(e.baseRVU || 0));
   };
 
   const cancelEdit = () => { setEditId(null); setAddSourceId(null); };
@@ -292,11 +297,34 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     setAddSourceId(null);
   };
 
+  // Snapshot-authoritative save. An edit that does not change the CPT code
+  // NEVER re-derives wRVU/description/category from the database - the old
+  // path looked the code up on every save and silently wrote 0 for any
+  // imported/unknown code (editing just a note destroyed the value). The db
+  // is consulted only when the user actively changed to a KNOWN code; a
+  // change to an unknown code takes the explicit manual value - never a
+  // silent zero. Adjusted is recomputed from the resolved base so modifier
+  // edits still apply.
   const saveEdit = () => {
+    var orig = data.entries.find(function(e) { return e.id === editId; });
+    if (!orig) { setEditId(null); return; }
     var info = cptMap[editCode];
-    var baseRVU = info ? info.wRVU : 0;
-    var desc = info ? info.desc : ("CPT " + editCode);
-    var cat = info ? info.category : "Other";
+    var codeChanged = editCode !== orig.cptCode;
+    var baseRVU, desc, cat;
+    if (!codeChanged) {
+      baseRVU = orig.baseRVU || 0;
+      desc = orig.description;
+      cat = orig.category;
+    } else if (info) {
+      baseRVU = info.wRVU;
+      desc = info.desc;
+      cat = info.category;
+    } else {
+      baseRVU = parseFloat(editManualBase);
+      if (isNaN(baseRVU)) return; // Save is disabled in this state; backstop
+      desc = "CPT " + editCode;
+      cat = "Other";
+    }
     var adj = calcAdj(baseRVU, editMods);
     upd(prev => ({ ...prev, entries: prev.entries.map(e => e.id === editId ? { ...e, date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes, encounterId: editPatient || undefined, isCall: editIsCall } : e) }));
     setEditId(null);
@@ -314,8 +342,17 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   if (editId) {
     var isAddMode = editId === ADD_SENTINEL;
     var editInfo = cptMap[editCode];
-    var editBase = editInfo ? editInfo.wRVU : 0;
+    var editOrig = isAddMode ? null : data.entries.find(function(e) { return e.id === editId; });
+    var editCodeChanged = editOrig ? editCode !== editOrig.cptCode : false;
+    var editUnknownChanged = editCodeChanged && !editInfo;
+    // Display mirrors what save will write: db value for a known code,
+    // the snapshot for an unchanged unknown code, the manual draft for an
+    // actively-changed unknown code. Never a phantom 0.
+    var editBase = editInfo ? editInfo.wRVU
+      : editUnknownChanged ? (parseFloat(editManualBase) || 0)
+      : (editOrig ? (editOrig.baseRVU || 0) : 0);
     var editAdj = calcAdj(editBase, editMods);
+    var editSaveDisabled = editUnknownChanged && isNaN(parseFloat(editManualBase));
     return (<div style={S.page}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{isAddMode ? "Add Procedure" : "Edit Procedure"}</h1></div>
       {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, and call status are carried over. Pick the CPT code below.</div>}
@@ -333,16 +370,22 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         </div>
         <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder={isAddMode ? "Search for the CPT code..." : "Search to change CPT code..."} autoFocus={isAddMode} style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
         {editFiltered.length > 0 && <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4 }}>{editFiltered.map(c => (<button key={c.code} onClick={() => { setEditCode(c.code); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9" }}>{c.code}</span><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.wRVU} wRVU</span></div><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.friendly || c.desc}</div>{c.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{c.desc}</div>}</button>))}</div>}
+        {!isAddMode && /^\d{5}$/.test(editSearch.trim()) && !cptMap[editSearch.trim()] && <button onClick={function() { setEditCode(editSearch.trim()); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px", marginTop: 4, border: "1px dashed rgba(245,158,11,0.4)" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#f59e0b", fontWeight: 600 }}>{editSearch.trim()}</span><span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 6 }}>use as entered - not in database, set wRVU below</span></button>}
         {editInfo && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{editInfo.friendly || editInfo.desc}</div>}
         {editInfo && editInfo.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{editInfo.desc}</div>}
       </div>
+      {editUnknownChanged && <div style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.3)", marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: "#f59e0b", fontWeight: 600, marginBottom: 6 }}>CPT {editCode} is not in the database</div>
+        <div style={{ fontSize: 10, color: "var(--text-muted)", marginBottom: 6 }}>Set its wRVU yourself - the prior value ({editOrig ? (editOrig.baseRVU || 0) : 0}) is prefilled, so leaving it keeps that value.</div>
+        <input type="text" inputMode="decimal" value={editManualBase} onChange={function(e) { setEditManualBase(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="wRVU" style={{ ...S.numberInput, fontSize: 13 }} />
+      </div>}
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
       <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(editAdj * settings.ratePerRVU).toFixed(0)}</div></div></div></div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
-      {!isAddMode && <button onClick={addAnother} style={{ width: "100%", marginBottom: 10, padding: "9px 12px", borderRadius: 10, border: "1px dashed rgba(14,165,233,0.4)", background: "rgba(14,165,233,0.04)", color: "#0ea5e9", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>+ Save + add another procedure to this encounter</button>}
+      {!isAddMode && <button onClick={addAnother} disabled={editSaveDisabled} style={{ width: "100%", marginBottom: 10, padding: "9px 12px", borderRadius: 10, border: "1px dashed rgba(14,165,233,0.4)", background: "rgba(14,165,233,0.04)", color: "#0ea5e9", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: editSaveDisabled ? 0.4 : 1 }}>+ Save + add another procedure to this encounter</button>}
       <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button>{isAddMode
         ? <button onClick={saveAdd} disabled={!editInfo} style={{ ...S.saveBtn, flex: 1, opacity: editInfo ? 1 : 0.4 }}>Add Procedure</button>
-        : <button onClick={saveEdit} style={{ ...S.saveBtn, flex: 1 }}>Save Changes</button>}</div>
+        : <button onClick={saveEdit} disabled={editSaveDisabled} style={{ ...S.saveBtn, flex: 1, opacity: editSaveDisabled ? 0.4 : 1 }}>Save Changes</button>}</div>
     </div>);
   }
 
