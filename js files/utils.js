@@ -814,6 +814,17 @@ function computeAcuteSplit(month) {
   return { pool: pool, units: units, valuePerUnit: vpu, shares: shares, empty: false };
 }
 
+// Years that have ANY data (logged entries, institution months, acute
+// months), newest first. Shared by the Dashboard and Trends year chips so
+// the two surfaces can never drift. Callers wrap in useMemo.
+function availableDataYears(data) {
+  var ySet = {};
+  (data.entries || []).forEach(function(e) { if (e && e.date) ySet[e.date.slice(0, 4)] = true; });
+  (data.institutionData || []).forEach(function(d) { if (d && d.month) ySet[d.month.slice(0, 4)] = true; });
+  Object.keys(data.acuteMonths || {}).forEach(function(mk) { ySet[mk.slice(0, 4)] = true; });
+  return Object.keys(ySet).sort().reverse();
+}
+
 // --- CSV field escaping (RFC 4180) ---
 // Shared by the History and Settings CSV exports - do not duplicate inline.
 // Quotes a field only when it contains a comma, quote, or newline; internal

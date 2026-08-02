@@ -7,13 +7,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute }) {
   const now = new Date();
   const hasInst = instData.length > 0;
 
-  // Detect available years from entries and institution data
+  // Years with any data - shared derivation with Trends (utils.js), so the
+  // two chip rows can never drift.
   var availableYears = useMemo(function() {
-    var ySet = {};
-    entries.forEach(function(e) { ySet[e.date.slice(0, 4)] = true; });
-    instData.forEach(function(d) { ySet[d.month.slice(0, 4)] = true; });
-    Object.keys(data.acuteMonths || {}).forEach(function(mk) { ySet[mk.slice(0, 4)] = true; });
-    return Object.keys(ySet).sort().reverse();
+    return availableDataYears(data);
   }, [entries, instData, data.acuteMonths]);
 
   var currentFiscalYear = settings.yearStart ? settings.yearStart.slice(0, 4) : String(now.getFullYear());
