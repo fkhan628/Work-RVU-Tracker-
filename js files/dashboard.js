@@ -298,6 +298,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute }) {
           <div style={{ fontSize: 10, color: projectedComp >= goalComp ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>Projected</div>
           <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: projectedComp >= goalComp ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{fmtDollar(projectedComp, showComp)}</div>
           <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{projected.toFixed(0)} wRVUs</div>
+          {/* Source label only - the projection math is unchanged. Which
+              source feeds it is a standing consolidation question. */}
+          <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{hasInst && instYTD.length > 0 ? "from Compare (" + instYTD.length + "-mo avg)" : "from tracked pace"}</div>
         </div>
       </div>
       {(function() {

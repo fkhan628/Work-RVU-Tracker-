@@ -1,7 +1,7 @@
 // =======================================
 // SETTINGS (with wRVU Editor)
 // =======================================
-function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute }) {
+function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, showUndo }) {
   const { settings } = data;
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
@@ -585,23 +585,35 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const clear = () => { if (confirm("Delete all logged procedures? This cannot be undone.")) upd(prev => ({ ...prev, entries: [] })); };
 
   const removeDuplicates = () => {
+    // Duplicate = same date + CPT + modifiers + PATIENT + NOTES. The old key
+    // ignored encounterId/notes and silently flattened legitimate same-day
+    // repeats (same code on two patients, or a deliberate repeat procedure).
+    // The confirm PREVIEWS exactly what will be removed, and the removal is
+    // undoable via the standard toast. (.slice() before .sort(): the old
+    // code sorted each entry's own modifiers array in place.)
     var seen = {};
     var unique = [];
-    var dupeCount = 0;
+    var removed = [];
     data.entries.forEach(function(e) {
-      var key = e.date + '|' + e.cptCode + '|' + (e.modifiers || []).sort().join(',');
+      var key = e.date + "|" + e.cptCode + "|" + (e.modifiers || []).slice().sort().join(",") + "|" + (e.encounterId || "") + "|" + (e.notes || "");
       if (!seen[key]) {
         seen[key] = true;
         unique.push(e);
       } else {
-        dupeCount++;
+        removed.push(e);
       }
     });
-    if (dupeCount === 0) {
-      alert("No duplicates found!");
-    } else if (confirm("Found " + dupeCount + " duplicate(s). Remove them?")) {
+    if (removed.length === 0) {
+      alert("No duplicates found. (Same-day repeats with different patient initials or notes are not counted as duplicates.)");
+      return;
+    }
+    var preview = removed.slice(0, 8).map(function(e) {
+      return "  " + e.date + "  " + e.cptCode + "  " + (e.adjustedRVU || 0).toFixed(2) + " wRVU" + (e.encounterId ? "  " + e.encounterId : "");
+    }).join("\n");
+    if (removed.length > 8) preview += "\n  ...and " + (removed.length - 8) + " more";
+    if (confirm("Remove " + removed.length + " duplicate(s)? Exact copies only - same date, code, modifiers, patient, and notes.\n\n" + preview)) {
       upd(function(prev) { return { ...prev, entries: unique }; });
-      alert("Removed " + dupeCount + " duplicate(s). " + unique.length + " entries remaining.");
+      if (showUndo) showUndo({ type: "delete", entries: removed, message: "Removed " + removed.length + " duplicate(s)" });
     }
   };
 

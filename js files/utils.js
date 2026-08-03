@@ -533,16 +533,26 @@ const MODIFIERS = [
 ];
 const MOD_MAP = {}; MODIFIERS.forEach(m => { MOD_MAP[m.code] = m; });
 
+// --- Encounter identity (THE shared definition) ---
+// An encounter = unique date + patient combination, where the patient id is
+// encounterId or, for imported entries, the first two characters of notes
+// (RVU Wallet ref-id prefix). Returns null when no usable pid exists - the
+// caller decides the fallback (countEncounters counts such entries
+// individually; the analytics grouping buckets them as "solo|" + e.id).
+// history.js buildEncounters is a deliberately different DISPLAY grouping
+// (encounterId only, within one date, case-sensitive) - do not point it here.
+function encounterKey(e) {
+  var pid = e.encounterId || (e.notes && e.notes.substring(0, 2).trim());
+  return (pid && pid.length >= 2) ? (e.date + "|" + pid.toUpperCase()) : null;
+}
+
 // --- Encounter counting ---
-// An encounter = unique date + patient combination
-// If no encounterId, each entry is its own encounter
 function countEncounters(entries) {
   var seen = {};
   var count = 0;
   entries.forEach(function(e) {
-    var pid = e.encounterId || e.notes && e.notes.substring(0, 2).trim();
-    if (pid && pid.length >= 2) {
-      var key = e.date + "|" + pid.toUpperCase();
+    var key = encounterKey(e);
+    if (key !== null) {
       if (!seen[key]) { seen[key] = true; count++; }
     } else {
       count++; // no patient ID = count as individual encounter
@@ -812,8 +822,9 @@ function saveData(d) {
     showDataAlert("SAVE FAILED - your latest change was NOT saved (" + (e && e.message ? e.message : "storage error") + "). Free up space or export a backup from Settings before closing the app.");
   }
 }
-async function loadPersistent() { try { const r = await window.storage.get("rvu-tracker-all"); if (r && r.value) { const p = JSON.parse(r.value); var lp = { entries: p.entries || [], settings: { ...defSettings(), ...p.settings }, rvuOverrides: p.rvuOverrides || {}, favorites: p.favorites || [], institutionData: p.institutionData || [], acuteRoster: p.acuteRoster || [], acuteMe: p.acuteMe || "", acuteMonths: p.acuteMonths || {}, templates: p.templates || [], dataVersion: p.dataVersion || DATA_VERSION }; if (p.reconMonths !== undefined) lp.reconMonths = p.reconMonths; repairData(lp); return lp; } } catch {} return null; }
-async function savePersistent(d) { try { await window.storage.set("rvu-tracker-all", JSON.stringify(d)); } catch {} }
+// (The old loadPersistent/savePersistent window.storage mirror was removed:
+// window.storage was never defined in production - a dead shim from the
+// app's artifact origins. localStorage is the single persistence layer.)
 
 // Apply user overrides to CPT database and include CMS imported codes
 function getDB(overrides) {

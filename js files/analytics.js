@@ -94,11 +94,10 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
 
   // Top procedures by encounter frequency (grouped by procedure combination)
   var topProcs = useMemo(function() {
-    // Group entries into encounters
+    // Group entries into encounters (shared identity: utils.js encounterKey)
     var encounters = {};
     filteredEntries.forEach(function(e) {
-      var pid = e.encounterId || (e.notes && e.notes.substring(0, 2).trim());
-      var key = (pid && pid.length >= 2) ? (e.date + "|" + pid.toUpperCase()) : ("solo|" + e.id);
+      var key = encounterKey(e) || ("solo|" + e.id);
       if (!encounters[key]) encounters[key] = [];
       encounters[key].push(e);
     });
@@ -252,11 +251,11 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     var callEntries = mEntries.filter(function(e) { return e.isCall; });
     var privateRVU = privateEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
     var callRVU = callEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
-    // Group by encounter for top procedure combinations
+    // Group by encounter for top procedure combinations (shared identity:
+    // utils.js encounterKey)
     var mEncounters = {};
     mEntries.forEach(function(e) {
-      var pid = e.encounterId || (e.notes && e.notes.substring(0, 2).trim());
-      var key = (pid && pid.length >= 2) ? (e.date + "|" + pid.toUpperCase()) : ("solo|" + e.id);
+      var key = encounterKey(e) || ("solo|" + e.id);
       if (!mEncounters[key]) mEncounters[key] = [];
       mEncounters[key].push(e);
     });

@@ -406,6 +406,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
                 if (d.settings) {
                   delete d.settings.encryptedApiKey;
                   delete d.settings.apiKey;
+                  delete d.settings.apiKeyLast4; // no orphaned last-4 badge after reset
                   localStorage.setItem(sk, JSON.stringify(d));
                 }
               }
@@ -461,12 +462,21 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
   }
 
   function migrateApiKey(pin) {
-    // If there's a plaintext API key in settings, encrypt it
+    // If there's a plaintext API key in settings, encrypt it. When BOTH a
+    // plaintext and an encrypted copy exist (a previously stuck mixed
+    // state), the encrypted copy wins and the plaintext is stripped - the
+    // old guard skipped this case entirely, leaving the plaintext key in
+    // localStorage forever.
     try {
       var sk = DATA_KEY;
       var raw = localStorage.getItem(sk);
       if (!raw) return Promise.resolve();
       var d = JSON.parse(raw);
+      if (d.settings && d.settings.apiKey && d.settings.encryptedApiKey) {
+        delete d.settings.apiKey;
+        localStorage.setItem(sk, JSON.stringify(d));
+        return Promise.resolve();
+      }
       if (d.settings && d.settings.apiKey && !d.settings.encryptedApiKey) {
         var plainKey = d.settings.apiKey;
         return aesEncrypt(pin, plainKey).then(function(enc) {

@@ -41,7 +41,6 @@ class ErrorBoundary extends React.Component {
             onClick: function() {
               if (confirm("This will reset all app data. Your entries will be lost. Continue?")) {
                 try { localStorage.removeItem(SK); localStorage.removeItem(LAST_GOOD_KEY); } catch(e) {}
-                try { window.storage.delete("rvu-tracker-all"); } catch(e) {}
                 location.reload();
               }
             },
@@ -82,8 +81,12 @@ function App() {
   const cptMap = useMemo(() => buildCPTMap(db), [db]);
   const categories = useMemo(() => buildCategories(db), [db]);
 
-  useEffect(() => { (async () => { const p = await loadPersistent(); var initialData = p && p.entries.length > 0 ? p : loadData(); if (validateData(initialData)) { saveLastGood(initialData); } setData(initialData); setLoaded(true); })(); }, []);
-  useEffect(() => { if (!loaded) return; saveData(data); savePersistent(data); }, [data, loaded]);
+  // localStorage is the single persistence layer (the old window.storage
+  // mirror was a dead shim - never defined in production). The loaded gate
+  // stays: the save effect below must not clobber localStorage with the
+  // initial defState before loadData has run.
+  useEffect(() => { var initialData = loadData(); if (validateData(initialData)) { saveLastGood(initialData); } setData(initialData); setLoaded(true); }, []);
+  useEffect(() => { if (!loaded) return; saveData(data); }, [data, loaded]);
   const upd = fn => setData(prev => ({ ...fn(prev) }));
 
   // Scroll content to top on view change
@@ -125,9 +128,9 @@ function App() {
         {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} onReset={true} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
         {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} onReset={true} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
         {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} onReset={true} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
-        {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} onReset={true} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} /></ErrorBoundary>}
+        {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} onReset={true} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
         {view === "history" && <ErrorBoundary name="History" onRetry={goHome} onReset={true} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
-        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} onReset={true} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} /></ErrorBoundary>}
+        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} onReset={true} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} showUndo={showUndo} /></ErrorBoundary>}
         {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} onReset={true} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
       </div>
 

@@ -1,12 +1,25 @@
 // =======================================
 // IMPORT
 // =======================================
-function Import({ data, cptMap, upd, setView }) {
+function Import({ data, cptMap, upd, setView, showUndo }) {
   const [mode, setMode] = useState("choose"); const [raw, setRaw] = useState(""); const [parsed, setParsed] = useState(null); const [status, setStatus] = useState(null); const [page, setPage] = useState(0); const fRef = useRef(null);
-  
+  const [addedCount, setAddedCount] = useState(0);
+
   const doParse = t => { setParsed(parseImport(t, cptMap)); setPage(0); setMode("preview"); };
   const onFile = e => { const f = e.target.files[0]; if (!f) return; const r = new FileReader(); r.onload = ev => { setRaw(ev.target.result); doParse(ev.target.result); }; r.readAsText(f); };
-  const doImport = () => { if (!parsed || !parsed.entries || !parsed.entries.length) return; upd(prev => { var existing = prev.entries; var newEntries = parsed.entries.filter(function(ne) { return !existing.some(function(ex) { return ex.date === ne.date && ex.cptCode === ne.cptCode && ex.notes === ne.notes; }); }); return { ...prev, entries: [...prev.entries, ...newEntries] }; }); setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000); };
+  // The dedupe filter is hoisted OUT of the updater so the actually-added
+  // ids are known for the undo toast (parseImport assigns stable ids at
+  // parse time); the updater appends exactly this precomputed set. The
+  // success banner reports the post-dedupe count, not the pasted row count.
+  const doImport = () => {
+    if (!parsed || !parsed.entries || !parsed.entries.length) return;
+    var existing = data.entries;
+    var newEntries = parsed.entries.filter(function(ne) { return !existing.some(function(ex) { return ex.date === ne.date && ex.cptCode === ne.cptCode && ex.notes === ne.notes; }); });
+    upd(prev => ({ ...prev, entries: [...prev.entries, ...newEntries] }));
+    if (newEntries.length > 0 && showUndo) showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Imported " + newEntries.length + " procedure" + (newEntries.length === 1 ? "" : "s") });
+    setAddedCount(newEntries.length);
+    setStatus('ok'); setTimeout(() => { setStatus(null); setView("dashboard"); }, 2000);
+  };
   const PS = 20; const pEntries = parsed ? parsed.entries.slice(page * PS, (page + 1) * PS) : []; const tPages = parsed ? Math.ceil(parsed.entries.length / PS) : 0;
 
   if (mode === "choose") return (<div style={S.page}><div style={S.header}><h1 style={S.title}>Import Data</h1><p style={S.subtitle}>Import your procedure history</p></div>
@@ -24,7 +37,7 @@ function Import({ data, cptMap, upd, setView }) {
   if (mode === "preview" && parsed) {
     const matched = parsed.entries.filter(e => cptMap[e.cptCode]); const tRVU = parsed.entries.reduce((s, e) => s + e.adjustedRVU, 0);
     return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={S.backBtn}></button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
-      {status === 'ok' && <div style={S.successBanner}> Imported {parsed.entries.length} procedures!</div>}
+      {status === 'ok' && <div style={S.successBanner}> Imported {addedCount} procedure{addedCount === 1 ? "" : "s"}{addedCount < parsed.entries.length ? " (" + (parsed.entries.length - addedCount) + " already present, skipped)" : ""}</div>}
       <div style={{ ...S.card, background: "linear-gradient(135deg, var(--bg-card), var(--bg-inset))", border: "1px solid var(--border-default)" }}><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>{[[parsed.entries.length, "Procedures", "var(--text-bright)"], [tRVU.toFixed(0), "Total wRVUs", "#0ea5e9"], [matched.length, "Matched", "#10b981"]].map(([v, l, c]) => (<div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: c }}>{v}</div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div></div>))}</div></div>
       {parsed.errors.length > 0 && <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: 12, marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 600, color: "#fbbf24", marginBottom: 4 }}> Warnings</div>{parsed.errors.slice(0, 5).map((e, i) => <div key={i} style={{ fontSize: 11, color: "#fcd34d", padding: "2px 0" }}>{e}</div>)}</div>}
       <div style={S.card}><div style={S.cardLabel}>Preview ({parsed.entries.length} rows)</div><div style={{ marginTop: 8, maxHeight: 280, overflowY: "auto", scrollbarWidth: "thin" }}>{pEntries.map((e, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.5)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: cptMap[e.cptCode] ? "#0ea5e9" : "#fbbf24", fontWeight: 600 }}>{e.cptCode}</span> <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{fmtShort(e.date)}</span><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.description}</div></div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600, marginLeft: 8 }}>{e.adjustedRVU.toFixed(2)}</div></div>))}</div>{tPages > 1 && <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 8 }}><button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ ...S.pgBtn, opacity: page === 0 ? 0.3 : 1 }}></button><span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "JetBrains Mono" }}>{page+1}/{tPages}</span><button onClick={() => setPage(p => Math.min(tPages-1, p+1))} disabled={page === tPages-1} style={{ ...S.pgBtn, opacity: page === tPages-1 ? 0.3 : 1 }}></button></div>}</div>
