@@ -506,6 +506,48 @@ if (sb) {
   check("payTotalInRange: whole-cent sum (0.30 exactly); unpriceable counted, not summed", rangeOdd.total === 0.3 && rangeOdd.shifts === 4, JSON.stringify(rangeOdd));
   check("payTotalInRange: fiscal-year bounds, [from, to), YTD cap", fy.shifts === 3 && fy.total === 3000 && ytd.shifts === 2 && ytd.total === 2000 && sb.payTotalInRange([], "2026-01-01", "2027-01-01").total === 0,
     JSON.stringify([fy, ytd]));
+  // Built-in sites (DEFAULT_PAY_SITES, made public by the owner): the
+  // owner's confirmed worked examples must come out to the cent through the
+  // preset, priced via rateInForce on dates after the Oct 1 2026 effective.
+  const defs = sb.defaultPaySites();
+  const SIL = defs.filter(s => s.name === "Silvis")[0], DAV = defs.filter(s => s.name === "Davenport")[0];
+  const work = (site, shiftDate, hrs, evDate, time, h) => {
+    const r = sb.rateInForce(site, shiftDate);
+    const cls = sb.classifyPayEvent(evDate, time, site.weekendDays);
+    const p = r && sb.computeShiftPay({ callHours: hrs, rates: r, events: [{ date: evDate, cls: cls, fee: true, hours: h }] });
+    return p ? p.total.toFixed(2) + "/" + cls : "null";
+  };
+  const WORKED = [
+    [work(SIL, "2026-10-13", 24, "2026-10-13", "21:00", 2.5), "2103.50/wn"],   // Silvis Tue 9pm 2.5h
+    [work(SIL, "2026-10-16", 24, "2026-10-17", "01:00", 1.5), "2269.50/we"],   // Silvis Fri shift, Sat 1am 1.5h
+    [work(SIL, "2026-11-26", 24, "2026-11-26", "14:00", 3), "2457.00/hol"],    // Silvis Thanksgiving 3h
+    [work(DAV, "2026-10-14", 12, "2026-10-14", "20:00", 1), "4208.85/wn"],     // Davenport Wed 8pm 1h (3h min)
+    [work(DAV, "2026-10-15", 12, "2026-10-15", "10:00", 2), "3480.78/wd"],     // Davenport Thu 10am 2h (no hourly)
+    [work(DAV, "2026-10-17", 12, "2026-10-17", "11:00", 4), "4451.54/we"],     // Davenport Sat 4h
+    [work(DAV, "2026-12-25", 12, "2026-12-25", "10:00", 2), "4208.85/hol"],    // Davenport Christmas day 2h (3h min)
+  ];
+  const badWorked = WORKED.filter(w => w[0] !== w[1]);
+  check("built-in sites reproduce the owner's worked examples (7)", badWorked.length === 0, badWorked.map(w => w[0] + " want " + w[1]).join("; "));
+  check("built-in sites: none in force before Oct 1 2026", sb.rateInForce(SIL, "2026-09-30") === null && sb.rateInForce(DAV, "2026-09-30") === null);
+  const seedStore = (o) => Object.assign({ entries: [], settings: { ratePerRVU: 55, annualGoal: 0, reconGoal: 0 }, paySites: [], payShifts: [] }, o || {});
+  const sEmpty = seedStore(); sb.repairData(sEmpty);
+  const sHasSite = seedStore({ paySites: [S1] }); sb.repairData(sHasSite);
+  const sHasShift = seedStore({ payShifts: [kept.shift] }); sb.repairData(sHasShift);
+  const sMarked = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true } }); sb.repairData(sMarked);
+  check("seeding: empty store gets the built-in sites once; existing sites/shifts/marker untouched",
+    sEmpty.paySites.map(s => s.name).join(",") === "Silvis,Davenport" && sEmpty.settings.paySitesSeeded === true &&
+    sHasSite.paySites.length === 1 && sHasSite.settings.paySitesSeeded === true &&
+    sHasShift.paySites.length === 0 && sMarked.paySites.length === 0);
+  const sBad = seedStore({ paySites: { a: { name: "Mine" } } }); sb.repairData(sBad);
+  check("seeding: a malformed (non-list) sites value is reset with a notice, not silently replaced",
+    Array.isArray(sBad.paySites) && sBad.paySites.length === 0 && sBad.settings.paySitesSeeded === true &&
+    sb.payWillSeed(seedStore()) === true && sb.payWillSeed(seedStore({ paySites: { x: 1 } })) === false &&
+    sb.payWillSeed(seedStore({ settings: { paySitesSeeded: true } })) === false && sb.payWillSeed({ paySites: [] }) === false);
+  const seededJson = JSON.stringify(sEmpty.paySites);
+  const fixed2 = sb.repairData(sEmpty);
+  check("built-in sites pass repairData unchanged (no rewrite on later loads)", JSON.stringify(sEmpty.paySites) === seededJson && fixed2.length === 0, fixed2.join(","));
+  const ds = vm.runInContext("defState()", sb), ds2 = vm.runInContext("defState()", sb);
+  check("new installs start with the built-in sites + marker (fresh copies)", ds.paySites.length === 2 && ds.settings.paySitesSeeded === true && ds.paySites[0] !== ds2.paySites[0]);
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);

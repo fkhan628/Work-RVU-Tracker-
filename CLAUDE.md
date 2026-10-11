@@ -42,8 +42,11 @@ the per-file gates below. Run it after EVERY file change.
 - Commit and push from `RVU App Split/` (the repo root). Never commit
   billing data (`RVU Wallet Data/`), CMS source files (`CMS 2026/`), or
   any partner name — the repo is public and the roster is runtime user
-  data only. The same goes for call-pay site names and rates (paySites):
-  never in source, tests, docs, or commit messages.
+  data only. The same goes for call-pay site names and rates (paySites),
+  with ONE exception the owner chose on 2026-10-11: the built-in preset
+  DEFAULT_PAY_SITES in utils.js (two sites + their rates, public) and the
+  check.js test of the owner's worked examples against it. Any other
+  site or rate stays runtime user data.
 
 ## Hard constraints (enforced by check.js where possible)
 

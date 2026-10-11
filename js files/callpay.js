@@ -54,6 +54,16 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     updSites(function(l) { return l.concat([{ id: "site-" + Date.now().toString(36), name: n, weekendDays: [0, 6], casesEarnRVU: true, rates: [] }]); });
     setNewSite("");
   };
+  // Built-in sites (utils.js DEFAULT_PAY_SITES) not present by name - e.g.
+  // after deleting one, or on a phone that had its own sites first.
+  var missingDefaults = DEFAULT_PAY_SITES.filter(function(ds) { return !sites.some(function(s) { return s.id === ds.id || s.name.trim().toLowerCase() === ds.name.toLowerCase(); }); });
+  var addDefaults = function() {
+    var names = missingDefaults.map(function(ds) { return ds.name; }).join(" and ");
+    if (!names || !confirm("Add " + names + " with the built-in rates? You can edit them afterwards.")) return;
+    updSites(function(l) {
+      return l.concat(defaultPaySites().filter(function(ds) { return !l.some(function(s) { return s.id === ds.id || s.name.trim().toLowerCase() === ds.name.toLowerCase(); }); }));
+    });
+  };
   var saveRename = function(id) {
     var n = renameDraft.trim();
     if (!n || nameTaken(n, id)) return;
@@ -598,6 +608,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
         <button onClick={addSite} disabled={!newSite.trim() || nameTaken(newSite, null)} style={btn({ ...primary, opacity: newSite.trim() && !nameTaken(newSite, null) ? 1 : 0.4 })}>Add site</button>
       </div>
       {newSite.trim() && nameTaken(newSite, null) && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6 }}>A site with that name already exists.</div>}
+      {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
     </div>
   </div>);
 }

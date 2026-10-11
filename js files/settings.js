@@ -170,6 +170,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     var cnt = function(v) { return Array.isArray(v) ? v.length : 0; };
     var plural = function(n, w) { return n + " " + w + (n === 1 ? "" : "s"); };
     var bShifts = cnt(restored.payShifts), bSites = cnt(restored.paySites);
+    // An older backup with no call-pay data gets the built-in sites on
+    // restore (same rule as loading) - count them so the warning is true.
+    if (payWillSeed(restored)) bSites = DEFAULT_PAY_SITES.length;
     var pShifts = cnt(data.payShifts), pSites = cnt(data.paySites);
     var msg = "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + ").";
     if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed.";

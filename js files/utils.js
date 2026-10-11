@@ -674,7 +674,30 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 //   Every shift write goes through payShiftFromDraft (or payRepriceShift);
 //   a shift's rate copy changes only when its site/date is edited, the
 //   user taps "Use current rates" in the editor, or a confirmed re-price.
-const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: [], payShifts: [], dataVersion: DATA_VERSION });
+// Built-in call-pay sites - the owner's two call sites and rates, made public
+// by the owner's choice (2026-10-11; see CLAUDE.md). Loaded ONCE into an empty
+// call-pay store (repairData, marker settings.paySitesSeeded); after that they
+// are ordinary user data - rates change by adding dated versions in Call Pay.
+// Key order matches what repairData/cleanPayRate produce, so they load
+// without a repair rewrite (check.js asserts this and the worked examples).
+var DEFAULT_PAY_SITES = [
+  { id: "site-silvis", name: "Silvis", weekendDays: [0, 5, 6], casesEarnRVU: true, rates: [
+    { id: "rate-silvis-2026-10", effective: "2026-10-01", stipend: 1500, stipendHours: 24, callInWeekday: 291, callInWeekendHoliday: 582, hourly: 125, hourlyMinHours: 0, hourlyWeekdayDay: true }
+  ] },
+  { id: "site-davenport", name: "Davenport", weekendDays: [0, 6], casesEarnRVU: false, rates: [
+    { id: "rate-davenport-2026-10", effective: "2026-10-01", label: "Proposal", stipend: 3189.65, stipendHours: 12, callInWeekday: 291.13, callInWeekendHoliday: 291.13, hourly: 242.69, hourlyMinHours: 3, hourlyWeekdayDay: false }
+  ] }
+];
+function defaultPaySites() { return JSON.parse(JSON.stringify(DEFAULT_PAY_SITES)); }
+// Would repairData load the built-in sites into d? Only a store never
+// seeded whose call-pay fields are MISSING or EMPTY lists - a malformed
+// (non-list) value goes through the normal reset-with-notice repair instead.
+// Shared by repairData and the restore warning so they always agree.
+function payWillSeed(d) {
+  var empty = function(v) { return v === undefined || (Array.isArray(v) && v.length === 0); };
+  return !!d && !!d.settings && typeof d.settings === "object" && d.settings.paySitesSeeded !== true && empty(d.paySites) && empty(d.payShifts);
+}
+const defState = () => ({ entries: [], settings: { ...defSettings(), paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: defaultPaySites(), payShifts: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -836,6 +859,14 @@ function repairData(d) {
       }
       d.templates = cleanT;
     }
+  }
+  // ONE-TIME: load the built-in call-pay sites into an empty call-pay store
+  // (no sites, no shifts). The marker is set either way, so sites the user
+  // deletes later never come back and existing sites are never touched.
+  if (d && d.settings && typeof d.settings === "object" && d.settings.paySitesSeeded !== true) {
+    if (payWillSeed(d)) d.paySites = defaultPaySites();
+    d.settings.paySitesSeeded = true;
+    fixed.push("paySites-seeded");
   }
   // Call pay sites. A malformed list resets loudly; a site with no usable
   // name is dropped whole; an unreadable rate version is dropped with a
