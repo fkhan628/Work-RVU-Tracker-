@@ -7,8 +7,9 @@
 // renders. Site names and rates are USER-ENTERED data only: never hardcode
 // either anywhere in source (public repo). Recorded shifts keep their own
 // rate copy, so editing or deleting a rate version here never changes pay
-// already recorded. Nav-less view opened from Settings; onBack returns there.
-function CallPay({ data, upd, onBack }) {
+// already recorded. Nav-less view opened from Log or Settings; onBack returns
+// to whichever opened it. Dollar amounts follow the app's show-$ toggle.
+function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var sites = data.paySites || [];
   var shifts = data.payShifts || [];
   var today = todayLocal();
@@ -28,6 +29,11 @@ function CallPay({ data, upd, onBack }) {
   const [renameDraft, setRenameDraft] = useState("");
   const [rateForm, setRateForm] = useState(null); // { siteId, rateId, editing, f: text fields }
   const [showAll, setShowAll] = useState({});
+  const [draft, setDraft] = useState(null);       // shift form draft (text as typed) or null
+  const [draftInit, setDraftInit] = useState(""); // draft JSON when opened, for the discard check
+  const [editOrig, setEditOrig] = useState(null); // the saved shift being edited (null = new)
+  const savingRef = useRef(false);                // double-tap guard on Save
+  const [allShifts, setAllShifts] = useState(false); // Recent: newest 5 vs every shift
 
   var money = function(v) { return "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   var btn = function(extra) { return { minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", ...extra }; };
@@ -116,20 +122,278 @@ function CallPay({ data, upd, onBack }) {
       money(r.hourly) + "/hr" + (r.hourlyMinHours > 0 ? " (min " + r.hourlyMinHours + "h per trip)" : "") + DOT +
       (r.hourlyWeekdayDay ? "hourly any time" : "no hourly on weekday days");
   };
+  // ---- Shift form ----
+  // The draft holds text as typed plus UI-only flags (rel, timeAuto, clsSet,
+  // hoursSet). payShiftFromDraft (utils.js) is the ONLY thing that turns it
+  // into a stored shift and computeShiftPay prices it - no pay math here.
+  var MASK = "$\u2022\u2022\u2022\u2022\u2022";
+  var paid = function(v) { return showComp ? money(v) : MASK; };
+  var CLS = [["wd", "Day"], ["wn", "Night"], ["we", "Wknd"], ["hol", "Hol"]];
+  var PROB = {
+    site: "Pick a site.", date: "Pick the shift date.", hours: "Enter hours on call.",
+    rates: "No rate version is in force on this date - add one under Sites & rates.",
+    overLength: "Hours on call are more than this rate's shift length.",
+    future: "This shift is dated in the future.", duplicate: "Another shift at this site is already logged on this date.",
+    payNothing: "This shift pays nothing - check the rates.", pay: "Pay can't be worked out - check the values.",
+    evDate: "Pick the call-in date.", evBefore: "This call-in is dated before the shift.",
+    evLate: "This call-in is dated well after the shift - check the date.",
+    evCls: "Pick Day or Night (or Wknd / Hol).", evHours: "Enter hours came in (0 if you didn't come in)."
+  };
+  var siteById = function(id) { return sites.filter(function(s) { return s.id === id; })[0] || null; };
+  // A shift whose site was deleted stays editable: a stand-in site built from
+  // the shift itself keeps its saved rates and name (payShiftFromDraft then
+  // reports ratesFrom "kept"). orig defaults to the shift being edited.
+  var siteFor = function(id, orig) {
+    var s = siteById(id);
+    var o = orig || editOrig;
+    if (s || !o || !id || id !== o.siteId) return s;
+    return { id: o.siteId, name: o.siteName || "Deleted site", weekendDays: [], rates: [], deleted: true };
+  };
+  var nowHM = function() { return localHM(new Date()); };
+  var autoClass = function(e, site) { return classifyPayEvent(e.date, e.time, site ? site.weekendDays : []); };
+  var shortDay = function(ymd) { var w = ymdWeekday(ymd); return w < 0 ? ymd : DAYS[w] + " " + (+ymd.slice(5, 7)) + "/" + (+ymd.slice(8, 10)); };
+  // Draft rules live in utils.js (payDraftEvent / payDraftRefresh) where
+  // check.js pins the clock; these wrappers only supply "now".
+  var reEvent = function(e, d) { return payDraftEvent(e, d.date, siteFor(d.siteId), todayLocal(), nowHM()); };
+  var refresh = function(d) { return payDraftRefresh(d, siteFor(d.siteId), todayLocal(), nowHM()); };
+  var newEvent = function(d) { return payDraftNewEvent(d.date, siteFor(d.siteId), todayLocal(), nowHM()); };
+  var openNew = function() {
+    if (showUndo) showUndo(null); // a pending Undo must not act behind an open form
+    var lastSite = shifts.length ? siteById(shifts[shifts.length - 1].siteId) : null;
+    var site = lastSite || (sites.length === 1 ? sites[0] : null);
+    var d = refresh({ id: "shift-" + Date.now().toString(36), siteId: site ? site.id : "", date: payDefaultShiftDate(todayLocal(), nowHM()), callHours: "", hoursSet: false, events: [], note: "" });
+    setEditOrig(null);
+    setDraftInit(JSON.stringify(d));
+    setDraft(d);
+  };
+  var openEdit = function(s, addCallIn) {
+    if (showUndo) showUndo(null);
+    var site = siteFor(s.siteId, s);
+    var nextDay = addDaysYMD(s.date, 1);
+    var d = { id: s.id, siteId: s.siteId, date: s.date, callHours: String(s.callHours), hoursSet: true, note: s.note || "",
+      events: (s.events || []).map(function(e) {
+        var ne = { date: e.date, rel: e.date === s.date ? "same" : e.date === nextDay ? "next" : "other", time: e.time || "", timeAuto: false, cls: e.cls, clsSet: false, fee: e.fee, hours: String(e.hours) };
+        ne.clsSet = autoClass(ne, site) !== e.cls; // a saved override stays an override
+        return ne;
+      }) };
+    setDraftInit(JSON.stringify(d));
+    if (addCallIn) d = { ...d, events: d.events.concat([payDraftNewEvent(d.date, site, todayLocal(), nowHM())]) };
+    setEditOrig(s);
+    setDraft(d);
+  };
+  var closeDraft = function() {
+    if (draft && JSON.stringify(draft) !== draftInit && !confirm("Discard changes to this shift?")) return;
+    setDraft(null);
+    setEditOrig(null);
+  };
+  var setD = function(fn) { setDraft(function(d) { return d ? fn(d) : d; }); };
+  var setEv = function(i, fn) { setD(function(d) { var evs = d.events.slice(); evs[i] = fn({ ...evs[i] }, d); return { ...d, events: evs }; }); };
+  // Every call-in change goes back through payDraftEvent, so the date /
+  // auto time / class rules apply the same way whatever the tap order.
+  var setRel = function(i, rel) { setEv(i, function(e, d) { e.rel = rel; e.timeAuto = false; return reEvent(e, d); }); };
+  var setEvField = function(i, k, v) {
+    setEv(i, function(e, d) {
+      e[k] = v;
+      if (k === "time" || k === "date") e.timeAuto = false;
+      if (k === "date") e.rel = "other";
+      return reEvent(e, d);
+    });
+  };
+
+  var draftSite = draft ? siteFor(draft.siteId) : null;
+  var built = draft ? payShiftFromDraft(draft, draftSite, editOrig, { shifts: shifts, today: today }) : null;
+  var draftPay = built && built.shift ? computeShiftPay(built.shift) : null;
+  var dispRates = !built ? null : built.ratesFrom === "kept" ? editOrig.rates : built.ratesFrom === "inForce" ? rateInForce(draftSite, draft.date) : null;
+
+  var saveDraft = function() {
+    if (savingRef.current || !built || !built.shift) return;
+    savingRef.current = true;
+    var ns = built.shift, old = editOrig;
+    upd(function(prev) {
+      var l = (prev.payShifts || []).slice();
+      var at = -1;
+      l.forEach(function(s, i) { if (s.id === ns.id) at = i; });
+      if (at === -1) l.push(ns); else l[at] = ns;
+      return { ...prev, payShifts: l };
+    });
+    if (showUndo) showUndo(old
+      ? { type: "pay", remove: [], restore: [old], message: "Shift updated" + (ns.siteName ? " - " + ns.siteName : "") }
+      : { type: "pay", remove: [ns.id], restore: [], message: "Shift saved" + (ns.siteName ? " - " + ns.siteName : "") });
+    setDraft(null);
+    setEditOrig(null);
+    setTimeout(function() { savingRef.current = false; }, 400);
+  };
+  var deleteShift = function() {
+    if (!editOrig) return;
+    var old = editOrig;
+    var at = -1;
+    shifts.forEach(function(s, i) { if (s.id === old.id) at = i; });
+    upd(function(prev) { return { ...prev, payShifts: (prev.payShifts || []).filter(function(s) { return s.id !== old.id; }) }; });
+    if (showUndo) showUndo({ type: "pay", remove: [], restore: [old], at: at, message: "Deleted " + shortDay(old.date) + " shift" + (old.siteName ? " - " + old.siteName : "") });
+    setDraft(null);
+    setEditOrig(null);
+  };
+  var lineLabel = function(l, shift) {
+    if (l.kind === "stipend") return "Stipend (" + l.hours + " of " + shift.rates.stipendHours + "h)";
+    var ev = shift.events[l.ev], n = "Call-in " + (l.ev + 1);
+    if (l.kind === "fee") return n + " fee (" + (ev.cls === "we" || ev.cls === "hol" ? "weekend/holiday" : "weekday") + ")";
+    if (!l.paid) return n + ": " + l.hours + "h not paid (weekday day)";
+    return n + " hourly " + l.hours + "h" + (l.hours > ev.hours ? " (minimum)" : "");
+  };
+  // Shift list: newest shift date first, then most recently added. Shows the
+  // newest 5 unless "Show all" is on - every shift must stay reachable.
+  var sortedShifts = shifts.map(function(s, i) { return { s: s, i: i }; })
+    .sort(function(a, b) { return a.s.date < b.s.date ? 1 : a.s.date > b.s.date ? -1 : b.i - a.i; })
+    .map(function(x) { return x.s; });
+  var recent = allShifts ? sortedShifts : sortedShifts.slice(0, 5);
+
   var danger = { color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" };
   var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
+
+  var eyeBtn = <button onClick={toggleComp} style={{ minHeight: 44, minWidth: 44, background: "none", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer", color: showComp ? "#10b981" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0 }} title={showComp ? "Hide pay" : "Show pay"}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>;
+  var chip = function(on, label, onClick, key) {
+    return (<button key={key} onClick={onClick} style={btn({ flex: 1, padding: "0 6px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)" })}>{label}</button>);
+  };
+  var probLine = function(p, k) {
+    return (<div key={k} style={{ fontSize: 11, lineHeight: 1.5, marginTop: 4, color: p.block ? "#ef4444" : "#f59e0b" }}>{PROB[p.code] || p.code}</div>);
+  };
+
+  var renderForm = function() {
+    var d = draft;
+    var shiftProbs = built.problems.filter(function(p) { return p.ev === -1; });
+    var yesterday = addDaysYMD(today, -1);
+    return (<div style={S.page}>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
+        <button onClick={closeDraft} style={S.backBtn}>Cancel</button>
+        <h1 style={{ ...S.title, marginBottom: 0, flex: 1 }}>{editOrig ? "Edit shift" : "New shift"}</h1>
+        {eyeBtn}
+      </div>
+
+      <div style={S.card}>
+        <div style={S.fieldLabel}>Site</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {draftSite && draftSite.deleted && chip(true, draftSite.name + " (deleted)", function() {}, "deleted-site")}
+          {sites.map(function(s) { return chip(d.siteId === s.id, s.name, function() { setD(function(x) { return refresh({ ...x, siteId: s.id }); }); }, s.id); })}
+        </div>
+        {draftSite && draftSite.deleted && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>This site was deleted. The shift keeps the rates it was saved with; changing its date needs a current site.</div>}
+        <div style={{ ...S.fieldLabel, marginTop: 12 }}>Shift date (the day the shift started)</div>
+        <div style={{ display: "flex", gap: 6 }}>
+          {chip(d.date === today, "Today", function() { setD(function(x) { return refresh({ ...x, date: today }); }); }, "t")}
+          {chip(d.date === yesterday, "Yesterday", function() { setD(function(x) { return refresh({ ...x, date: yesterday }); }); }, "y")}
+        </div>
+        <input type="date" value={d.date} onChange={function(e) { var v = e.target.value; setD(function(x) { return refresh({ ...x, date: v }); }); }} style={{ ...S.dateInput, marginTop: 6 }} />
+        <div style={{ ...S.fieldLabel, marginTop: 12 }}>Hours on call</div>
+        <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+          <input type="text" inputMode="decimal" value={d.callHours} onChange={function(e) { var v = e.target.value; setD(function(x) { return { ...x, callHours: v, hoursSet: true }; }); }} placeholder="0" style={{ ...S.numberInput, width: 110 }} />
+          {dispRates && <button onClick={function() { setD(function(x) { return { ...x, callHours: String(dispRates.stipendHours), hoursSet: true }; }); }} style={btn()}>{"Full " + dispRates.stipendHours + "h"}</button>}
+        </div>
+        {dispRates && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
+          {built.ratesFrom === "kept"
+            ? "Priced at the rates saved with this shift (version from " + dispRates.effective + (dispRates.label ? ", " + dispRates.label : "") + ")"
+            : "Rates: version from " + dispRates.effective + (dispRates.label ? " (" + dispRates.label + ")" : "")}
+          {editOrig && built.ratesFrom === "inForce" ? " - updated for the new site/date." : ""}
+        </div>}
+        {shiftProbs.map(probLine)}
+      </div>
+
+      {d.events.map(function(e, i) {
+        var hol = payHolidayName(e.date);
+        return (<div key={i} style={S.card}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+            <div style={{ flex: 1, fontSize: 14, fontWeight: 700, color: "var(--text-bright)" }}>{"Call-in " + (i + 1)}</div>
+            <button onClick={function() { setD(function(x) { return { ...x, events: x.events.filter(function(y, j) { return j !== i; }) }; }); }} style={btn(danger)}>Remove</button>
+          </div>
+          <div style={{ ...S.fieldLabel, marginTop: 10 }}>Hours came in (0 if you didn't come in)</div>
+          <input type="text" inputMode="decimal" value={e.hours} onChange={function(ev) { setEvField(i, "hours", ev.target.value); }} placeholder="0" style={{ ...S.numberInput, width: 110 }} />
+          <div style={{ ...S.fieldLabel, marginTop: 10 }}>{"Started " + (isYMD(e.date) ? shortDay(e.date) : "")}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {chip(e.rel === "same", "Shift day", function() { setRel(i, "same"); }, "s")}
+            {chip(e.rel === "next", "Next day", function() { setRel(i, "next"); }, "n")}
+            {chip(e.rel === "other", "Other", function() { setRel(i, "other"); }, "o")}
+          </div>
+          {e.rel === "other" && <input type="date" value={e.date} onChange={function(ev) { setEvField(i, "date", ev.target.value); }} style={{ ...S.dateInput, marginTop: 6 }} />}
+          <div style={{ display: "flex", gap: 8, alignItems: "center", marginTop: 6 }}>
+            <input type="time" value={e.time} onChange={function(ev) { setEvField(i, "time", ev.target.value); }} style={S.dateInput} />
+            {e.timeAuto && e.time && <span style={{ fontSize: 11, color: "var(--text-faint)" }}>auto</span>}
+            {e.time && <button onClick={function() { setEvField(i, "time", ""); }} style={btn()}>Clear</button>}
+          </div>
+          <div style={{ ...S.fieldLabel, marginTop: 10 }}>{"Class" + (hol ? " - " + hol : "")}</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {CLS.map(function(c) { return chip(e.cls === c[0], c[1], function() { setEv(i, function(x) { x.cls = c[0]; x.clsSet = true; return x; }); }, c[0]); })}
+          </div>
+          <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>
+            {e.clsSet
+              ? <button onClick={function() { setEv(i, function(x, dd) { x.clsSet = false; return reEvent(x, dd); }); }} style={btn({ minHeight: 32, padding: "0 10px", fontSize: 11 })}>Use auto</button>
+              : (e.cls ? "Picked automatically from the date" + (e.time ? " and time" : "") : "")}
+          </div>
+          <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 13, color: "var(--text-primary)", cursor: "pointer", marginTop: 4 }}>
+            <input type="checkbox" checked={e.fee} onChange={function() { setEv(i, function(x) { x.fee = !x.fee; return x; }); }} style={{ width: 20, height: 20 }} />
+            Call-in fee
+          </label>
+          {built.problems.filter(function(p) { return p.ev === i; }).map(probLine)}
+        </div>);
+      })}
+      <button onClick={function() { setD(function(x) { return { ...x, events: x.events.concat([newEvent(x)]) }; }); }} style={btn({ width: "100%", marginBottom: 12, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add call-in</button>
+
+      <div style={S.card}>
+        <div style={S.fieldLabel}>Note (optional - no patient info)</div>
+        <input type="text" value={d.note} onChange={function(e) { var v = e.target.value; setD(function(x) { return { ...x, note: v }; }); }} style={{ ...S.searchInput, fontSize: 13, padding: "10px 12px" }} />
+      </div>
+
+      <div style={S.card}>
+        <div style={S.cardLabel}>Pay</div>
+        {draftPay ? <div style={{ marginTop: 6 }}>
+          {draftPay.lines.map(function(l, k) {
+            return (<div key={k} style={{ display: "flex", justifyContent: "space-between", gap: 8, fontSize: 12, padding: "4px 0", color: l.paid ? "var(--text-primary)" : "var(--text-faint)" }}>
+              <span>{lineLabel(l, built.shift)}</span><span style={{ fontFamily: "JetBrains Mono", flexShrink: 0 }}>{paid(l.amount)}</span>
+            </div>);
+          })}
+          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 14, fontWeight: 700, padding: "8px 0 0", marginTop: 4, borderTop: "1px solid var(--border-default)", color: "var(--text-bright)" }}>
+            <span>Total</span><span style={{ fontFamily: "JetBrains Mono" }}>{paid(draftPay.total)}</span>
+          </div>
+        </div> : <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 6 }}>Fix the items in red to see pay.</div>}
+      </div>
+
+      <button onClick={saveDraft} disabled={!built.shift} style={btn({ ...primary, width: "100%", minHeight: 50, fontSize: 15, opacity: built.shift ? 1 : 0.4 })}>{editOrig ? "Save changes" : "Save shift"}</button>
+      {editOrig && <button onClick={deleteShift} style={btn({ ...danger, width: "100%", marginTop: 10 })}>Delete shift</button>}
+    </div>);
+  };
+
+  // Every hook is declared above this line (CLAUDE.md: hooks before any
+  // conditional return).
+  if (draft) return renderForm();
 
   return (<div style={S.page}>
     <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}>
       <button onClick={onBack} style={S.backBtn}>Back</button>
-      <h1 style={{ ...S.title, marginBottom: 0 }}>Call Pay</h1>
+      <h1 style={{ ...S.title, marginBottom: 0, flex: 1 }}>Call Pay</h1>
+      {eyeBtn}
     </div>
 
     <div style={S.card}>
-      <div style={S.cardLabel}>Shifts</div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
-        {sites.length === 0 ? "Add a site and its rates below to get started." : "Shift logging is coming next. Set up each site's rates below."}
-      </div>
+      <div style={S.cardLabel}>Call shifts</div>
+      {sites.length === 0
+        ? <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Add a site and its rates below to get started.</div>
+        : <div>
+            <button onClick={openNew} style={btn({ ...primary, width: "100%", marginTop: 10, minHeight: 50, fontSize: 15 })}>+ New shift</button>
+            {recent.length === 0
+              ? <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 10 }}>No shifts logged yet.</div>
+              : <div style={{ marginTop: 10 }}>
+                  <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 2 }}>{allShifts ? "All shifts (" + shifts.length + ")" : "Recent"}</div>
+                  {recent.map(function(s) {
+                    var p = computeShiftPay(s);
+                    var n = (s.events || []).length;
+                    return (<div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid rgba(51,65,85,0.4)" }}>
+                      <button onClick={function() { openEdit(s, false); }} style={{ flex: 1, minWidth: 0, minHeight: 48, textAlign: "left", background: "none", border: "none", padding: "4px 0", cursor: "pointer" }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + s.siteName}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?")}</div>
+                      </button>
+                      <button onClick={function() { openEdit(s, true); }} style={btn()}>+ Call-in</button>
+                    </div>);
+                  })}
+                  {shifts.length > 5 && <button onClick={function() { setAllShifts(!allShifts); }} style={btn({ width: "100%", marginTop: 6 })}>{allShifts ? "Show recent only" : "Show all " + shifts.length + " shifts"}</button>}
+                </div>}
+          </div>}
     </div>
 
     <div style={S.card}>

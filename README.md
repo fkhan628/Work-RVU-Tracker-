@@ -43,7 +43,7 @@ js files/
   history.js            # History browser + CSV import
   compare.js            # Period comparison
   acute.js              # Acute-care history table (read-only, nav-less view)
-  callpay.js            # Call pay: sites + dated rate versions (nav-less view)
+  callpay.js            # Call pay: shift log, sites + dated rate versions (nav-less view)
   settings.js           # Settings, backup/restore, theme toggle
   app.js                # ErrorBoundary, App root, Nav, render entry point
 ```

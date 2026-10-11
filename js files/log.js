@@ -1,7 +1,7 @@
 // =======================================
 // LOG PROCEDURE
 // =======================================
-function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
+function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCallPay }) {
   const [date, setDate] = useState(todayLocal());
   const [patientId, setPatientId] = useState("");
   const [procs, setProcs] = useState([{ id: 1, code: null, search: "", mods: [] }]);
@@ -550,7 +550,10 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
 
   return (<div style={S.page}>
-    <div style={S.header}><h1 style={S.title}>Log Encounter</h1></div>
+    <div style={{ ...S.header, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+      <h1 style={S.title}>Log Encounter</h1>
+      {openCallPay && <button onClick={function() { openCallPay("log"); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Call pay</button>}
+    </div>
     {saved && <div style={S.successBanner}>Logged {procs.filter(function(p){return p.code;}).length} procedure(s) - {totalRVU.toFixed(2)} wRVUs</div>}
 
     {/* Scan Buttons (feature-flagged: hidden entirely when SCAN_ENABLED is false) */}

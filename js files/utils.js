@@ -584,6 +584,20 @@ function isYMD(s) {
   var dt = new Date(y, m - 1, dd);
   return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === dd;
 }
+// Local-parts day arithmetic: ymd + n days ("" for a bad date or non-integer n).
+function addDaysYMD(ymd, n) {
+  if (!isYMD(ymd) || typeof n !== "number" || n % 1 !== 0) return "";
+  var p = ymd.split("-");
+  return localYMD(new Date(+p[0], +p[1] - 1, +p[2] + n));
+}
+// Weekday 0 (Sun) - 6 (Sat) from local parts; -1 for a bad date.
+function ymdWeekday(ymd) {
+  if (!isYMD(ymd)) return -1;
+  var p = ymd.split("-");
+  return new Date(+p[0], +p[1] - 1, +p[2]).getDay();
+}
+// "HH:MM" (24-hour) from a Date's LOCAL clock.
+function localHM(d) { return String(d.getHours()).padStart(2, "0") + ":" + String(d.getMinutes()).padStart(2, "0"); }
 
 // --- Visible data alert (save/load failures must never be silent) ---
 // Plain-DOM banner so it works even if React is wedged. appendChild only.
@@ -639,8 +653,11 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // payShifts: [{ id, date: "YYYY-MM-DD" (shift start), siteId, siteName,
 //   callHours, rates: RateVersion COPY (authoritative - like entry wRVU
 //   snapshots, pay never re-looks-up the site's current rates), events:
-//   [{ date, cls: "wd"|"wn"|"we"|"hol", fee: bool, hours }], cases?, note? }]
-//   - note never holds patient info.
+//   [{ date, cls: "wd"|"wn"|"we"|"hol", fee: bool, hours, time? }], cases?,
+//   note? }] - note never holds patient info. events[].time is an optional
+//   "HH:MM" start, informational only: cls alone decides pay.
+//   Every shift write goes through payShiftFromDraft; a shift's rate copy
+//   changes only when its site/date is edited or on a confirmed re-price.
 const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: [], payShifts: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
@@ -1036,6 +1053,7 @@ function payHolidayName(ymd) {
 }
 // Night = 17:00 through 06:59 (night ends at 7 am); time is "HH:MM" 24-hour.
 var PAY_NIGHT_START = 17, PAY_NIGHT_END = 7;
+var PAY_TIME_RE = /^([01]\d|2[0-3]):[0-5]\d$/;
 // Pre-selects a call-in's class from its OWN date: holiday > the site's
 // weekend days > weekday night/day by start time. Returns "" for a weekday
 // with no readable time - the user must pick Day or Night (a guessed
@@ -1046,7 +1064,7 @@ function classifyPayEvent(ymd, time, weekendDays) {
   var p = ymd.split("-");
   var wd = new Date(+p[0], +p[1] - 1, +p[2]).getDay();
   if (Array.isArray(weekendDays) && weekendDays.indexOf(wd) !== -1) return "we";
-  if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return "";
+  if (typeof time !== "string" || !PAY_TIME_RE.test(time)) return "";
   var h = +time.slice(0, 2);
   return (h >= PAY_NIGHT_START || h < PAY_NIGHT_END) ? "wn" : "wd";
 }
@@ -1092,6 +1110,134 @@ function rateInForce(site, ymd) {
     if (r && isYMD(r.effective) && r.effective <= ymd && (!best || r.effective >= best.effective)) best = r;
   });
   return best;
+}
+// Default date for a NEW shift: before 07:00 you are still on last night's
+// shift, so yesterday; otherwise today. A blank/bad time keeps ymd.
+function payDefaultShiftDate(ymd, hhmm) {
+  if (!isYMD(ymd)) return "";
+  if (typeof hhmm !== "string" || !PAY_TIME_RE.test(hhmm)) return ymd;
+  return +hhmm.slice(0, 2) < PAY_NIGHT_END ? addDaysYMD(ymd, -1) : ymd;
+}
+// Start of a call-in that ended at ymd hhmm and lasted `hours`, as
+// { date, time } - whole-minute arithmetic (no Date, so no DST drift);
+// null for unreadable input.
+function payStartBack(ymd, hhmm, hours) {
+  var h = payNum(hours);
+  if (!isYMD(ymd) || typeof hhmm !== "string" || !PAY_TIME_RE.test(hhmm) || h === null) return null;
+  var mins = +hhmm.slice(0, 2) * 60 + +hhmm.slice(3) - Math.round(h * 60);
+  var days = Math.floor(mins / 1440);
+  var m = mins - days * 1440;
+  return { date: addDaysYMD(ymd, days), time: String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0") };
+}
+// Builds the shift the call-pay form saves - the ONLY writer of payShifts.
+// Output passes repairData UNCHANGED (check.js contract test): numbers are
+// numbers, events/siteId/siteName always present, time/note only when set,
+// unknown fields of orig kept.
+//   draft: { id, siteId, date, callHours, note, events: [{ date, time, cls,
+//     fee, hours }] } - values as typed; extra UI-only fields are ignored.
+//   orig: the saved shift being edited (null for a new one). Its rate copy is
+//     KEPT unless the site or date changed; otherwise a COPY of rateInForce.
+//   ctx (optional): { shifts, today } for the duplicate / future warnings.
+// Returns { shift (null if any blocking problem), problems: [{ code, ev,
+// block }], ratesFrom: "kept" | "inForce" | "" }. ev is the call-in index,
+// -1 for the shift itself.
+function payShiftFromDraft(draft, site, orig, ctx) {
+  var problems = [];
+  var add = function(code, ev, block) { problems.push({ code: code, ev: ev, block: block }); };
+  if (!draft || typeof draft !== "object") return { shift: null, problems: [{ code: "draft", ev: -1, block: true }], ratesFrom: "" };
+  var siteOk = !!site && typeof site.id === "string" && site.id !== "" && typeof site.name === "string";
+  if (!siteOk) add("site", -1, true);
+  var dateOk = isYMD(draft.date);
+  if (!dateOk) add("date", -1, true);
+  var rates = null, ratesFrom = "";
+  if (orig && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) {
+    rates = { ...orig.rates };
+    ratesFrom = "kept";
+  } else if (siteOk && dateOk) {
+    var rif = rateInForce(site, draft.date);
+    if (rif) { rates = { ...rif }; ratesFrom = "inForce"; }
+  }
+  if (siteOk && dateOk && !rates) add("rates", -1, true);
+  var callHours = payNum(draft.callHours);
+  if (callHours === null) add("hours", -1, true);
+  else if (rates && callHours > rates.stipendHours) add("overLength", -1, false);
+  var lastOk = dateOk ? addDaysYMD(draft.date, Math.max(1, Math.ceil((callHours || 0) / 24))) : "";
+  var events = [];
+  (Array.isArray(draft.events) ? draft.events : []).forEach(function(e, i) {
+    var ev = (e && typeof e === "object") ? e : {};
+    var eh = payNum(ev.hours);
+    if (!isYMD(ev.date)) add("evDate", i, true);
+    else if (dateOk && ev.date < draft.date) add("evBefore", i, true);
+    else if (dateOk && ev.date > lastOk) add("evLate", i, false);
+    if (PAY_EVENT_CLS.indexOf(ev.cls) === -1) add("evCls", i, true);
+    if (eh === null) add("evHours", i, true);
+    var o = { date: ev.date, cls: ev.cls, fee: ev.fee === true, hours: eh };
+    if (typeof ev.time === "string" && PAY_TIME_RE.test(ev.time)) o.time = ev.time;
+    events.push(o);
+  });
+  if (ctx && dateOk) {
+    if (isYMD(ctx.today) && draft.date > ctx.today) add("future", -1, false);
+    if (siteOk && Array.isArray(ctx.shifts) && ctx.shifts.some(function(s) { return s && s.siteId === site.id && s.date === draft.date && !(orig && s.id === orig.id) && s.id !== draft.id; })) add("duplicate", -1, false);
+  }
+  if (problems.some(function(p) { return p.block; })) return { shift: null, problems: problems, ratesFrom: ratesFrom };
+  var id = orig && typeof orig.id === "string" && orig.id ? orig.id : (typeof draft.id === "string" && draft.id ? draft.id : "shift-" + Date.now().toString(36));
+  var shift = { ...(orig || {}), id: id, date: draft.date, siteId: site.id, siteName: site.name, callHours: callHours, rates: rates, events: events };
+  var note = typeof draft.note === "string" ? draft.note.trim() : "";
+  if (note) shift.note = note; else delete shift.note;
+  var pay = computeShiftPay(shift);
+  if (!pay) { add("pay", -1, true); return { shift: null, problems: problems, ratesFrom: ratesFrom }; }
+  if (pay.total === 0) add("payNothing", -1, false);
+  return { shift: shift, problems: problems, ratesFrom: ratesFrom };
+}
+// ---- Shift-form draft logic (pure; callpay.js only holds the state) ----
+// A draft call-in is { date, rel: "same"|"next"|"other", time, timeAuto, cls,
+// clsSet, fee, hours } with text as typed. The clock (today, nowHM) is passed
+// in so check.js can pin it. One rule, re-applied on EVERY change so the
+// result never depends on tap order: Shift day / Next day follow the shift
+// date; an auto start time (now minus the hours it lasted) applies only while
+// logging on the shift day or the day after - otherwise it is cleared and the
+// class must come from the user; the class follows the date/time unless the
+// user overrode it (clsSet).
+function payDraftEvent(e, shiftDate, site, today, nowHM) {
+  var ne = { ...e };
+  var nextDay = addDaysYMD(shiftDate, 1);
+  if (ne.timeAuto && !(isYMD(shiftDate) && (today === shiftDate || today === nextDay))) { ne.timeAuto = false; ne.time = ""; }
+  if (ne.rel === "same") ne.date = shiftDate; else if (ne.rel === "next") ne.date = nextDay;
+  if (ne.timeAuto) {
+    var sb = payStartBack(today, nowHM, ne.hours === "" ? 0 : ne.hours);
+    if (sb && (sb.date === shiftDate || sb.date === nextDay)) { ne.date = sb.date; ne.time = sb.time; ne.rel = sb.date === shiftDate ? "same" : "next"; }
+    else ne.time = "";
+  }
+  if (!ne.clsSet) ne.cls = classifyPayEvent(ne.date, ne.time, site && Array.isArray(site.weekendDays) ? site.weekendDays : []);
+  return ne;
+}
+function payDraftNewEvent(shiftDate, site, today, nowHM) {
+  return payDraftEvent({ date: shiftDate, rel: "same", time: "", timeAuto: true, cls: "", clsSet: false, fee: true, hours: "" }, shiftDate, site, today, nowHM);
+}
+// Undo for call-pay shifts (app.js doUndo type "pay"): drop the ids in
+// action.remove (undoes a save), then put each action.restore copy back IN
+// PLACE - swapped in where its id still is (undoes an edit) or re-inserted at
+// action.at (undoes a delete). Order matters: the last shift in the list sets
+// the shift form's "last-used site". Returns a new array.
+function payUndoApply(list, action) {
+  var back = (action && action.restore) || [], rm = (action && action.remove) || [];
+  var at = action ? action.at : undefined;
+  var l = (Array.isArray(list) ? list : []).filter(function(s) { return rm.indexOf(s.id) === -1; });
+  back.forEach(function(r) {
+    var i = -1;
+    l.forEach(function(s, j) { if (s.id === r.id) i = j; });
+    if (i !== -1) l[i] = r;
+    else l.splice(typeof at === "number" && at >= 0 ? Math.min(at, l.length) : l.length, 0, r);
+  });
+  return l;
+}
+// Re-derive everything that follows the site/date: default hours on call
+// (until the user edits them) and every call-in via payDraftEvent.
+function payDraftRefresh(d, site, today, nowHM) {
+  var nd = { ...d };
+  if (!nd.hoursSet) { var rif = site ? rateInForce(site, nd.date) : null; if (rif) nd.callHours = String(rif.stipendHours); }
+  nd.events = (nd.events || []).map(function(e) { return payDraftEvent(e, nd.date, site, today, nowHM); });
+  return nd;
 }
 
 // Years that have ANY data (logged entries, institution months, acute

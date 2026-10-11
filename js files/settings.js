@@ -153,7 +153,14 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       alert("Invalid backup: no procedure entries found.");
       return;
     }
-    var msg = "Restore " + restored.entries.length + " procedures? This will replace your current data (" + data.entries.length + " procedures).";
+    // Call-pay counts too: a backup without call-pay data REPLACES the
+    // phone's sites/shifts with nothing, so say so before confirming.
+    var cnt = function(v) { return Array.isArray(v) ? v.length : 0; };
+    var plural = function(n, w) { return n + " " + w + (n === 1 ? "" : "s"); };
+    var bShifts = cnt(restored.payShifts), bSites = cnt(restored.paySites);
+    var pShifts = cnt(data.payShifts), pSites = cnt(data.paySites);
+    var msg = "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + ").";
+    if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed.";
     if (confirm(msg)) {
       // Same repair/migration path as loadData - old backups containing the
       // legacy reconMonths field migrate into institutionData with zero loss.
@@ -177,7 +184,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       setShowRestore(false);
       setRestoreText("");
       setBackupStatus("");
-      alert("Restored " + restored.entries.length + " procedures successfully!");
+      alert("Restored " + restored.entries.length + " procedures and " + plural(cnt(restored.payShifts), "call-pay shift") + " successfully!");
     }
   };
 
@@ -837,7 +844,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={S.cardLabel}>Call Pay</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Call stipends, call-in fees and hourly pay per site, in dollars. Kept separate from wRVUs and Comp.</div>
       <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}</div>
-      <button onClick={function() { if (openCallPay) openCallPay(); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
+      <button onClick={function() { if (openCallPay) openCallPay("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
     </div>
 
     {/* API Key for Scan Features - Encrypted (feature-flagged: hidden when SCAN_ENABLED is false) */}
