@@ -477,6 +477,14 @@ if (sb) {
     rp.rates !== R12 && JSON.stringify(base24) === rpBefore && JSON.stringify(rpStore.payShifts) === rpJson && !rpFixed.some(f => /^payShifts/.test(f)), rpFixed.join(","));
   const useCur = sb.payShiftFromDraft(draft({ id: "rp1", date: "2026-05-10", events: [], reprice: true }), S1back, base24);
   check("payShiftFromDraft reprice flag re-takes the version in force", !!useCur.shift && useCur.ratesFrom === "inForce" && useCur.shift.rates.id === "new12");
+  // payTotalInRange (Dashboard line): [from, to) by shift date, capped at upTo.
+  const rangeShifts = [mkShift("q1", S1, "2026-06-30"), mkShift("q2", S1, "2026-07-01"), mkShift("q3", S1, "2026-10-11"), mkShift("q4", S1, "2027-06-30"), mkShift("q5", S1, "2027-07-01")];
+  const fy = sb.payTotalInRange(rangeShifts, "2026-07-01", "2027-07-01");
+  const ytd = sb.payTotalInRange(rangeShifts, "2026-07-01", "2027-07-01", "2026-10-11");
+  const rangeOdd = sb.payTotalInRange(drift.concat([Object.assign({}, drift[0], { id: "bad", rates: { bad: true } })]), "2026-01-01", "2027-01-01");
+  check("payTotalInRange: whole-cent sum (0.30 exactly); unpriceable counted, not summed", rangeOdd.total === 0.3 && rangeOdd.shifts === 4, JSON.stringify(rangeOdd));
+  check("payTotalInRange: fiscal-year bounds, [from, to), YTD cap", fy.shifts === 3 && fy.total === 3000 && ytd.shifts === 2 && ytd.total === 2000 && sb.payTotalInRange([], "2026-01-01", "2027-01-01").total === 0,
+    JSON.stringify([fy, ytd]));
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);

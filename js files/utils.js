@@ -1275,6 +1275,20 @@ function paySiteNames(shifts, sites) {
   Object.keys(cur).forEach(function(k) { out[k] = cur[k]; });
   return out;
 }
+// Call pay between two YYYY-MM-DD bounds by SHIFT date: from <= date < to,
+// and (when upTo is given, e.g. today for a YTD line) date <= upTo. Whole-
+// cent sum; an unpriceable shift is counted but never summed. String-date
+// bounds, so a fiscal year starting on any day works.
+function payTotalInRange(shifts, from, to, upTo) {
+  var cents = 0, count = 0;
+  (Array.isArray(shifts) ? shifts : []).forEach(function(s) {
+    if (!s || !isYMD(s.date) || s.date < from || s.date >= to || (upTo && s.date > upTo)) return;
+    count++;
+    var p = computeShiftPay(s);
+    if (p) cents += Math.round(p.total * 100);
+  });
+  return { total: cents / 100, shifts: count };
+}
 // Calendar years that have call-pay shifts, newest first ("YYYY" strings).
 function payShiftYears(shifts) {
   var seen = {};

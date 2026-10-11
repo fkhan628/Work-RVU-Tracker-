@@ -140,14 +140,14 @@ function App() {
   // Log's unsaved encounter, kept across tab switches (memory only - never
   // persisted; LogProc clears it on save).
   const logDraft = useRef(null);
-  var openCallPay = function(from) { setCallPayFrom(from === "log" ? "log" : "settings"); setView("callpay"); };
+  var openCallPay = function(from) { setCallPayFrom(from === "log" || from === "dashboard" ? from : "settings"); setView("callpay"); };
 
   if (!loaded) return <div style={S.loading}>Loading...</div>;
   return (
     <div style={S.shell} className="rvu-shell"><div style={S.app}>
       {/* Scrollable content area */}
       <div style={S.content} className="rvu-content" ref={contentRef}>
-        {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} /></ErrorBoundary>}
+        {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} /></ErrorBoundary>}
         {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} /></ErrorBoundary>}
         {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
         {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}

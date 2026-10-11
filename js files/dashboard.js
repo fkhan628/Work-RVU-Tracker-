@@ -1,7 +1,7 @@
 // =======================================
 // DASHBOARD
 // =======================================
-function Dashboard({ data, db, setView, showComp, toggleComp, openAcute }) {
+function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay }) {
   const { entries, settings } = data;
   const instData = data.institutionData || [];
   const now = new Date();
@@ -118,6 +118,14 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute }) {
   var acuteMonthsAll = data.acuteMonths || {};
   var acuteMe = data.acuteMe || "";
   var acuteKeys = Object.keys(acuteMonthsAll).filter(function(k) { return k >= startYM && k < endYM; }).sort();
+  // Call pay (dollars) for the selected period - a SEPARATE line, never
+  // added to Comp YTD. Same window as the rest of the page: the fiscal year
+  // from settings.yearStart for "current", the calendar year for a chip;
+  // the current period counts only shifts dated today or earlier.
+  var cpFrom = selectedYear === "current" ? (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01") : selectedYear + "-01-01";
+  var cpTo = (+cpFrom.slice(0, 4) + 1) + cpFrom.slice(4);
+  var callPay = payTotalInRange(data.payShifts || [], cpFrom, cpTo, isCurrent ? todayLocal() : null);
+
   var myAcuteYTD = 0;
   var myAcuteCount = 0;
   acuteKeys.forEach(function(k) {
@@ -224,7 +232,11 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute }) {
       </div>
     </div>
     {/* Quiet derived lines - no goals, no cards */}
-    {(reconCount > 0 || myAcuteCount > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+    {(reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+      {callPay.shifts > 0 && <div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
+        <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
+        <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+      </div>}
       {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
         Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
       </div>}

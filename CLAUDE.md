@@ -75,7 +75,8 @@ the per-file gates below. Run it after EVERY file change.
   classifyPayEvent, computeShiftPay, rateInForce, plus the entry helpers
   addDaysYMD/payDefaultShiftDate/payStartBack, the shift-form draft rules
   payDraftEvent/payDraftNewEvent/payDraftRefresh, payUndoApply, the
-  whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, and
+  whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, the
+  Dashboard's payTotalInRange (a separate line, never added to Comp), and
   re-pricing payRatesDiffer/payShiftStale/payRepriceShift);
   callpay.js only holds state and passes "now" in. Shifts are priced only
   from their own rate copy. Every payShifts write goes through
