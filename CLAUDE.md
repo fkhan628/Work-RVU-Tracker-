@@ -74,7 +74,8 @@ the per-file gates below. Run it after EVERY file change.
 - Call-pay math has ONE implementation in utils.js (payHolidayName,
   classifyPayEvent, computeShiftPay, rateInForce, plus the entry helpers
   addDaysYMD/payDefaultShiftDate/payStartBack, the shift-form draft rules
-  payDraftEvent/payDraftNewEvent/payDraftRefresh, and payUndoApply);
+  payDraftEvent/payDraftNewEvent/payDraftRefresh, payUndoApply, and the
+  whole-cent month totals payShiftYears/payMonthTotals);
   callpay.js only holds state and passes "now" in. Shifts are priced only
   from their own rate copy. Every payShifts write goes through
   payShiftFromDraft, whose output must pass repairData unchanged (check.js

@@ -393,6 +393,51 @@ if (sb) {
     ids(sb.payUndoApply(u(["a", "c"]), { restore: [{ id: "b" }], at: 1 })) === "a,b,c" &&
     ids(sb.payUndoApply(u(["a"]), { restore: [{ id: "b" }] })) === "a,b" &&
     ids(sb.payUndoApply(undoList, { remove: ["b"] })) === "a,c" && JSON.stringify(undoList) === undoBefore);
+  // Month totals (4b): by SHIFT-date month, whole-cent sums, current names.
+  const mkShift = (id, site, date, events, o) => Object.assign(sb.payShiftFromDraft(draft(Object.assign({ id: id, siteId: site.id, date: date, callHours: String(site.rates[0].stipendHours), events: events || [] }, o || {})), site, null).shift);
+  const S1b = Object.assign({}, S1, { name: "S1 renamed" });
+  const tShifts = [
+    mkShift("t1", S1, "2026-10-31", [dEv({ date: "2026-11-01", time: "01:00", cls: "we", hours: "1" })]),
+    mkShift("t2", S2, "2026-10-05"),
+    mkShift("t3", S1, "2026-11-02"),
+    mkShift("t4", Object.assign({}, S1, { rates: [Object.assign({}, RA, { effective: "2025-01-01" })] }), "2025-12-31"),
+    Object.assign({}, mkShift("t5", S2, "2026-10-07"), { siteId: "gone", siteName: "Old site" }),
+    Object.assign({}, mkShift("t6", S2, "2026-10-08"), { rates: { bad: true } }),
+  ];
+  const tBefore = JSON.stringify(tShifts);
+  const mt = sb.payMonthTotals(tShifts, 2026, [S1b, S2]);
+  const oct = mt.months.filter(m => m.key === "2026-10")[0] || { sites: [], list: [] };
+  const cents = v => Math.round(v * 100);
+  const sumSites = m => m.sites.reduce((a, s) => a + cents(s.total), 0);
+  check("payMonthTotals: shift-date month, newest first, year filter",
+    mt.months.map(m => m.key).join(",") === "2026-11,2026-10" && oct.list.map(s => s.id).join(",") === "t1,t6,t5,t2" && mt.shifts === 5 && mt.callIns === 1,
+    mt.months.map(m => m.key + ":" + m.list.map(s => s.id)).join(" "));
+  check("payMonthTotals: sites sum to months, months to the year (whole cents)",
+    mt.months.every(m => sumSites(m) === cents(m.total)) && mt.months.reduce((a, m) => a + cents(m.total), 0) === cents(mt.total));
+  check("payMonthTotals: current site name; deleted site keeps its stored name",
+    oct.sites.some(s => s.name === "S1 renamed" && !s.deleted) && oct.sites.some(s => s.name === "Old site" && s.deleted) && oct.sites.some(s => s.name === "S2"));
+  check("payMonthTotals: an unpriceable shift is counted, never summed", mt.unpriced === 1 && oct.unpriced === 1 && oct.shifts === 4);
+  check("payMonthTotals: input not mutated; other years empty", JSON.stringify(tShifts) === tBefore && sb.payMonthTotals(tShifts, 2024, []).months.length === 0);
+  const RD = Object.assign({}, RA, { stipend: 0.1, stipendHours: 1, callInWeekday: 0, callInWeekendHoliday: 0, hourly: 0 });
+  const SD = { id: "sd", name: "SD", weekendDays: [], rates: [RD] };
+  const drift = [1, 2, 3].map(i => mkShift("d" + i, SD, "2026-03-0" + i));
+  check("payMonthTotals: no float drift (3 x 0.10 = 0.30 exactly)", sb.payMonthTotals(drift, 2026, [SD]).total === 0.3);
+  // Exact amounts (hand math, made-up rates): Oct = t1 1250 (1000 + 200 fee +
+  // 50 hourly) + t2 2000.10 + t5 2000.10 = 5250.20; year adds Nov t3 1000.
+  check("payMonthTotals: exact amounts", oct.total === 5250.2 && mt.total === 6250.2, oct.total + " / " + mt.total);
+  // Grouping is by siteId: a site renamed mid-month is ONE row with its
+  // current name; a deleted site sharing a live site's name stays separate.
+  const SX = { id: "sx", name: "Now X", weekendDays: [0, 6], rates: [RA] };
+  const ren = [Object.assign({}, mkShift("r1", S1, "2026-04-03"), { siteId: "sx", siteName: "Old X" }), Object.assign({}, mkShift("r2", S1, "2026-04-10"), { siteId: "sx", siteName: "Mid X" }),
+    Object.assign({}, mkShift("r3", S1, "2026-04-12"), { siteId: "gone2", siteName: "Now X" })];
+  const apr = sb.payMonthTotals(ren, 2026, [SX]).months[0];
+  const live = apr.sites.filter(s => !s.deleted), dead = apr.sites.filter(s => s.deleted);
+  check("payMonthTotals: grouped by siteId (rename = one row; same-name deleted site = separate)",
+    apr.sites.length === 2 && live.length === 1 && live[0].name === "Now X" && live[0].shifts === 2 && dead.length === 1 && dead[0].shifts === 1,
+    JSON.stringify(apr.sites));
+  const nm = sb.paySiteNames([{ siteId: "g", siteName: "First", date: "2026-01-05" }, { siteId: "g", siteName: "Later", date: "2026-02-01" }, { siteId: "g", siteName: "Older", date: "2025-12-01" }, { siteId: "sx", siteName: "x", date: "2026-01-01" }], [SX]);
+  check("paySiteNames: current name for live sites, newest stored name for deleted", nm.g === "Later" && nm.sx === "Now X", JSON.stringify(nm));
+  check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);
 }

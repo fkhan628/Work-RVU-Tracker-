@@ -34,6 +34,12 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   const [editOrig, setEditOrig] = useState(null); // the saved shift being edited (null = new)
   const savingRef = useRef(false);                // double-tap guard on Save
   const [allShifts, setAllShifts] = useState(false); // Recent: newest 5 vs every shift
+  const listScroll = useRef(0);                      // list scroll position while a form is open
+  const [payYear, setPayYear] = useState("");     // Totals year chip ("" = newest)
+  const [openMonth, setOpenMonth] = useState(""); // expanded Totals month "YYYY-MM"
+  var payYears = payShiftYears(shifts);
+  var yr = payYears.indexOf(payYear) !== -1 ? payYear : (payYears[0] || "");
+  const totals = useMemo(function() { return yr ? payMonthTotals(shifts, yr, sites) : null; }, [data.payShifts, data.paySites, yr]);
 
   var money = function(v) { return "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   var btn = function(extra) { return { minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", ...extra }; };
@@ -152,8 +158,20 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var nowHM = function() { return localHM(new Date()); };
   var autoClass = function(e, site) { return classifyPayEvent(e.date, e.time, site ? site.weekendDays : []); };
   var shortDay = function(ymd) { var w = ymdWeekday(ymd); return w < 0 ? ymd : DAYS[w] + " " + (+ymd.slice(5, 7)) + "/" + (+ymd.slice(8, 10)); };
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  var monthLabel = function(mk) { return MONTHS[+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4); };
+  // Rows use the SAME name rule as the Totals split (utils.js paySiteNames):
+  // current name for a live site, newest stored name for a deleted one.
+  var siteNameMap = paySiteNames(shifts, sites);
+  var shiftSiteName = function(s) { return (s.siteId && siteNameMap[s.siteId]) || s.siteName || "Deleted site"; };
+  var plural = function(n, w) { return n + " " + w + (n === 1 ? "" : "s"); };
   // Draft rules live in utils.js (payDraftEvent / payDraftRefresh) where
   // check.js pins the clock; these wrappers only supply "now".
+  // The form opens at the top (Cancel, title and site/date chips visible);
+  // closing it returns the list to where it was (e.g. the expanded month).
+  var scrollBox = function() { return document.querySelector(".rvu-content"); };
+  var formOpened = function() { var sc = scrollBox(); if (sc) { listScroll.current = sc.scrollTop; sc.scrollTop = 0; } };
+  var formClosed = function() { setTimeout(function() { var sc = scrollBox(); if (sc) sc.scrollTop = listScroll.current; }, 0); };
   var reEvent = function(e, d) { return payDraftEvent(e, d.date, siteFor(d.siteId), todayLocal(), nowHM()); };
   var refresh = function(d) { return payDraftRefresh(d, siteFor(d.siteId), todayLocal(), nowHM()); };
   var newEvent = function(d) { return payDraftNewEvent(d.date, siteFor(d.siteId), todayLocal(), nowHM()); };
@@ -165,6 +183,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     setEditOrig(null);
     setDraftInit(JSON.stringify(d));
     setDraft(d);
+    formOpened();
   };
   var openEdit = function(s, addCallIn) {
     if (showUndo) showUndo(null);
@@ -180,10 +199,12 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     if (addCallIn) d = { ...d, events: d.events.concat([payDraftNewEvent(d.date, site, todayLocal(), nowHM())]) };
     setEditOrig(s);
     setDraft(d);
+    formOpened();
   };
   var closeDraft = function() {
     if (draft && JSON.stringify(draft) !== draftInit && !confirm("Discard changes to this shift?")) return;
     setDraft(null);
+    formClosed();
     setEditOrig(null);
   };
   var setD = function(fn) { setDraft(function(d) { return d ? fn(d) : d; }); };
@@ -220,6 +241,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
       ? { type: "pay", remove: [], restore: [old], message: "Shift updated" + (ns.siteName ? " - " + ns.siteName : "") }
       : { type: "pay", remove: [ns.id], restore: [], message: "Shift saved" + (ns.siteName ? " - " + ns.siteName : "") });
     setDraft(null);
+    formClosed();
     setEditOrig(null);
     setTimeout(function() { savingRef.current = false; }, 400);
   };
@@ -231,6 +253,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     upd(function(prev) { return { ...prev, payShifts: (prev.payShifts || []).filter(function(s) { return s.id !== old.id; }) }; });
     if (showUndo) showUndo({ type: "pay", remove: [], restore: [old], at: at, message: "Deleted " + shortDay(old.date) + " shift" + (old.siteName ? " - " + old.siteName : "") });
     setDraft(null);
+    formClosed();
     setEditOrig(null);
   };
   var lineLabel = function(l, shift) {
@@ -385,7 +408,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
                     var n = (s.events || []).length;
                     return (<div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid rgba(51,65,85,0.4)" }}>
                       <button onClick={function() { openEdit(s, false); }} style={{ flex: 1, minWidth: 0, minHeight: 48, textAlign: "left", background: "none", border: "none", padding: "4px 0", cursor: "pointer" }}>
-                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + s.siteName}</div>
+                        <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s)}</div>
                         <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?")}</div>
                       </button>
                       <button onClick={function() { openEdit(s, true); }} style={btn()}>+ Call-in</button>
@@ -395,6 +418,42 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
                 </div>}
           </div>}
     </div>
+
+    {totals && <div style={S.card}>
+      <div style={S.cardLabel}>Totals</div>
+      {payYears.length > 1 && <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>
+        {payYears.map(function(y) { return chip(y === yr, y, function() { setPayYear(y); setOpenMonth(""); }, y); })}
+      </div>}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginTop: 10 }}>
+        <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{yr + DOT + plural(totals.shifts, "shift") + DOT + plural(totals.callIns, "call-in")}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "JetBrains Mono", color: "#10b981", flexShrink: 0 }}>{paid(totals.total)}</div>
+      </div>
+      {totals.months.map(function(m) {
+        var open = openMonth === m.key;
+        return (<div key={m.key} style={{ borderTop: "1px solid rgba(51,65,85,0.4)", marginTop: 6 }}>
+          <button onClick={function() { setOpenMonth(open ? "" : m.key); }} style={{ width: "100%", minHeight: 48, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", padding: "4px 0", cursor: "pointer", textAlign: "left" }}>
+            <span style={{ width: 12, fontSize: 12, color: "var(--text-faint)" }}>{open ? "\u25BE" : "\u25B8"}</span>
+            <span style={{ flex: 1, fontSize: 14, fontWeight: 600, color: "var(--text-primary)" }}>{monthLabel(m.key)}</span>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>{plural(m.shifts, "shift")}</span>
+            <span style={{ minWidth: 88, textAlign: "right", fontSize: 13, fontWeight: 600, fontFamily: "JetBrains Mono", color: "var(--text-bright)" }}>{paid(m.total)}</span>
+          </button>
+          {open && <div style={{ padding: "0 0 8px 20px" }}>
+            {m.sites.length > 1 && <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.6, marginBottom: 4 }}>
+              {m.sites.map(function(st) { return st.name + (st.deleted ? " (deleted)" : "") + " " + paid(st.total) + " (" + st.shifts + ")"; }).join(DOT)}
+            </div>}
+            {m.unpriced > 0 && <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 4 }}>{plural(m.unpriced, "shift") + " could not be priced - open " + (m.unpriced === 1 ? "it" : "them") + " to check."}</div>}
+            {m.list.map(function(s) {
+              var p = computeShiftPay(s);
+              var n = (s.events || []).length;
+              return (<button key={s.id} onClick={function() { openEdit(s, false); }} style={{ width: "100%", minHeight: 44, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", borderTop: "1px solid rgba(51,65,85,0.25)", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s) + DOT + plural(n, "call-in")}</span>
+                <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)", flexShrink: 0 }}>{p ? paid(p.total) : "?"}</span>
+              </button>);
+            })}
+          </div>}
+        </div>);
+      })}
+    </div>}
 
     <div style={S.card}>
       <div style={S.cardLabel}>{"Sites & rates"}</div>

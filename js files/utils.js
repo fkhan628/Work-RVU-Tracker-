@@ -1231,6 +1231,68 @@ function payUndoApply(list, action) {
   });
   return l;
 }
+// Display name per siteId - ONE rule for the Totals split and every shift
+// row: a current site shows its CURRENT name; a deleted site shows the name
+// stored on its NEWEST shift (latest date, then most recently added).
+function paySiteNames(shifts, sites) {
+  var out = {}, cur = {}, del = {};
+  (Array.isArray(sites) ? sites : []).forEach(function(s) { if (s && typeof s.id === "string") cur[s.id] = s.name; });
+  (Array.isArray(shifts) ? shifts : []).forEach(function(s) {
+    if (!s || typeof s.siteId !== "string" || !s.siteId || Object.prototype.hasOwnProperty.call(cur, s.siteId)) return;
+    var d = isYMD(s.date) ? s.date : "";
+    if (!del[s.siteId] || d >= del[s.siteId].date) del[s.siteId] = { date: d, name: s.siteName || "Deleted site" };
+  });
+  Object.keys(del).forEach(function(k) { out[k] = del[k].name; });
+  Object.keys(cur).forEach(function(k) { out[k] = cur[k]; });
+  return out;
+}
+// Calendar years that have call-pay shifts, newest first ("YYYY" strings).
+function payShiftYears(shifts) {
+  var seen = {};
+  (Array.isArray(shifts) ? shifts : []).forEach(function(s) { if (s && isYMD(s.date)) seen[s.date.slice(0, 4)] = true; });
+  return Object.keys(seen).sort().reverse();
+}
+// Call-pay totals for one calendar year, by month of the SHIFT date (a call-in
+// after midnight on the 1st still counts in the shift's month). Money is
+// summed in whole cents so sites add up exactly to each month and months to
+// the year. Sites show their CURRENT name; a deleted site keeps the name
+// stored on its shifts (deleted: true). A shift that can't be priced is
+// counted (unpriced) but never summed. Returns { total, shifts, callIns,
+// unpriced, months: [{ key: "YYYY-MM", total, shifts, callIns, unpriced,
+// sites: [{ key, name, deleted, total, shifts }], list: [shift, newest
+// first] }] } with months newest first.
+function payMonthTotals(shifts, year, sites) {
+  var y = String(year);
+  var current = {};
+  (Array.isArray(sites) ? sites : []).forEach(function(s) { if (s && typeof s.id === "string") current[s.id] = true; });
+  var names = paySiteNames(shifts, sites);
+  var months = {}, cents = 0, count = 0, callIns = 0, unpriced = 0;
+  (Array.isArray(shifts) ? shifts : []).forEach(function(s, idx) {
+    if (!s || !isYMD(s.date) || s.date.slice(0, 4) !== y) return;
+    var mk = s.date.slice(0, 7);
+    var m = months[mk] || (months[mk] = { key: mk, cents: 0, shifts: 0, callIns: 0, unpriced: 0, sites: {}, list: [] });
+    var p = computeShiftPay(s);
+    var c = p ? Math.round(p.total * 100) : 0;
+    var n = Array.isArray(s.events) ? s.events.length : 0;
+    var sk = typeof s.siteId === "string" && s.siteId ? s.siteId : "name:" + (s.siteName || "");
+    var deleted = !Object.prototype.hasOwnProperty.call(current, s.siteId);
+    var site = m.sites[sk] || (m.sites[sk] = { key: sk, name: (s.siteId && names[s.siteId]) || s.siteName || "Deleted site", deleted: deleted, cents: 0, shifts: 0 });
+    m.shifts++; m.callIns += n; site.shifts++;
+    if (p) { m.cents += c; site.cents += c; cents += c; } else { m.unpriced++; unpriced++; }
+    count++; callIns += n;
+    m.list.push({ s: s, i: idx });
+  });
+  var out = Object.keys(months).sort().reverse().map(function(mk) {
+    var m = months[mk];
+    return {
+      key: mk, total: m.cents / 100, shifts: m.shifts, callIns: m.callIns, unpriced: m.unpriced,
+      sites: Object.keys(m.sites).map(function(k) { var st = m.sites[k]; return { key: st.key, name: st.name, deleted: st.deleted, total: st.cents / 100, shifts: st.shifts }; })
+        .sort(function(a, b) { return b.total - a.total || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); }),
+      list: m.list.sort(function(a, b) { return a.s.date < b.s.date ? 1 : a.s.date > b.s.date ? -1 : b.i - a.i; }).map(function(x) { return x.s; })
+    };
+  });
+  return { total: cents / 100, shifts: count, callIns: callIns, unpriced: unpriced, months: out };
+}
 // Re-derive everything that follows the site/date: default hours on call
 // (until the user edits them) and every call-in via payDraftEvent.
 function payDraftRefresh(d, site, today, nowHM) {
