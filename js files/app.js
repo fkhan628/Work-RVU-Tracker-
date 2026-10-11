@@ -39,7 +39,12 @@ class ErrorBoundary extends React.Component {
           }, "Go Home"),
           onReset && React.createElement("button", {
             onClick: function() {
-              if (confirm("This will reset all app data. Your entries will be lost. Continue?")) {
+              // Erasing everything must be deliberate: typed, not one tap.
+              // Only the whole-app boundary offers it (per-view boundaries
+              // keep Retry + Go Home), so a crash on one tab can't lead to
+              // wiping all data.
+              var typed = prompt("This ERASES ALL app data on this phone (procedures, settings, call pay). If you can, export a backup from More first.\n\nType RESET to erase everything:");
+              if (typed !== null && typed.trim().toUpperCase() === "RESET") {
                 try { localStorage.removeItem(SK); localStorage.removeItem(LAST_GOOD_KEY); } catch(e) {}
                 location.reload();
               }
@@ -103,7 +108,14 @@ function App() {
   var doUndo = function() {
     if (!undoAction) return;
     if (undoAction.type === "delete") {
-      upd(function(prev) { return { ...prev, entries: prev.entries.concat(undoAction.entries) }; });
+      // Re-add only entries whose id is not already present (e.g. after a
+      // restore brought them back) - never duplicate an entry.
+      var delBack = undoAction.entries;
+      upd(function(prev) {
+        var have = {};
+        prev.entries.forEach(function(e) { have[e.id] = true; });
+        return { ...prev, entries: prev.entries.concat(delBack.filter(function(e) { return !have[e.id]; })) };
+      });
     } else if (undoAction.type === "log") {
       var ids = undoAction.ids;
       upd(function(prev) { return { ...prev, entries: prev.entries.filter(function(e) { return ids.indexOf(e.id) === -1; }) }; });
@@ -135,15 +147,15 @@ function App() {
     <div style={S.shell} className="rvu-shell"><div style={S.app}>
       {/* Scrollable content area */}
       <div style={S.content} className="rvu-content" ref={contentRef}>
-        {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} onReset={true} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} /></ErrorBoundary>}
-        {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} onReset={true} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} /></ErrorBoundary>}
-        {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} onReset={true} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
-        {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} onReset={true} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
-        {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} onReset={true} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
-        {view === "history" && <ErrorBoundary name="History" onRetry={goHome} onReset={true} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
-        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} onReset={true} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} /></ErrorBoundary>}
-        {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} onReset={true} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
-        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} onReset={true} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} /></ErrorBoundary>}
+        {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} /></ErrorBoundary>}
+        {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
+        {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
+        {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "history" && <ErrorBoundary name="History" onRetry={goHome} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
+        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} /></ErrorBoundary>}
       </div>
 
       {/* Undo toast - positioned above nav */}

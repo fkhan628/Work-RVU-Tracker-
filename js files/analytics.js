@@ -321,7 +321,9 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
   };
 
   var copySummary = function() {
-    if (navigator.clipboard) { navigator.clipboard.writeText(generateSummaryText()).then(function() { setCopyStatus("Copied!"); setTimeout(function() { setCopyStatus(""); }, 2000); }); }
+    var fail = function() { setCopyStatus("Copy failed"); setTimeout(function() { setCopyStatus(""); }, 3000); };
+    if (navigator.clipboard && navigator.clipboard.writeText) { navigator.clipboard.writeText(generateSummaryText()).then(function() { setCopyStatus("Copied!"); setTimeout(function() { setCopyStatus(""); }, 2000); }).catch(fail); }
+    else fail();
   };
 
   return (<div style={S.page}>

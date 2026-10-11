@@ -9,6 +9,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const [showRestore, setShowRestore] = useState(false);
   const [restoreText, setRestoreText] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
+  const [backupManual, setBackupManual] = useState(""); // encrypted code shown when auto-copy fails
   const [shareStatus, setShareStatus] = useState("");
   const [newApiKey, setNewApiKey] = useState("");
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
@@ -47,13 +48,24 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           document.body.appendChild(ta);
           ta.focus();
           ta.select();
-          try { document.execCommand("copy"); } catch(e) {}
+          // Only claim success when the copy really happened; otherwise
+          // show the code in a selectable box (a backup that silently never
+          // reached the clipboard is a backup the user does not have).
+          var ok = false;
+          try { ok = document.execCommand("copy"); } catch(e) { ok = false; }
           document.body.removeChild(ta);
-          setBackupStatus("Encrypted backup copied! (" + data.entries.length + " procedures, " + (encoded.length / 1024).toFixed(0) + " KB)");
-          setTimeout(function() { setBackupStatus(""); }, 4000);
+          if (ok) {
+            setBackupManual("");
+            setBackupStatus("Encrypted backup copied! (" + data.entries.length + " procedures, " + (encoded.length / 1024).toFixed(0) + " KB)");
+            setTimeout(function() { setBackupStatus(""); }, 4000);
+          } else {
+            setBackupManual(encoded);
+            setBackupStatus("Couldn't copy automatically - select the backup code below and copy it.");
+          }
         };
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(encoded).then(function() {
+            setBackupManual("");
             setBackupStatus("Encrypted backup copied! (" + data.entries.length + " procedures, " + (encoded.length / 1024).toFixed(0) + " KB)");
             setTimeout(function() { setBackupStatus(""); }, 4000);
           }).catch(function() {
@@ -162,6 +174,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     var msg = "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + ").";
     if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed.";
     if (confirm(msg)) {
+      // A restore replaces everything: a pending Undo (e.g. from Delete All)
+      // must not act on top of it.
+      if (showUndo) showUndo(null);
       // Same repair/migration path as loadData - old backups containing the
       // legacy reconMonths field migrate into institutionData with zero loss.
       repairData(restored);
@@ -591,7 +606,15 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       alert("Excel export failed: " + e.message);
     }
   };
-  const clear = () => { if (confirm("Delete all logged procedures? This cannot be undone.")) upd(prev => ({ ...prev, entries: [] })); };
+  // Deletes logged procedures only (settings, Compare, acute and call-pay
+  // data stay) - with the standard 8s Undo, like History's delete.
+  const clear = () => {
+    var all = data.entries || [];
+    if (!all.length) { alert("There are no logged procedures to delete."); return; }
+    if (!confirm("Delete all " + all.length + " logged procedures? Settings, Compare, acute and call-pay data are kept. You can Undo for a few seconds.")) return;
+    upd(prev => ({ ...prev, entries: [] }));
+    if (showUndo) showUndo({ type: "delete", entries: all, message: "Deleted " + all.length + " procedures" });
+  };
 
   const removeDuplicates = () => {
     // Duplicate = same date + CPT + modifiers + PATIENT + NOTES. The old key
@@ -967,7 +990,11 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         <button onClick={copyBackup} style={{ ...S.secondaryBtn, flex: 1, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>{"\uD83D\uDD12"} Copy Encrypted Backup</button>
         <button onClick={function() { setShowRestore(!showRestore); }} style={{ ...S.secondaryBtn, flex: 1 }}>{showRestore ? "Cancel" : "Restore"}</button>
       </div>
-      {backupStatus && <div style={{ fontSize: 12, color: "#10b981", marginTop: 6, textAlign: "center" }}>{backupStatus}</div>}
+      {backupStatus && <div style={{ fontSize: 12, color: backupManual ? "#f59e0b" : "#10b981", marginTop: 6, textAlign: "center" }}>{backupStatus}</div>}
+      {backupManual && <div style={{ marginTop: 6 }}>
+        <textarea readOnly value={backupManual} onFocus={function(e) { e.target.select(); }} style={{ ...S.notesInput, minHeight: 80, fontSize: 10, fontFamily: "JetBrains Mono" }} />
+        <button onClick={function() { setBackupManual(""); setBackupStatus(""); }} style={{ ...S.secondaryBtn, width: "100%", marginTop: 6, minHeight: 44 }}>Done</button>
+      </div>}
       {showRestore && <div style={{ marginTop: 10 }}>
         <textarea value={restoreText} onChange={function(e) { setRestoreText(e.target.value); }} placeholder="Paste your backup code here..." style={{ ...S.notesInput, minHeight: 80, fontSize: 11, fontFamily: "JetBrains Mono" }} />
         <button onClick={doRestore} disabled={!restoreText.trim()} style={{ ...S.saveBtn, width: "100%", marginTop: 8, opacity: restoreText.trim() ? 1 : 0.4 }}>Restore Data</button>
@@ -986,6 +1013,6 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     </div>
 
     <div style={{ marginTop: 8 }}><button onClick={removeDuplicates} style={{ ...S.secondaryBtn, width: "100%", color: "#fbbf24", borderColor: "rgba(251,191,36,0.3)" }}>Remove Duplicates</button></div>
-    <div style={{ marginTop: 8 }}><button onClick={clear} style={{ ...S.dangerBtn, width: "100%" }}>Clear All Data</button></div>
+    <div style={{ marginTop: 8 }}><button onClick={clear} style={{ ...S.dangerBtn, width: "100%" }}>Delete All Procedures</button></div>
   </div>);
 }

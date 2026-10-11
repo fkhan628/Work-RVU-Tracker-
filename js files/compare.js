@@ -191,6 +191,12 @@ function Compare({ data, upd, setView, showComp }) {
 
   var importXlData = function(mode) {
     if (!xlPreview || xlPreview.length === 0) return;
+    // Replace All drops every saved month that is not in this file - say
+    // which ones before doing it.
+    if (mode === "replace") {
+      var dropped = (data.institutionData || []).filter(function(d) { return !xlPreview.some(function(e) { return e.month === d.month; }); }).map(function(d) { return d.month; }).sort();
+      if (dropped.length && !confirm("Replace All will REMOVE " + dropped.length + " saved month" + (dropped.length === 1 ? "" : "s") + " that " + (dropped.length === 1 ? "is" : "are") + " not in this file: " + dropped.join(", ") + ". Continue?")) return;
+    }
     upd(function(prev) {
       var arr = mode === "replace" ? [] : (prev.institutionData || []).slice();
       xlPreview.forEach(function(entry) {
