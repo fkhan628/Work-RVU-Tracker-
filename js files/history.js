@@ -29,18 +29,18 @@ function Import({ data, cptMap, upd, setView, showUndo }) {
     <div style={{ ...S.card, marginTop: 16, background: "var(--bg-inset)", border: "1px solid var(--border-subtle)" }}><div style={{ ...S.cardLabel, marginBottom: 8 }}>Complete CMS Database</div><div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>{Object.keys(cptMap).length} preloaded codes  {DATA_VERSION}</div></div>
   </div>);
 
-  if (mode === "paste") return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => setMode("choose")} style={S.backBtn}></button><h1 style={{ ...S.title, marginBottom: 0 }}>Paste Data</h1></div>
+  if (mode === "paste") return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => setMode("choose")} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Paste Data</h1></div>
     <textarea value={raw} onChange={e => setRaw(e.target.value)} placeholder={"Date,CPT,Description,wRVU,Modifier\n01/15/2025,47562,Lap cholecystectomy,10.21,"} style={{ ...S.notesInput, minHeight: 200, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.6 }} />
     <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button onClick={() => setMode("choose")} style={S.secondaryBtn}>Cancel</button><button onClick={() => doParse(raw)} disabled={!raw.trim()} style={{ ...S.saveBtn, flex: 1, opacity: raw.trim() ? 1 : 0.4 }}>Parse Data </button></div>
   </div>);
 
   if (mode === "preview" && parsed) {
     const matched = parsed.entries.filter(e => cptMap[e.cptCode]); const tRVU = parsed.entries.reduce((s, e) => s + e.adjustedRVU, 0);
-    return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={S.backBtn}></button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
+    return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
       {status === 'ok' && <div style={S.successBanner}> Imported {addedCount} procedure{addedCount === 1 ? "" : "s"}{addedCount < parsed.entries.length ? " (" + (parsed.entries.length - addedCount) + " already present, skipped)" : ""}</div>}
       <div style={{ ...S.card, background: "linear-gradient(135deg, var(--bg-card), var(--bg-inset))", border: "1px solid var(--border-default)" }}><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>{[[parsed.entries.length, "Procedures", "var(--text-bright)"], [tRVU.toFixed(0), "Total wRVUs", "#0ea5e9"], [matched.length, "Matched", "#10b981"]].map(([v, l, c]) => (<div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: c }}>{v}</div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div></div>))}</div></div>
       {parsed.errors.length > 0 && <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: 12, marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 600, color: "#fbbf24", marginBottom: 4 }}> Warnings</div>{parsed.errors.slice(0, 5).map((e, i) => <div key={i} style={{ fontSize: 11, color: "#fcd34d", padding: "2px 0" }}>{e}</div>)}</div>}
-      <div style={S.card}><div style={S.cardLabel}>Preview ({parsed.entries.length} rows)</div><div style={{ marginTop: 8, maxHeight: 280, overflowY: "auto", scrollbarWidth: "thin" }}>{pEntries.map((e, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.5)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: cptMap[e.cptCode] ? "#0ea5e9" : "#fbbf24", fontWeight: 600 }}>{e.cptCode}</span> <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{fmtShort(e.date)}</span><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.description}</div></div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600, marginLeft: 8 }}>{e.adjustedRVU.toFixed(2)}</div></div>))}</div>{tPages > 1 && <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 8 }}><button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ ...S.pgBtn, opacity: page === 0 ? 0.3 : 1 }}></button><span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "JetBrains Mono" }}>{page+1}/{tPages}</span><button onClick={() => setPage(p => Math.min(tPages-1, p+1))} disabled={page === tPages-1} style={{ ...S.pgBtn, opacity: page === tPages-1 ? 0.3 : 1 }}></button></div>}</div>
+      <div style={S.card}><div style={S.cardLabel}>Preview ({parsed.entries.length} rows)</div><div style={{ marginTop: 8, maxHeight: 280, overflowY: "auto", scrollbarWidth: "thin" }}>{pEntries.map((e, i) => (<div key={i} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.5)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: cptMap[e.cptCode] ? "#0ea5e9" : "#fbbf24", fontWeight: 600 }}>{e.cptCode}</span> <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{fmtShort(e.date)}</span><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{e.description}</div></div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600, marginLeft: 8 }}>{e.adjustedRVU.toFixed(2)}</div></div>))}</div>{tPages > 1 && <div style={{ display: "flex", justifyContent: "center", gap: 8, marginTop: 8 }}><button onClick={() => setPage(p => Math.max(0, p-1))} disabled={page === 0} style={{ ...S.pgBtn, opacity: page === 0 ? 0.3 : 1 }}>Prev</button><span style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "JetBrains Mono" }}>{page+1}/{tPages}</span><button onClick={() => setPage(p => Math.min(tPages-1, p+1))} disabled={page === tPages-1} style={{ ...S.pgBtn, opacity: page === tPages-1 ? 0.3 : 1 }}>Next</button></div>}</div>
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={() => { setParsed(null); setMode("choose"); setRaw(""); }} style={S.secondaryBtn}>Cancel</button><button onClick={doImport} disabled={!parsed.entries.length} style={{ ...S.saveBtn, flex: 2, background: "linear-gradient(135deg, #10b981, #059669)" }}>Import {parsed.entries.length} Procedures</button></div>
     </div>);
   }
@@ -125,10 +125,32 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         return true;
       });
     }
-    items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return new Date(b.date + "T12:00:00") - new Date(a.date + "T12:00:00"); });
+    // Dates are "YYYY-MM-DD" strings: comparing them directly gives the same
+    // order as building two Date objects per comparison, much faster.
+    items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
     return items;
   }, [entries, filter, sortBy, dateRangeBounds, showCallFilter, cptMap]);
   const grouped = useMemo(() => { if (groupBy === "none") return { "All": filtered }; const g = {}; filtered.forEach(e => { const k = groupBy === "date" ? e.date : e.category; if (!g[k]) g[k] = []; g[k].push(e); }); return g; }, [filtered, groupBy]);
+  // Render about ROWS_STEP rows and add more on demand - thousands of rows on
+  // a phone are slow to draw. The window follows the ON-SCREEN order (group
+  // by group), so only the last group above "Show more" can be partial, and
+  // a DAY is never split when grouping by date (encounter cards must see the
+  // whole day or their totals would be wrong). Totals, group headers and
+  // Export still use the FULL filtered list.
+  var ROWS_STEP = 150;
+  const [rowLimit, setRowLimit] = useState(ROWS_STEP);
+  useEffect(function() { setRowLimit(ROWS_STEP); }, [filter, sortBy, dateRangeBounds, showCallFilter, groupBy]);
+  const visible = useMemo(function() {
+    var ids = {}, n = 0, keys = Object.keys(grouped);
+    for (var gi = 0; gi < keys.length && n < rowLimit; gi++) {
+      var list = grouped[keys[gi]];
+      var take = groupBy === "date" ? list.length : Math.min(list.length, rowLimit - n);
+      for (var i = 0; i < take; i++) ids[list[i].id] = true;
+      n += take;
+    }
+    return { ids: ids, count: n };
+  }, [grouped, groupBy, rowLimit]);
+  var visibleIds = visible.ids;
   const del = function(id) {
     var entry = data.entries.find(function(e) { return e.id === id; });
     upd(prev => ({ ...prev, entries: prev.entries.filter(e => e.id !== id) }));
@@ -406,6 +428,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button>{isAddMode
         ? <button onClick={saveAdd} disabled={!editInfo} style={{ ...S.saveBtn, flex: 1, opacity: editInfo ? 1 : 0.4 }}>Add Procedure</button>
         : <button onClick={saveEdit} disabled={editSaveDisabled} style={{ ...S.saveBtn, flex: 1, opacity: editSaveDisabled ? 0.4 : 1 }}>Save Changes</button>}</div>
+      {/* Delete from the edit panel - same no-confirm + 8s Undo as swipe. */}
+      {!isAddMode && <button onClick={function() { var id = editId; cancelEdit(); del(id); }} style={{ ...S.dangerBtn, width: "100%", marginTop: 10, minHeight: 44 }}>Delete this procedure</button>}
     </div>);
   }
 
@@ -442,10 +466,12 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
 
     <div style={{ marginTop: 12 }}>
       {Object.keys(grouped).length === 0 && <div style={{ textAlign: "center", color: "var(--text-dim)", padding: 40 }}>{entries.length === 0 ? "No procedures logged yet" : "No procedures match your filters"}</div>}
-      {Object.entries(grouped).map(([group, items]) => {
+      {Object.entries(grouped).map(([group, allItems]) => {
+        var items = allItems.filter(function(e) { return visibleIds[e.id]; });
+        if (items.length === 0) return null;
         var encounters = groupBy === "date" ? buildEncounters(items) : null;
         return (<div key={group} style={{ marginBottom: 16 }}>
-          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {items.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU  ({items.length})</span></div>
+          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {allItems.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU  ({allItems.length}){items.length < allItems.length ? " - showing " + items.length : ""}</span></div>
           {encounters ? encounters.map(function(enc, ei) {
             if (enc.type === "single") return renderProcRow(enc.entry, false);
             return (<div key={enc.patient + "-" + ei} style={{ background: "rgba(14,165,233,0.03)", border: "1px solid rgba(14,165,233,0.12)", borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
@@ -471,6 +497,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
           }) : items.map(function(e) { return renderProcRow(e, false); })}
         </div>);
       })}
+      {filtered.length > visible.count && <button onClick={function() { setRowLimit(visible.count + ROWS_STEP); }} style={{ ...S.secondaryBtn, width: "100%", minHeight: 44, marginBottom: 12 }}>{"Show more (" + (filtered.length - visible.count) + " remaining)"}</button>}
     </div>
   </div>);
 }
