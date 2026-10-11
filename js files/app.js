@@ -189,12 +189,13 @@ function Nav({ view, setView }) {
   return (
     <div style={S.nav} className="rvu-nav-bar">
       {tabs.map(t => (
-        <button key={t.id} onClick={() => setView(t.id)} style={{
+        <button key={t.id} onClick={() => setView(t.id)} aria-label={t.label} aria-current={view === t.id ? "page" : undefined} style={{
           ...S.navBtn,
+          flex: 1, minHeight: 48,
           color: view === t.id ? "#0ea5e9" : "var(--text-muted)"
         }}>
           <span style={{ fontSize: t.id === "log" ? 22 : 17, transition: "transform 0.15s", transform: view === t.id ? "scale(1.15)" : "scale(1)" }}>{t.icon}</span>
-          <span style={{ fontSize: 8, marginTop: 2, letterSpacing: 0.3, fontWeight: view === t.id ? 700 : 400 }}>{t.label}</span>
+          <span style={{ fontSize: 10, marginTop: 2, letterSpacing: 0.2, fontWeight: view === t.id ? 700 : 400 }}>{t.label}</span>
         </button>
       ))}
     </div>

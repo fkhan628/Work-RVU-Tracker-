@@ -301,7 +301,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       <div style={S.card}><div style={S.cardLabel}>Procedures</div><div style={{ marginTop: 8 }}>{monthProcList.map(function(p) {
         return (<div key={p.code} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}>
           <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 11, color: "#64748b", marginLeft: 6 }}>x{p.count}</span><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{p.desc}</div></div>
-          <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{p.totalRVU.toFixed(2)}</div>
+          <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{p.totalRVU.toFixed(2)}</div>
         </div>);
       })}</div></div>
     </div>);
@@ -409,7 +409,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
               <div style={{ height: "100%", width: pct + "%", background: m.rvu >= goalLine && goal > 0 ? "linear-gradient(90deg, #10b981, #34d399)" : "linear-gradient(90deg, #0ea5e9, #38bdf8)", borderRadius: 4, transition: "width 0.3s" }} />
               {goal > 0 && <div style={{ position: "absolute", top: 0, left: goalPct + "%", width: 2, height: "100%", background: "rgba(251,191,36,0.5)" }} />}
             </div>
-            <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{m.rvu.toFixed(0)}</div>
+            <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{m.rvu.toFixed(0)}</div>
             <div style={{ width: 20, textAlign: "right", fontSize: 10, color: "#64748b" }}>{m.count}</div>
           </div>);
         })}
@@ -465,7 +465,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
               <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
             </div>
             <div style={{ textAlign: "right", marginLeft: 8, flexShrink: 0 }}>
-              <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{c.rvu.toFixed(1)}</div>
+              <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{c.rvu.toFixed(1)}</div>
               <div style={{ fontSize: 9, color: "#64748b" }}>avg {(c.rvu / c.count).toFixed(2)}</div>
             </div>
           </div>);
@@ -484,7 +484,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
             {p.addons.length > 0 && <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#64748b", marginTop: 2 }}>+ {p.addons.join(", ")}</div>}
           </div>
           <div style={{ textAlign: "right", marginLeft: 8, flexShrink: 0 }}>
-            <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{p.totalRVU.toFixed(1)}</div>
+            <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{p.totalRVU.toFixed(1)}</div>
             <div style={{ fontSize: 9, color: "#64748b" }}>{(p.totalRVU / p.count).toFixed(1)}/enc</div>
           </div>
         </div>);
@@ -535,7 +535,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
             <div style={{ flex: 1, height: 14, background: "#0f172a", borderRadius: 4, overflow: "hidden" }}>
               <div style={{ height: "100%", width: (maxDow > 0 ? d.rvu / maxDow * 100 : 0) + "%", background: "linear-gradient(90deg, #0ea5e9, #38bdf8)", borderRadius: 4, transition: "width 0.3s" }} />
             </div>
-            <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{d.rvu.toFixed(0)}</div>
+            <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{d.rvu.toFixed(0)}</div>
             <div style={{ width: 24, textAlign: "right", fontSize: 10, color: "#64748b" }}>{d.count}</div>
           </div>);
         });
@@ -554,7 +554,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
             <div style={{ flex: 1, height: 14, background: "#0f172a", borderRadius: 4, overflow: "hidden" }}>
               {p.vpu !== null && <div style={{ height: "100%", width: (maxV > 0 ? p.vpu / maxV * 100 : 0) + "%", background: "linear-gradient(90deg, #059669, #34d399)", borderRadius: 4, transition: "width 0.3s" }} />}
             </div>
-            <div style={{ width: 50, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: p.vpu === null ? "#64748b" : "#e2e8f0", fontWeight: 600 }}>{p.vpu === null ? "\u2014" : round2(p.vpu).toFixed(2)}</div>
+            <div style={{ width: 50, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: p.vpu === null ? "var(--text-dim)" : "var(--text-primary)", fontWeight: 600 }}>{p.vpu === null ? "\u2014" : round2(p.vpu).toFixed(2)}</div>
           </div>);
         });
       })()}
@@ -574,7 +574,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
             return (<div key={r.key} style={{ display: "grid", gridTemplateColumns: "50px 1fr 1fr 1fr", gap: 4, padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.2)", background: r.flag ? "rgba(245,158,11,0.07)" : "transparent", borderRadius: r.flag ? 4 : 0 }}>
               <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "JetBrains Mono" }}>{monthLabel(r.key).split(" ")[0]}</span>
               <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "#94a3b8" }}>{r.inst.toFixed(2)}</span>
-              <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{r.share.toFixed(2)}</span>
+              <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{r.share.toFixed(2)}</span>
               <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: r.flag ? 700 : 400, color: r.flag ? "#f59e0b" : "#64748b" }}>{(r.diff >= 0 ? "+" : "") + r.diff.toFixed(2)}{r.flag ? " !" : ""}</span>
             </div>);
           })}

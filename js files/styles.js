@@ -21,6 +21,8 @@
     "  --text-dim: #64748b;",
     "  --text-faint: #475569;",
     "  --text-ghost: #334155;",
+    "  --selected-from: #0c4a6e;",
+    "  --selected-code: #38bdf8;",
     "  --nav-bg: rgba(15,23,42,0.95);",
     "  --card-shadow: 0 1px 2px rgba(0,0,0,0.25);",
     "  --card-main-from: #1e293b;",
@@ -40,9 +42,11 @@
     "  --text-primary: #1e293b;",
     "  --text-secondary: #475569;",
     "  --text-muted: #64748b;",
-    "  --text-dim: #94a3b8;",
-    "  --text-faint: #cbd5e1;",
+    "  --text-dim: #7c8aa0;",
+    "  --text-faint: #8492a6;",
     "  --text-ghost: #e2e8f0;",
+    "  --selected-from: #f0f9ff;",
+    "  --selected-code: #0369a1;",
     "  --nav-bg: rgba(255,255,255,0.92);",
     "  --card-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);",
     "  --card-main-from: #ffffff;",
@@ -264,13 +268,15 @@ var S = {
 
   // --- Selected Procedure Card ---
   selectedCard: {
-    background: "linear-gradient(135deg, #0c4a6e 0%, var(--bg-card) 100%)",
+    // Theme-aware start: the old hardcoded dark navy left light-mode text
+    // (star, descriptor) on a dark corner.
+    background: "linear-gradient(135deg, var(--selected-from) 0%, var(--bg-card) 100%)",
     border: "1px solid #0ea5e9", borderRadius: 12,
     padding: 16, marginBottom: 12,
     animation: "rvuScaleIn 0.2s ease-out"
   },
   selectedCode: {
-    fontSize: 20, fontFamily: "'JetBrains Mono'", color: "#38bdf8", fontWeight: 700
+    fontSize: 20, fontFamily: "'JetBrains Mono'", color: "var(--selected-code)", fontWeight: 700
   },
   selectedDesc: { fontSize: 14, color: "var(--text-primary)", marginTop: 4 },
   clearBtn: {
