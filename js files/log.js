@@ -1,16 +1,21 @@
 // =======================================
 // LOG PROCEDURE
 // =======================================
-function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCallPay }) {
-  const [date, setDate] = useState(todayLocal());
-  const [patientId, setPatientId] = useState("");
-  const [procs, setProcs] = useState([{ id: 1, code: null, search: "", mods: [] }]);
-  const [notes, setNotes] = useState("");
+function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCallPay, logDraft }) {
+  // An unsaved encounter survives switching tabs: App owns a MEMORY-ONLY
+  // draft ref (never written to storage); these lazy initialisers read it and
+  // the effect below keeps it current. Saving or emptying the form clears it.
+  var dr = logDraft && logDraft.current;
+  const [date, setDate] = useState(function() { return dr ? dr.date : todayLocal(); });
+  const [patientId, setPatientId] = useState(function() { return dr ? dr.patientId : ""; });
+  const [procs, setProcs] = useState(function() { return dr ? dr.procs : [{ id: 1, code: null, search: "", mods: [] }]; });
+  const [notes, setNotes] = useState(function() { return dr ? dr.notes : ""; });
   const [saved, setSaved] = useState(false);
-  const [activeProc, setActiveProc] = useState(0);
+  const [activeProc, setActiveProc] = useState(function() { return dr ? dr.activeProc : 0; });
   const [cat, setCat] = useState("All");
-  const [showFavs, setShowFavs] = useState(true);
-  const [isCall, setIsCall] = useState(false);
+  // Favorites show when the ACTIVE procedure is empty (as after addProc).
+  const [showFavs, setShowFavs] = useState(function() { var ap = dr ? (dr.procs[dr.activeProc] || dr.procs[0]) : null; return !(ap && (ap.code || ap.search)); });
+  const [isCall, setIsCall] = useState(function() { return dr ? dr.isCall : false; });
   // Procedure templates: PRE-FILL only. applyTemplate composes the exact
   // state manual entry writes (selectCode / companion addSuggestion draft
   // shapes) and then STOPS - it never saves, never touches the save
@@ -108,11 +113,32 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   var [showHipaaWarn, setShowHipaaWarn] = useState(false);
   var [showModHelp, setShowModHelp] = useState(false);
   var pendingScanType = useRef(null);
-  var nextId = useRef(2);
+  var nextId = useRef(dr && dr.nextId ? dr.nextId : 2);
   // Synchronous double-save lock: a fast double-tap fires both clicks before
   // React re-renders, so the `saved` state alone is a stale closure - the ref
   // is the real guard.
   var savingRef = useRef(false);
+  var resetTimer = useRef(null); // the 1.2s post-save reset
+  var mountedRef = useRef(true);
+  // Leaving Log during the post-save window: cancel the reset and drop the
+  // draft, so the encounter just saved can never come back pre-filled (a
+  // duplicate-save / wrong-patient risk).
+  useEffect(function() {
+    mountedRef.current = true;
+    return function() {
+      mountedRef.current = false;
+      if (resetTimer.current) { clearTimeout(resetTimer.current); resetTimer.current = null; if (logDraft) logDraft.current = null; }
+    };
+  }, []);
+  // Keep App's memory-only draft current. Only real content (codes, a search,
+  // initials, notes, the Call toggle) keeps a draft - a date on its own does
+  // NOT, so a stale date can never carry into a later case after a save.
+  // Skipped while a save is pending (save() already cleared the draft).
+  useEffect(function() {
+    if (!logDraft || savingRef.current) return;
+    var empty = !procs.some(function(p) { return p.code || p.search; }) && !notes && !patientId && !isCall;
+    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, isCall: isCall, nextId: nextId.current };
+  }, [date, patientId, procs, notes, activeProc, isCall]);
 
   var favorites = data.favorites || [];
   var favCodes = useMemo(function() {
@@ -190,8 +216,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     updateProc(activeProc, { code: cpt.code, search: cpt.code + " - " + (cpt.friendly || cpt.desc) });
   };
 
+  // Picking a code or typing hides the favorites list (setShowFavs(false));
+  // every way back to an empty draft must bring it back, or the next case
+  // starts on the first 20 codes in CMS order instead of the user's favorites.
+  var showFavList = function() { setShowFavs(true); setCat("All"); };
+
   var clearCode = function() {
     updateProc(activeProc, { code: null, search: "", mods: [] });
+    showFavList();
   };
 
   var toggleMod = function(mc) {
@@ -203,6 +235,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     var newP = { id: nextId.current++, code: null, search: "", mods: [] };
     setProcs(function(prev) { return prev.concat([newP]); });
     setActiveProc(procs.length);
+    showFavList();
   };
 
   // Apply a template: resolve codes against the CURRENT db (correct across
@@ -511,8 +544,9 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
 
   var save = function() {
-    if (!canSave || saved || savingRef.current) return;
+    if (!canSave || !isYMD(date) || saved || savingRef.current) return;
     savingRef.current = true;
+    if (logDraft) logDraft.current = null; // the saved encounter is no longer a draft
     var newEntries = [];
     procs.forEach(function(p) {
       if (!p.code) return;
@@ -538,7 +572,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     var loggedRVU = newEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
     showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc (" + loggedRVU.toFixed(1) + " wRVUs)" });
     setSaved(true);
-    setTimeout(function() {
+    resetTimer.current = setTimeout(function() {
+      resetTimer.current = null;
       savingRef.current = false;
       setSaved(false);
       setProcs([{ id: nextId.current++, code: null, search: "", mods: [] }]);
@@ -546,6 +581,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       setNotes("");
       setPatientId("");
       setIsCall(false);
+      showFavList();
+      // Next case starts at the top of the screen (the scroll container is
+      // App's .rvu-content).
+      var sc = mountedRef.current ? document.querySelector(".rvu-content") : null;
+      if (sc) sc.scrollTop = 0;
     }, 1200);
   };
 
@@ -616,7 +656,16 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
 
     <div style={{ display: "flex", gap: 8 }}>
-      <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={date} onChange={function(e) { setDate(e.target.value); }} style={S.dateInput} /></div></div>
+      <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={date} onChange={function(e) { setDate(e.target.value); }} style={S.dateInput} />
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          {[["Today", todayLocal()], ["Yesterday", addDaysYMD(todayLocal(), -1)]].map(function(c) {
+            var on = date === c[1];
+            // The date is computed when TAPPED (not at render) so the chip is
+            // right after midnight even if the screen has not re-rendered.
+            return (<button key={c[0]} onClick={function() { setDate(c[0] === "Today" ? todayLocal() : addDaysYMD(todayLocal(), -1)); }} style={{ flex: 1, minHeight: 40, borderRadius: 8, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c[0]}</button>);
+          })}
+        </div>
+      </div></div>
       <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={patientId} onChange={function(e) { setPatientId(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
     </div>
 
@@ -863,7 +912,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     </div>}
 
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
-    {canSave && <button onClick={save} disabled={saved} style={{ ...S.saveBtn, opacity: saved ? 0.5 : 1, pointerEvents: saved ? "none" : "auto", background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
+    {canSave && !isYMD(date) && <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>Pick a valid date to save this encounter.</div>}
+    {canSave && <button onClick={save} disabled={saved || !isYMD(date)} style={{ ...S.saveBtn, opacity: saved || !isYMD(date) ? 0.5 : 1, pointerEvents: saved || !isYMD(date) ? "none" : "auto", background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
   </div>);
 }
 

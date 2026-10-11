@@ -125,6 +125,9 @@ function App() {
   // Nav-less call pay view (callpay.js); opened from Log or Settings, Back
   // returns to whichever opened it.
   const [callPayFrom, setCallPayFrom] = useState("settings");
+  // Log's unsaved encounter, kept across tab switches (memory only - never
+  // persisted; LogProc clears it on save).
+  const logDraft = useRef(null);
   var openCallPay = function(from) { setCallPayFrom(from === "log" ? "log" : "settings"); setView("callpay"); };
 
   if (!loaded) return <div style={S.loading}>Loading...</div>;
@@ -133,7 +136,7 @@ function App() {
       {/* Scrollable content area */}
       <div style={S.content} className="rvu-content" ref={contentRef}>
         {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} onReset={true} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} /></ErrorBoundary>}
-        {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} onReset={true} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} /></ErrorBoundary>}
+        {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} onReset={true} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} /></ErrorBoundary>}
         {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} onReset={true} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
         {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} onReset={true} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
         {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} onReset={true} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
