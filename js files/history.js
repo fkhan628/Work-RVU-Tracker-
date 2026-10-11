@@ -345,11 +345,18 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
 
   const toggleEditMod = (mc) => { setEditMods(prev => prev.includes(mc) ? prev.filter(m => m !== mc) : [...prev, mc]); };
 
+  // Ranked like Log's search (utils.js rankCPTMatches): exact code, prefix,
+  // most-used, favorites, then CPT order - the top 10 are the likely ones.
+  const editUsage = useMemo(() => {
+    var counts = {};
+    (data.entries || []).forEach(function(e) { counts[e.cptCode] = (counts[e.cptCode] || 0) + 1; });
+    return counts;
+  }, [data.entries]);
   const editFiltered = useMemo(() => {
     if (!editSearch.trim()) return [];
-    var q = editSearch.toLowerCase();
-    return db.filter(c => matchesCPTQuery(c, q)).slice(0, 10);
-  }, [editSearch, db]);
+    var q = editSearch.trim().toLowerCase();
+    return rankCPTMatches(db.filter(c => matchesCPTQuery(c, q)), q, editUsage, data.favorites || []).slice(0, 10);
+  }, [editSearch, db, editUsage, data.favorites]);
 
   // Edit / add panel (add mode when editId is the sentinel)
   if (editId) {
@@ -381,7 +388,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ flex: 1, padding: "8px 12px", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: 8, color: editCode ? "#0ea5e9" : "var(--text-faint)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode || "\u2014"}</div>
         </div>
-        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder={isAddMode ? "Search for the CPT code..." : "Search to change CPT code..."} autoFocus={isAddMode} style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
+        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} autoCorrect="off" autoCapitalize="off" spellCheck={false} placeholder={isAddMode ? "Search for the CPT code..." : "Search to change CPT code..."} autoFocus={isAddMode} style={{ ...S.searchInput, marginTop: 8, fontSize: 13 }} />
         {editFiltered.length > 0 && <div style={{ maxHeight: 200, overflowY: "auto", marginTop: 4 }}>{editFiltered.map(c => (<button key={c.code} onClick={() => { setEditCode(c.code); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px" }}><div style={{ display: "flex", justifyContent: "space-between" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9" }}>{c.code}</span><span style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.wRVU} wRVU</span></div><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{c.friendly || c.desc}</div>{c.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{c.desc}</div>}</button>))}</div>}
         {!isAddMode && /^\d{5}$/.test(editSearch.trim()) && !cptMap[editSearch.trim()] && <button onClick={function() { setEditCode(editSearch.trim()); setEditSearch(""); }} style={{ ...S.resultItem, padding: "6px 10px", marginTop: 4, border: "1px dashed rgba(245,158,11,0.4)" }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#f59e0b", fontWeight: 600 }}>{editSearch.trim()}</span><span style={{ fontSize: 11, color: "var(--text-muted)", marginLeft: 6 }}>use as entered - not in database, set wRVU below</span></button>}
         {editInfo && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{editInfo.friendly || editInfo.desc}</div>}
@@ -404,7 +411,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
 
   return (<div style={S.page}>
     <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>History</h1><p style={S.subtitle}>{filteredCount === entries.length ? entries.length + " procedures" : filteredCount + " of " + entries.length + " procedures"}  {tF.toFixed(1)} wRVUs{filteredCount < entries.length ? " (filtered)" : ""}</p></div>{filtered.length > 0 && <button onClick={exportFiltered} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.05)", color: "#10b981", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", marginTop: 4 }}>Export CSV</button>}</div></div>
-    <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search procedures, codes, notes..." style={S.searchInput} />
+    <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search procedures, codes, notes..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={S.searchInput} />
 
     {/* Date range filter */}
     <div style={{ marginTop: 8 }}>

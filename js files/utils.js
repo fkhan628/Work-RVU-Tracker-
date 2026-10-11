@@ -516,6 +516,21 @@ function matchesCPTQuery(c, query) {
   }
   return true;
 }
+// Order search MATCHES so the likely code is on top - never adds or drops a
+// match (same set as matchesCPTQuery). Stable: exact code, then code
+// prefix, then the user's most-used codes (usage = { code: count }), then
+// favorites, then database (CPT) order. Returns a new array.
+function rankCPTMatches(items, query, usage, favorites) {
+  var q = (query || "").trim().toLowerCase();
+  var fav = {};
+  (favorites || []).forEach(function(c) { fav[c] = true; });
+  var u = usage || {};
+  return (items || []).map(function(c, i) {
+    var code = String(c.code).toLowerCase();
+    return { c: c, i: i, tier: code === q ? 0 : (q && code.indexOf(q) === 0 ? 1 : 2), use: u[c.code] || 0, fav: fav[c.code] ? 1 : 0 };
+  }).sort(function(a, b) { return a.tier - b.tier || b.use - a.use || b.fav - a.fav || a.i - b.i; })
+    .map(function(x) { return x.c; });
+}
 const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();
 
 const MODIFIERS = [

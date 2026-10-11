@@ -201,10 +201,16 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     if (cat !== "All") items = items.filter(function(c) { return c.category === cat; });
     if (curSearch.trim()) {
       var q = curSearch.trim();
-      items = items.filter(function(c) { return matchesCPTQuery(c, q); });
+      // Same matches, ranked: exact code, code prefix, your most-used codes,
+      // favorites, then CPT order (utils.js rankCPTMatches).
+      items = rankCPTMatches(items.filter(function(c) { return matchesCPTQuery(c, q); }), q, usageCounts, favorites);
     }
     return items;
-  }, [curSearch, cat, db]);
+    // `favorites` is deliberately NOT a dependency: starring a row in the
+    // results must not re-rank the list under the user's finger (the next
+    // tap would land on a neighbouring code). New favorites apply the next
+    // time the search, category or database changes.
+  }, [curSearch, cat, db, usageCounts]);
 
   var updateProc = function(idx, updates) {
     setProcs(function(prev) {
@@ -718,7 +724,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     </div>
 
     {/* Search for active procedure */}
-    <div style={S.fieldGroup}><label style={S.fieldLabel}>Search CPT Code or Procedure</label><input type="text" value={curSearch} onChange={function(e) { updateProc(activeProc, { search: e.target.value, code: null }); setShowFavs(false); }} placeholder="e.g. 47562, cholecystectomy, hernia..." style={S.searchInput} onFocus={function() { if (!curSearch.trim()) setShowFavs(true); }} /></div>
+    <div style={S.fieldGroup}><label style={S.fieldLabel}>Search CPT Code or Procedure</label><input type="text" value={curSearch} onChange={function(e) { updateProc(activeProc, { search: e.target.value, code: null }); setShowFavs(false); }} placeholder="e.g. 47562, cholecystectomy, hernia..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={S.searchInput} onFocus={function() { if (!curSearch.trim()) setShowFavs(true); }} /></div>
     <div style={S.catRow}><button onClick={function() { setCat("All"); setShowFavs(false); }} style={cat === "All" && !showFavs ? S.catBtnActive : S.catBtn}>All</button><button onClick={function() { setShowFavs(true); setCat("All"); updateProc(activeProc, { search: "", code: null }); }} style={showFavs ? { ...S.catBtnActive, color: "#fbbf24", borderColor: "rgba(251,191,36,0.4)", background: "rgba(251,191,36,0.1)" } : { ...S.catBtn, color: "#fbbf24" }}>{"\u2605"} Favorites{favorites.length > 0 ? " (" + favorites.length + ")" : ""}</button>{categories.map(function(c) { return <button key={c} onClick={function() { setCat(c); setShowFavs(false); }} style={cat === c && !showFavs ? S.catBtnActive : S.catBtn}>{c}</button>; })}</div>
 
     {/* Favorites panel */}
@@ -827,7 +833,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#10b981" }}>{"$"}{comp.toFixed(0)}</span>
         </div>
       </div>
-    </button>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}</div>}
+    </button>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}{filtered.length > 20 && <div style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, color: "var(--text-dim)" }}>{"Showing 20 of " + filtered.length + " matches - type more to narrow"}</div>}</div>}
 
     {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "#fbbf24" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(calcProcRVU(cur) * data.settings.ratePerRVU).toFixed(0)}</div></div></div></div>
     {(function() {

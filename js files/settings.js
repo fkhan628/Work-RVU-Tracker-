@@ -955,7 +955,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         Data: CMS CY{DATA_YEAR} PFS  {db.length} codes  {overrideCount > 0 ? overrideCount + " custom override(s)" : "No overrides"}
       </div>
       {showEditor && <>
-        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search codes to edit..." style={{ ...S.searchInput, marginTop: 10, fontSize: 13 }} />
+        <input type="text" value={editSearch} onChange={e => setEditSearch(e.target.value)} placeholder="Search codes to edit..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={{ ...S.searchInput, marginTop: 10, fontSize: 13 }} />
         <div style={{ ...S.catRow, marginTop: 6 }}><button onClick={() => setEditCat("All")} style={editCat === "All" ? S.catBtnActive : S.catBtn}>All</button>{categories.map(c => <button key={c} onClick={() => setEditCat(c)} style={editCat === c ? S.catBtnActive : S.catBtn}>{c}</button>)}</div>
         <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 8, scrollbarWidth: "thin", scrollbarColor: "var(--border-default) transparent" }}>
           {editFiltered.slice(0, 30).map(cpt => {

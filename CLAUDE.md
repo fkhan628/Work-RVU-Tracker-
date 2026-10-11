@@ -84,6 +84,9 @@ the per-file gates below. Run it after EVERY file change.
   output must pass repairData unchanged (check.js contract tests) -
   otherwise every load silently rewrites user data. utils.js must stay loadable in check.js's vm sandbox: a
   new top-level browser-API call needs a stub there, not a skipped test.
+- CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
+  rankCPTMatches only reorders them (exact, prefix, usage, favorites,
+  CPT order). Log and History both use it; check.js pins it.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

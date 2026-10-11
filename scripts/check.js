@@ -171,6 +171,11 @@ if (rows) {
 }
 check("cpt-data.js has no raw < or > characters", !/[<>]/.test(cpt), "descriptors must escape angle brackets as unicode escapes");
 
+// 6b. CPT search ranking (rankCPTMatches) on the REAL CPT database: same
+// match set as matchesCPTQuery, reordered - exact code, prefix, usage,
+// favorites, CPT order. Usage/favorites below are made up.
+// (Runs after the sandbox loads; see section 7 for the sandbox.)
+
 // 7. Call-pay math. Runs the REAL cpt-data.js + utils.js in a Node vm
 // sandbox (minimal DOM/localStorage stubs) - no copy of the logic lives
 // here. All rates below are MADE UP: real site names/rates never go in
@@ -275,6 +280,22 @@ if (sb) {
     badRif.map(c => { const r = sb.rateInForce(site, c[0]); return c[0] + " -> " + (r ? r.id : "null") + " (want " + c[1] + ")"; }).join("; "));
   check("rateInForce: no rates / bad date / no site -> null",
     sb.rateInForce({ rates: [] }, "2026-05-01") === null && sb.rateInForce(site, "2026-02-30") === null && sb.rateInForce(null, "2026-05-01") === null);
+
+  // Section 6b: CPT search ranking.
+  const db0 = vm.runInContext("CPT_DATABASE_DEFAULT", sb);
+  const hits = q => db0.filter(c => sb.matchesCPTQuery(c, q));
+  const herniaHits = hits("hernia");
+  const ranked = sb.rankCPTMatches(herniaHits, "hernia", { "49650": 5, "49505": 2 }, ["49591"]);
+  const sameSet = ranked.length === herniaHits.length && ranked.every(c => herniaHits.indexOf(c) !== -1);
+  const topCodes = ranked.slice(0, 3).map(c => c.code).join(",");
+  check("rankCPTMatches: same match set; usage then favorites first", sameSet && topCodes === "49650,49505,49591", topCodes + " of " + ranked.length);
+  const syn = [{ code: "10021" }, { code: "49505" }, { code: "49507" }, { code: "20000" }];
+  const order = (q, use) => sb.rankCPTMatches(syn, q, use, []).map(c => c.code).join(",");
+  check("rankCPTMatches: exact code first, then code prefix beats heavy usage",
+    order("49505", { "10021": 50 }) === "49505,10021,49507,20000" && order("4950", { "10021": 50 }) === "49505,49507,10021,20000",
+    order("49505", { "10021": 50 }) + " | " + order("4950", { "10021": 50 }));
+  const plain = sb.rankCPTMatches(herniaHits, "hernia", {}, []);
+  check("rankCPTMatches: no usage/favorites = CPT order (stable)", plain.every((c, i) => c === herniaHits[i]));
 
   // Shift-entry helpers (call pay form). Local-parts date math only.
   const ADD = [["2026-01-31", 1, "2026-02-01"], ["2026-12-31", 1, "2027-01-01"], ["2028-02-28", 1, "2028-02-29"],
