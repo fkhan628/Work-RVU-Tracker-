@@ -577,6 +577,13 @@ function localYMD(d) {
   return d.getFullYear() + "-" + m + "-" + day;
 }
 function todayLocal() { return localYMD(new Date()); }
+// Strict "YYYY-MM-DD" check via LOCAL parts (rejects 2026-02-30 etc.).
+function isYMD(s) {
+  if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
+  var p = s.split("-"), y = +p[0], m = +p[1], dd = +p[2];
+  var dt = new Date(y, m - 1, dd);
+  return dt.getFullYear() === y && dt.getMonth() === m - 1 && dt.getDate() === dd;
+}
 
 // --- Visible data alert (save/load failures must never be silent) ---
 // Plain-DOM banner so it works even if React is wedged. appendChild only.
@@ -620,7 +627,21 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // [{ id, name, codes: ["47562", ...] (order preserved), note? }] - codes
 // only, never wRVU values (those resolve from the current db at apply
 // time) and never patient info.
-const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], dataVersion: DATA_VERSION });
+// paySites / payShifts: call-pay tracking in DOLLARS - never touches entries
+// or wRVU totals. Site names and rates are USER-ENTERED data only - never
+// hardcode a site name or rate anywhere in source, tests, or docs.
+// paySites: [{ id, name, weekendDays: [0-6] (day-chip pre-select hint only),
+//   casesEarnRVU: bool, rates: [RateVersion] }]
+// RateVersion: { id, effective: "YYYY-MM-DD", stipend, stipendHours,
+//   callInWeekday, callInWeekendHoliday, hourly, hourlyMinHours (numbers
+//   >= 0; stipendHours > 0 - it is the stipend period divisor),
+//   hourlyWeekdayDay: bool, label? }
+// payShifts: [{ id, date: "YYYY-MM-DD" (shift start), siteId, siteName,
+//   callHours, rates: RateVersion COPY (authoritative - like entry wRVU
+//   snapshots, pay never re-looks-up the site's current rates), events:
+//   [{ date, cls: "wd"|"wn"|"we"|"hol", fee: bool, hours }], cases?, note? }]
+//   - note never holds patient info.
+const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: [], payShifts: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -633,6 +654,31 @@ try { localStorage.removeItem("rvu-backup"); localStorage.removeItem("rvu-backup
 // recovery alert - it must never become a lingering plaintext copy of the data.
 var CORRUPT_KEY = "rvu-tracker-data-corrupt";
 function clearCorruptCopy() { try { localStorage.removeItem(CORRUPT_KEY); } catch(e) {} }
+
+// Call-pay shape helpers (repairData). A rate version is unreadable when its
+// effective date or any number pay depends on is missing/negative/NaN, or a
+// flag is not a real boolean - numeric strings coerce, nothing else guesses.
+var PAY_RATE_NUMS = ["stipend", "stipendHours", "callInWeekday", "callInWeekendHoliday", "hourly", "hourlyMinHours"];
+var PAY_EVENT_CLS = ["wd", "wn", "we", "hol"];
+function payNum(v) {
+  if (typeof v === "string" && v.trim() !== "") v = Number(v);
+  return (typeof v === "number" && isFinite(v) && v >= 0) ? v : null;
+}
+// Returns a cleaned COPY (unknown fields kept) or null if unreadable.
+function cleanPayRate(r, fallbackId) {
+  if (!r || typeof r !== "object" || Array.isArray(r) || !isYMD(r.effective)) return null;
+  if (typeof r.hourlyWeekdayDay !== "boolean") return null;
+  var c = { ...r };
+  for (var i = 0; i < PAY_RATE_NUMS.length; i++) {
+    var n = payNum(r[PAY_RATE_NUMS[i]]);
+    if (n === null) return null;
+    c[PAY_RATE_NUMS[i]] = n;
+  }
+  if (!(c.stipendHours > 0)) return null;
+  if (typeof c.id !== "string" || !c.id) c.id = fallbackId;
+  if (c.label !== undefined && typeof c.label !== "string") delete c.label;
+  return c;
+}
 
 // Repair-before-reject: coerce every field validateData requires to be numeric
 // (currently only settings.ratePerRVU) plus settings.annualGoal, which shares
@@ -758,6 +804,95 @@ function repairData(d) {
       d.templates = cleanT;
     }
   }
+  // Call pay sites. A malformed list resets loudly; a site with no usable
+  // name is dropped whole; an unreadable rate version is dropped with a
+  // notice (shifts carry their own rate copy, so no recorded pay changes).
+  if (d && d.paySites !== undefined) {
+    if (!Array.isArray(d.paySites)) {
+      d.paySites = [];
+      fixed.push("paySites");
+      lossMsgs.push("Call pay sites were unreadable and have been reset - please re-enter them.");
+    } else {
+      var droppedS = [], droppedR = [], cleanS = [];
+      d.paySites.forEach(function(s, si) {
+        if (!s || typeof s !== "object" || Array.isArray(s) || typeof s.name !== "string" || s.name.trim() === "") { droppedS.push("#" + (si + 1)); return; }
+        var cs = { ...s };
+        if (typeof cs.id !== "string" || !cs.id) cs.id = "site-" + Date.now().toString(36) + "-" + si;
+        cs.weekendDays = Array.isArray(s.weekendDays) ? s.weekendDays.filter(function(n) { return typeof n === "number" && n % 1 === 0 && n >= 0 && n <= 6; }) : [];
+        cs.casesEarnRVU = s.casesEarnRVU !== false;
+        cs.rates = [];
+        if (s.rates !== undefined && !Array.isArray(s.rates)) droppedR.push(s.name + " (all rates)");
+        (Array.isArray(s.rates) ? s.rates : []).forEach(function(r, ri) {
+          var cr = cleanPayRate(r, cs.id + "-r" + ri);
+          if (cr) cs.rates.push(cr);
+          else droppedR.push(s.name + " " + (r && typeof r.effective === "string" ? r.effective : "#" + (ri + 1)));
+        });
+        if (JSON.stringify(cs) !== JSON.stringify(s)) fixed.push("paySites." + (si + 1));
+        cleanS.push(cs);
+      });
+      if (droppedS.length > 0) {
+        fixed.push("paySites-dropped");
+        lossMsgs.push("Call pay site" + (droppedS.length === 1 ? " " : "s ") + droppedS.join(", ") + " " + (droppedS.length === 1 ? "was" : "were") + " unreadable and removed.");
+      }
+      if (droppedR.length > 0) {
+        fixed.push("paySites-rates-dropped");
+        lossMsgs.push("Call pay rate" + (droppedR.length === 1 ? " " : "s ") + droppedR.join(", ") + " " + (droppedR.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (droppedR.length === 1 ? "it" : "them") + ". Recorded shifts keep their own rates.");
+      }
+      d.paySites = cleanS;
+    }
+  }
+  // Call pay shifts. A shift is dropped WHOLE when its date, hours, rate
+  // copy, or any call-in is unreadable - keeping part of a shift would
+  // silently misprice it. An unreadable case count alone is removed with a
+  // notice (it never affects pay). Unknown fields are kept.
+  if (d && d.payShifts !== undefined) {
+    if (!Array.isArray(d.payShifts)) {
+      d.payShifts = [];
+      fixed.push("payShifts");
+      lossMsgs.push("Call pay shifts were unreadable and have been reset - please re-enter them.");
+    } else {
+      var droppedP = [], droppedC = [], cleanP = [];
+      d.payShifts.forEach(function(p, pi) {
+        var isObj = !!p && typeof p === "object" && !Array.isArray(p);
+        var label = (isObj && typeof p.date === "string" && p.date ? p.date : "#" + (pi + 1)) + (isObj && typeof p.siteName === "string" && p.siteName ? " " + p.siteName : "");
+        var cp = isObj ? { ...p } : null;
+        var ok = !!cp && isYMD(p.date);
+        if (ok) { cp.rates = cleanPayRate(p.rates, "rate-" + p.date); ok = !!cp.rates; }
+        if (ok) { cp.callHours = payNum(p.callHours); ok = cp.callHours !== null; }
+        if (ok) {
+          var evs = (p.events === undefined || p.events === null) ? [] : p.events;
+          if (!Array.isArray(evs)) ok = false;
+          cp.events = [];
+          for (var ei = 0; ok && ei < evs.length; ei++) {
+            var ev = evs[ei];
+            var eh = (ev && typeof ev === "object") ? payNum(ev.hours) : null;
+            if (Array.isArray(ev) || eh === null || !isYMD(ev.date) || PAY_EVENT_CLS.indexOf(ev.cls) === -1 || typeof ev.fee !== "boolean") ok = false;
+            else cp.events.push({ ...ev, hours: eh });
+          }
+        }
+        if (!ok) { droppedP.push(label); return; }
+        if (typeof cp.id !== "string" || !cp.id) cp.id = "shift-" + Date.now().toString(36) + "-" + pi;
+        if (typeof cp.siteId !== "string") cp.siteId = "";
+        if (typeof cp.siteName !== "string") cp.siteName = "";
+        if (cp.cases !== undefined) {
+          var cc = payNum(cp.cases);
+          if (cc === null) { delete cp.cases; droppedC.push(label); } else cp.cases = cc;
+        }
+        if (cp.note !== undefined && typeof cp.note !== "string") delete cp.note;
+        if (JSON.stringify(cp) !== JSON.stringify(p)) fixed.push("payShifts." + (pi + 1));
+        cleanP.push(cp);
+      });
+      if (droppedP.length > 0) {
+        fixed.push("payShifts-dropped");
+        lossMsgs.push("Call pay shift" + (droppedP.length === 1 ? " " : "s ") + droppedP.join(", ") + " " + (droppedP.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (droppedP.length === 1 ? "it" : "them") + ".");
+      }
+      if (droppedC.length > 0) {
+        fixed.push("payShifts-cases");
+        lossMsgs.push("Case count for call shift" + (droppedC.length === 1 ? " " : "s ") + droppedC.join(", ") + " " + (droppedC.length === 1 ? "was" : "were") + " unreadable and removed.");
+      }
+      d.payShifts = cleanP;
+    }
+  }
   if (lossMsgs.length > 0) showDataAlert(lossMsgs.join(" "));
   return fixed;
 }
@@ -789,7 +924,7 @@ function loadData() {
     raw = localStorage.getItem(SK);
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
-    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, templates: s.templates || [], dataVersion: s.dataVersion || DATA_VERSION };
+    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, templates: s.templates || [], paySites: s.paySites || [], payShifts: s.payShifts || [], dataVersion: s.dataVersion || DATA_VERSION };
     // Legacy field: carried through so repairData can run the one-time
     // reconMonths -> institutionData migration, after which it is deleted.
     if (s.reconMonths !== undefined) d.reconMonths = s.reconMonths;
@@ -1081,6 +1216,8 @@ function validateData(d) {
   if (d.acuteRoster !== undefined && !Array.isArray(d.acuteRoster)) return false;
   if (d.acuteMe !== undefined && typeof d.acuteMe !== "string") return false;
   if (d.templates !== undefined && !Array.isArray(d.templates)) return false;
+  if (d.paySites !== undefined && !Array.isArray(d.paySites)) return false;
+  if (d.payShifts !== undefined && !Array.isArray(d.payShifts)) return false;
   return true;
 }
 

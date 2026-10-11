@@ -169,6 +169,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           acuteMe: restored.acuteMe || "",
           acuteMonths: restored.acuteMonths || {},
           templates: restored.templates || [],
+          paySites: restored.paySites || [],
+          payShifts: restored.payShifts || [],
           dataVersion: restored.dataVersion || DATA_VERSION
         };
       });

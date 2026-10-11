@@ -28,7 +28,8 @@ Script execution order:
 
 `scripts/check.js` (`npm run check`) enforces this structure: both arrays
 parsed, disk<->array set equality, pinned plain-set membership, ASSET_V
-presence, plus the per-file gates below. Run it after EVERY file change.
+presence, store-field parity (defState = loadData = finishRestore), plus
+the per-file gates below. Run it after EVERY file change.
 
 ## Deploy rules
 
@@ -40,7 +41,8 @@ presence, plus the per-file gates below. Run it after EVERY file change.
 - Commit and push from `RVU App Split/` (the repo root). Never commit
   billing data (`RVU Wallet Data/`), CMS source files (`CMS 2026/`), or
   any partner name — the repo is public and the roster is runtime user
-  data only.
+  data only. The same goes for call-pay site names and rates (paySites):
+  never in source, tests, docs, or commit messages.
 
 ## Hard constraints (enforced by check.js where possible)
 
@@ -64,6 +66,10 @@ presence, plus the per-file gates below. Run it after EVERY file change.
   for calendar math. Excel serials: epoch 1899-12-30 via local parts
   (compare.js excelDateToYM); `XLSX.read` runs with cellDates OFF so that
   helper is the only serial conversion path.
+- New top-level store field: add it to defState, loadData AND Settings
+  finishRestore (check.js asserts parity), give it repairData +
+  validateData shape rules, and read it as `(data.x || [])` - last-good
+  recovery can return a snapshot that predates the field.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

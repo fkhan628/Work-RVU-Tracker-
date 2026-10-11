@@ -118,6 +118,47 @@ check("utils.js defines SK", !!skMatch);
 check("crypto.js DATA_KEY === utils.js SK", !!dkMatch && !!skMatch && dkMatch[1] === skMatch[1],
   (dkMatch ? dkMatch[1] : "(missing)") + " vs " + (skMatch ? skMatch[1] : "(missing)"));
 
+// 5c. Store-field parity: every top-level field in utils.js defState() must
+// also be carried by loadData() and by Settings' finishRestore - a field
+// missing from either is silently WIPED on the next reload or restore.
+const AST_OPTS = { sourceType: "script", plugins: ["jsx"] };
+const objKeys = o => o.properties.filter(p => p.type === "ObjectProperty").map(p => p.key.name || p.key.value).sort();
+function findDeclared(ast, name) {
+  let hit = null;
+  walk(ast.program, n => {
+    if (hit) return;
+    if (n.type === "FunctionDeclaration" && n.id && n.id.name === name) hit = n;
+    if (n.type === "VariableDeclarator" && n.id && n.id.name === name) hit = n.init;
+  });
+  return hit;
+}
+function findStateObject(scope, mustHave) {
+  let hit = null;
+  if (scope) walk(scope, n => {
+    if (!hit && n.type === "ObjectExpression") {
+      const k = objKeys(n);
+      if (mustHave.every(m => k.indexOf(m) !== -1)) hit = n;
+    }
+  });
+  return hit;
+}
+const settingsSrc = fs.readFileSync(path.join(JS_DIR, "settings.js"), "utf8");
+let utilsAst = null, settingsAst = null;
+try { utilsAst = parser.parse(utils, AST_OPTS); settingsAst = parser.parse(settingsSrc, AST_OPTS); } catch (e) {}
+const STATE_MARKERS = ["entries", "dataVersion"];
+const defObj = utilsAst && findStateObject(findDeclared(utilsAst, "defState"), STATE_MARKERS);
+const loadObj = utilsAst && findStateObject(findDeclared(utilsAst, "loadData"), STATE_MARKERS);
+const restoreObj = settingsAst && findStateObject(findDeclared(settingsAst, "finishRestore"), STATE_MARKERS);
+check("found defState / loadData / finishRestore state objects", !!defObj && !!loadObj && !!restoreObj);
+if (defObj && loadObj && restoreObj) {
+  const dk = objKeys(defObj), lk = objKeys(loadObj), rk = objKeys(restoreObj);
+  const diff = (a, b) => a.filter(k => b.indexOf(k) === -1);
+  check("loadData carries every defState field", diff(dk, lk).length === 0 && diff(lk, dk).length === 0,
+    "missing: " + diff(dk, lk).join(", ") + " | extra: " + diff(lk, dk).join(", "));
+  check("finishRestore carries every defState field", diff(dk, rk).length === 0 && diff(rk, dk).length === 0,
+    "missing: " + diff(dk, rk).join(", ") + " | extra: " + diff(rk, dk).join(", "));
+}
+
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");
 let rows = null, evalErr = null;
