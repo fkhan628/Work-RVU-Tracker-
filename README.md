@@ -24,7 +24,7 @@ A mobile-first Progressive Web App for physicians to track surgical procedure wo
 
 ## Architecture
 
-The app is split into 13 files and loaded as a plain static site — no npm install, no bundler, no build step.
+The app is split into 14 files and loaded as a plain static site — no npm install, no bundler, no build step.
 
 ```
 index.html              # ~60-line shell, loads scripts in order
@@ -43,6 +43,7 @@ js files/
   history.js            # History browser + CSV import
   compare.js            # Period comparison
   acute.js              # Acute-care history table (read-only, nav-less view)
+  callpay.js            # Call pay: sites + dated rate versions (nav-less view)
   settings.js           # Settings, backup/restore, theme toggle
   app.js                # ErrorBoundary, App root, Nav, render entry point
 ```
@@ -52,7 +53,7 @@ js files/
 1. React 18.3.1 and ReactDOM (UMD, from unpkg)
 2. Babel standalone 7.26.10 (from unpkg)
 3. **Plain scripts** (execute during parse, in document order): `crypto`, `cpt-data`, `utils`, `styles` — all JSX-free. utils/styles were moved out of Babel to skip two compiles; their top-level `const` names become parse-time global bindings that no Babel file may redeclare.
-4. **Babel scripts** (`type="text/babel"`, execute after transform at DOMContentLoaded): `dashboard`, `log`, `analytics`, `history`, `compare`, `acute`, `settings`, `app`.
+4. **Babel scripts** (`type="text/babel"`, execute after transform at DOMContentLoaded): `dashboard`, `log`, `analytics`, `history`, `compare`, `acute`, `callpay`, `settings`, `app`.
 5. All local script URLs carry `?v=ASSET_V` — a hand-bumped constant in index.html's head. **Every deploy that changes any js file must bump ASSET_V** (build reports state the new value). Browsers cache and revalidate per GitHub Pages headers (~10-min max-age), so updates propagate even without a bump; the bump forces immediate refetch.
 6. SheetJS xlsx 0.20.1 is **not loaded at boot** — Compare's Excel upload and Settings' Excel export lazy-load it via `loadXLSX()` (utils.js) with the same pinned SRI hash.
 

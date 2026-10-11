@@ -6,7 +6,7 @@ static files served from GitHub Pages. This file is the constraint map for
 AI-assisted sessions — keep it current in the SAME commit as any change it
 describes.
 
-## Architecture / load order (13 files)
+## Architecture / load order (14 files)
 
 index.html head defines `var ASSET_V = "<n>"` — the hand-bumped cache
 version stamped as `?v=` on every local script URL (and the cpt-data
@@ -21,7 +21,7 @@ Script execution order:
    ALL FOUR ARE JSX-FREE AND MUST STAY THAT WAY: adding JSX to any of them
    is a parse error at runtime (they never pass through Babel).
 3. **Babel scripts** (`var js = ['dashboard','log','analytics','history',
-   'compare','acute','settings','app']`) — `type="text/babel"`, transformed
+   'compare','acute','callpay','settings','app']`) — `type="text/babel"`, transformed
    and executed at DOMContentLoaded, after every plain script.
 4. SheetJS is NOT loaded at boot. `loadXLSX()` in utils.js lazy-injects it
    (same pinned version + SRI) on first Excel use with an in-flight guard.

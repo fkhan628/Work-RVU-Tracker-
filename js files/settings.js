@@ -1,7 +1,7 @@
 // =======================================
 // SETTINGS (with wRVU Editor)
 // =======================================
-function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, showUndo }) {
+function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, openCallPay, showUndo }) {
   const { settings } = data;
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
@@ -829,6 +829,15 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         </div>}
         {acuteImportStatus && <div style={{ marginTop: 6, fontSize: 11, color: acuteImportStatus.indexOf("failed") !== -1 ? "#ef4444" : "#34d399" }}>{acuteImportStatus}</div>}
       </div>
+    </div>
+
+    {/* Call Pay - dollar-only call-shift pay (callpay.js). Site names and
+        rates are USER-ENTERED data only; never hardcode them in source. */}
+    <div style={S.card}>
+      <div style={S.cardLabel}>Call Pay</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Call stipends, call-in fees and hourly pay per site, in dollars. Kept separate from wRVUs and Comp.</div>
+      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}</div>
+      <button onClick={function() { if (openCallPay) openCallPay(); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
     </div>
 
     {/* API Key for Scan Features - Encrypted (feature-flagged: hidden when SCAN_ENABLED is false) */}

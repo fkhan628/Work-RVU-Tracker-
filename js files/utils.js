@@ -1082,6 +1082,17 @@ function computeShiftPay(shift) {
   lines.forEach(function(l) { total += l.amount; });
   return { lines: lines, total: round2(total) };
 }
+// The site's rate version in force on ymd: the latest effective date on or
+// before ymd (string compare is safe on validated YYYY-MM-DD; on a tie the
+// version added last wins). null when no version applies yet.
+function rateInForce(site, ymd) {
+  if (!site || !Array.isArray(site.rates) || !isYMD(ymd)) return null;
+  var best = null;
+  site.rates.forEach(function(r) {
+    if (r && isYMD(r.effective) && r.effective <= ymd && (!best || r.effective >= best.effective)) best = r;
+  });
+  return best;
+}
 
 // Years that have ANY data (logged entries, institution months, acute
 // months), newest first. Shared by the Dashboard and Trends year chips so

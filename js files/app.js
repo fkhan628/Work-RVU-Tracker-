@@ -118,6 +118,8 @@ function App() {
   // opened it so Back returns there, not to a fixed tab.
   const [acuteFrom, setAcuteFrom] = useState("dashboard");
   var openAcute = function(from) { setAcuteFrom(from === "settings" ? "settings" : "dashboard"); setView("acute"); };
+  // Nav-less call pay view (callpay.js); opened from Settings, Back returns there.
+  var openCallPay = function() { setView("callpay"); };
 
   if (!loaded) return <div style={S.loading}>Loading...</div>;
   return (
@@ -130,8 +132,9 @@ function App() {
         {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} onReset={true} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
         {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} onReset={true} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
         {view === "history" && <ErrorBoundary name="History" onRetry={goHome} onReset={true} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
-        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} onReset={true} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} onReset={true} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} /></ErrorBoundary>}
         {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} onReset={true} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
+        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} onReset={true} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView("settings"); }} /></ErrorBoundary>}
       </div>
 
       {/* Undo toast - positioned above nav */}

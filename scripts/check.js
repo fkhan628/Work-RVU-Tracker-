@@ -37,7 +37,7 @@ function walk(node, cb) {
 }
 
 const jsFiles = fs.readdirSync(JS_DIR).filter(f => f.endsWith(".js")).sort();
-check("found 12 js files", jsFiles.length === 12, "got " + jsFiles.length + ": " + jsFiles.join(", "));
+check("found 13 js files", jsFiles.length === 13, "got " + jsFiles.length + ": " + jsFiles.join(", "));
 
 jsFiles.forEach(f => {
   const src = fs.readFileSync(path.join(JS_DIR, f), "utf8");
@@ -264,6 +264,17 @@ if (sb) {
   ];
   const badNull = NULLS.filter(n => sb.computeShiftPay(n[1]) !== null);
   check("unreadable shift input yields no total (" + NULLS.length + " cases)", badNull.length === 0, badNull.map(n => n[0]).join(", "));
+
+  // rateInForce: latest effective on/before the date; a same-date tie goes
+  // to the version added last; nothing before the first version.
+  const v = (id, effective) => Object.assign({}, RA, { id, effective });
+  const site = { rates: [v("v1", "2026-01-01"), v("v2", "2026-07-01"), v("v3", "2027-01-01"), v("v2b", "2026-07-01")] };
+  const RIF = [["2025-12-31", null], ["2026-01-01", "v1"], ["2026-03-15", "v1"], ["2026-07-01", "v2b"], ["2026-12-31", "v2b"], ["2027-02-01", "v3"]];
+  const badRif = RIF.filter(c => { const r = sb.rateInForce(site, c[0]); return (r ? r.id : null) !== c[1]; });
+  check("rateInForce picks the version in force (" + RIF.length + " cases)", badRif.length === 0,
+    badRif.map(c => { const r = sb.rateInForce(site, c[0]); return c[0] + " -> " + (r ? r.id : "null") + " (want " + c[1] + ")"; }).join("; "));
+  check("rateInForce: no rates / bad date / no site -> null",
+    sb.rateInForce({ rates: [] }, "2026-05-01") === null && sb.rateInForce(site, "2026-02-30") === null && sb.rateInForce(null, "2026-05-01") === null);
 }
 
 console.log("");
