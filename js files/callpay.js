@@ -7,7 +7,8 @@
 // renders. Site names and rates are USER-ENTERED data only: never hardcode
 // either anywhere in source (public repo). Recorded shifts keep their own
 // rate copy, so editing or deleting a rate version here never changes pay
-// already recorded. Nav-less view opened from Log or Settings; onBack returns
+// already recorded - unless the user confirms the re-price offered after a
+// version is saved, or taps "Use current rates" while editing a shift. Nav-less view opened from Log or Settings; onBack returns
 // to whichever opened it. Dollar amounts follow the app's show-$ toggle.
 function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var sites = data.paySites || [];
@@ -35,6 +36,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   const savingRef = useRef(false);                // double-tap guard on Save
   const [allShifts, setAllShifts] = useState(false); // Recent: newest 5 vs every shift
   const listScroll = useRef(0);                      // list scroll position while a form is open
+  const [repriceOffer, setRepriceOffer] = useState(null); // { siteId } after a rate version is saved
   const [payYear, setPayYear] = useState("");     // Totals year chip ("" = newest)
   const [openMonth, setOpenMonth] = useState(""); // expanded Totals month "YYYY-MM"
   var payYears = payShiftYears(shifts);
@@ -116,6 +118,9 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
       return { ...s, rates: exists ? s.rates.map(function(r) { return r.id === rf.rateId ? nr : r; }) : s.rates.concat([nr]) };
     }); });
     setRateForm(null);
+    // Offer to re-price this site's shifts; the card shows only if any
+    // recorded shift now prices differently from the version in force.
+    setRepriceOffer({ siteId: rf.siteId });
   };
   var deleteRate = function(s, r) {
     if (!confirm("Delete the " + s.name + " rate version starting " + r.effective + "? Recorded shifts keep their own rates.")) return;
@@ -270,6 +275,48 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     .map(function(x) { return x.s; });
   var recent = allShifts ? sortedShifts : sortedShifts.slice(0, 5);
 
+  // ---- Re-pricing (utils.js payShiftStale / payRepriceShift) ----
+  var staleFor = function(site) { return shifts.filter(function(x) { return payShiftStale(x, site); }); };
+  var dateRange = function(list) {
+    var ds = list.map(function(x) { return x.date; }).sort();
+    return ds.length ? (ds[0] === ds[ds.length - 1] ? ds[0] : ds[0] + " to " + ds[ds.length - 1]) : "";
+  };
+  var shiftCents = function(x) { var p = computeShiftPay(x); return p ? Math.round(p.total * 100) : 0; };
+  var repriceSite = function(site) {
+    var stale = staleFor(site);
+    if (!stale.length) { setRepriceOffer(null); return; }
+    var lenChange = false, before = 0, after = 0;
+    stale.forEach(function(x) { var r = payRepriceShift(x, site); if (r && r.callHours !== x.callHours) lenChange = true; before += shiftCents(x); after += r ? shiftCents(r) : shiftCents(x); });
+    var msg = "Re-price " + plural(stale.length, "shift") + " at " + site.name + " (" + dateRange(stale) + ") with the rate version in force for each date?" +
+      (lenChange ? " Full-length shifts take the new shift length; partial shifts keep their hours." : "") +
+      (showComp ? " Their total changes from " + money(before / 100) + " to " + money(after / 100) + "." : "") + " You can Undo.";
+    if (!confirm(msg)) return;
+    var ids = stale.map(function(x) { return x.id; });
+    upd(function(prev) {
+      var cur = (prev.paySites || []).filter(function(x) { return x.id === site.id; })[0];
+      return { ...prev, payShifts: (prev.payShifts || []).map(function(x) {
+        if (ids.indexOf(x.id) === -1) return x;
+        var r = cur ? payRepriceShift(x, cur) : null; // re-checked against the CURRENT site
+        return r || x;
+      }) };
+    });
+    if (showUndo) showUndo({ type: "pay", remove: [], restore: stale, message: "Re-priced " + plural(stale.length, "shift") + " - " + site.name });
+    setRepriceOffer(null);
+  };
+  // Editor: re-take the version in force for this date (a full-length shift
+  // takes the new shift length, like a bulk re-price).
+  var useCurrentRates = function() {
+    setD(function(x) {
+      var nx = { ...x, reprice: true };
+      var rif = rateInForce(siteFor(x.siteId), x.date);
+      if (rif && editOrig && editOrig.rates && +x.callHours === editOrig.rates.stipendHours) nx.callHours = String(rif.stipendHours);
+      return nx;
+    });
+  };
+  var staleTag = function(s) {
+    return payShiftStale(s, siteById(s.siteId)) ? <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(245,158,11,0.15)", color: "#f59e0b", fontFamily: "inherit", whiteSpace: "nowrap" }}>Rates changed</span> : null;
+  };
+
   var danger = { color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" };
   var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
 
@@ -314,7 +361,11 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
           {built.ratesFrom === "kept"
             ? "Priced at the rates saved with this shift (version from " + dispRates.effective + (dispRates.label ? ", " + dispRates.label : "") + ")"
             : "Rates: version from " + dispRates.effective + (dispRates.label ? " (" + dispRates.label + ")" : "")}
-          {editOrig && built.ratesFrom === "inForce" ? " - updated for the new site/date." : ""}
+          {editOrig && built.ratesFrom === "inForce" ? (d.reprice ? " - updated to the current version." : " - updated for the new site/date.") : ""}
+        </div>}
+        {editOrig && built.ratesFrom === "kept" && draftSite && !draftSite.deleted && payShiftStale(editOrig, draftSite) && <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)", fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>
+          {"This shift was saved with the version from " + editOrig.rates.effective + "; the version from " + rateInForce(draftSite, d.date).effective + " is now in force for its date."}
+          <button onClick={useCurrentRates} style={btn({ display: "block", marginTop: 6, color: "#f59e0b", border: "1px solid rgba(245,158,11,0.4)" })}>Use current rates</button>
         </div>}
         {shiftProbs.map(probLine)}
       </div>
@@ -409,7 +460,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
                     return (<div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid rgba(51,65,85,0.4)" }}>
                       <button onClick={function() { openEdit(s, false); }} style={{ flex: 1, minWidth: 0, minHeight: 48, textAlign: "left", background: "none", border: "none", padding: "4px 0", cursor: "pointer" }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?")}</div>
+                        <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?")}{staleTag(s)}</div>
                       </button>
                       <button onClick={function() { openEdit(s, true); }} style={btn()}>+ Call-in</button>
                     </div>);
@@ -447,6 +498,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
               var n = (s.events || []).length;
               return (<button key={s.id} onClick={function() { openEdit(s, false); }} style={{ width: "100%", minHeight: 44, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", borderTop: "1px solid rgba(51,65,85,0.25)", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
                 <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s) + DOT + plural(n, "call-in")}</span>
+                {staleTag(s)}
                 <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)", flexShrink: 0 }}>{p ? paid(p.total) : "?"}</span>
               </button>);
             })}
@@ -507,6 +559,14 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
             {(hidden > 0 || (showAll[s.id] && cur && sorted.length > 1)) && <button onClick={function() { setShowAll({ ...showAll, [s.id]: !showAll[s.id] }); }} style={btn({ marginTop: 4, width: "100%" })}>{showAll[s.id] ? "Show current only" : "Show " + hidden + " other version" + (hidden === 1 ? "" : "s")}</button>}
           </div>
 
+          {repriceOffer && repriceOffer.siteId === s.id && staleFor(s).length > 0 && <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}>
+            <div style={{ fontSize: 12, color: "var(--text-primary)", lineHeight: 1.5 }}>{plural(staleFor(s).length, "recorded shift") + " (" + dateRange(staleFor(s)) + ") use rates that differ from the version now in force for their dates."}</div>
+            <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
+              <button onClick={function() { repriceSite(s); }} style={btn({ ...primary, flex: 1 })}>{"Re-price " + plural(staleFor(s).length, "shift")}</button>
+              <button onClick={function() { setRepriceOffer(null); }} style={btn()}>Not now</button>
+            </div>
+          </div>}
+
           {rateForm && rateForm.siteId === s.id
             ? <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "var(--bg-inset)" }}>
                 <div style={{ fontSize: 12, fontWeight: 700, color: "#0ea5e9", marginBottom: 10 }}>{rateForm.editing ? "Edit rate version" : "New rate version"}</div>
@@ -523,7 +583,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
                 </label>
                 <div style={S.fieldGroup}><label style={S.fieldLabel}>Label (optional, e.g. Proposal)</label><input type="text" value={rateForm.f.label} onChange={function(e) { setField("label", e.target.value); }} style={{ ...S.searchInput, fontSize: 13, padding: "10px 12px" }} /></div>
                 {formErr && <div style={{ fontSize: 11, color: "#f59e0b", marginBottom: 8, lineHeight: 1.5 }}>{formErr}</div>}
-                {rateForm.editing && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8, lineHeight: 1.5 }}>Editing a version does not change shifts already recorded.</div>}
+                {rateForm.editing && <div style={{ fontSize: 11, color: "var(--text-faint)", marginBottom: 8, lineHeight: 1.5 }}>Editing a version does not change shifts already recorded; after saving you'll be offered a re-price.</div>}
                 <div style={{ display: "flex", gap: 8 }}>
                   <button onClick={saveRate} disabled={!formRate} style={btn({ ...primary, flex: 1, opacity: formRate ? 1 : 0.4 })}>Save</button>
                   <button onClick={function() { setRateForm(null); }} style={btn()}>Cancel</button>

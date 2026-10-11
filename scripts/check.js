@@ -437,6 +437,46 @@ if (sb) {
     JSON.stringify(apr.sites));
   const nm = sb.paySiteNames([{ siteId: "g", siteName: "First", date: "2026-01-05" }, { siteId: "g", siteName: "Later", date: "2026-02-01" }, { siteId: "g", siteName: "Older", date: "2025-12-01" }, { siteId: "sx", siteName: "x", date: "2026-01-01" }], [SX]);
   check("paySiteNames: current name for live sites, newest stored name for deleted", nm.g === "Later" && nm.sx === "Now X", JSON.stringify(nm));
+  // Re-pricing (4c). Made-up rates only.
+  check("payRatesDiffer: amounts/flag matter; id, label, effective do not",
+    !sb.payRatesDiffer(RA, Object.assign({}, RA, { id: "z", label: "x", effective: "2027-01-01" })) &&
+    sb.payRatesDiffer(RA, Object.assign({}, RA, { hourly: 51 })) && sb.payRatesDiffer(RA, Object.assign({}, RA, { hourlyWeekdayDay: false })));
+  const base24 = mkShift("rp1", S1, "2026-05-10");                      // 24h shift at RA (1000/24h)
+  const part12 = Object.assign({}, base24, { id: "rp2", callHours: 12 }); // partial shift
+  const R12 = Object.assign({}, RA, { id: "new12", effective: "2026-05-01", stipend: 1200, stipendHours: 12 });
+  const S1back = Object.assign({}, S1, { rates: [RA, R12] });                               // backdated new version
+  const S1fut = Object.assign({}, S1, { rates: [RA, Object.assign({}, R12, { effective: "2026-06-01" })] }); // starts after the shift
+  const S1lbl = Object.assign({}, S1, { rates: [RA, Object.assign({}, RA, { id: "relabel", label: "renamed", effective: "2026-05-01" })] });
+  check("payShiftStale: backdated different version = stale; future / label-only / other site = not",
+    sb.payShiftStale(base24, S1back) && !sb.payShiftStale(base24, S1fut) && !sb.payShiftStale(base24, S1lbl) &&
+    !sb.payShiftStale(base24, S2) && !sb.payShiftStale(base24, null));
+  const rpBefore = JSON.stringify(base24);
+  const rp = sb.payRepriceShift(base24, S1back), rpPart = sb.payRepriceShift(part12, S1back);
+  check("payRepriceShift: full-length takes the new length; partial keeps its hours; hand-checked totals",
+    !!rp && rp.callHours === 12 && rp.rates.id === "new12" && sb.computeShiftPay(rp).total === 1200 &&
+    !!rpPart && rpPart.callHours === 12 && sb.computeShiftPay(rpPart).total === 1200 && sb.payRepriceShift(base24, S1lbl) === null);
+  // Partial hours must be KEPT even when they differ from both lengths;
+  // full-length grows as well as shrinks; the version IN FORCE is used (not
+  // the newest); id and call-ins are kept.
+  const R30 = Object.assign({}, RA, { id: "new30", effective: "2026-05-01", stipend: 3000, stipendHours: 30 });
+  const S1grow = Object.assign({}, S1, { rates: [RA, R30, Object.assign({}, R12, { id: "later12", effective: "2026-09-01" })] });
+  const hrs = h => Object.assign({}, base24, { id: "h" + h, callHours: h });
+  const rp6 = sb.payRepriceShift(hrs(6), S1back), rp18 = sb.payRepriceShift(hrs(18), S1back), rp26 = sb.payRepriceShift(hrs(26), S1back);
+  const rpGrow = sb.payRepriceShift(base24, S1grow);
+  const withEv = Object.assign({}, mkShift("rpe", S1, "2026-05-10", [dEv({ date: "2026-05-10", time: "21:00", cls: "wn", hours: "1" })]));
+  const rpEv = sb.payRepriceShift(withEv, S1back);
+  check("payRepriceShift: partial/over-length hours kept, full grows, in-force version, id + call-ins kept",
+    rp6.callHours === 6 && sb.computeShiftPay(rp6).total === 600 && rp18.callHours === 18 && sb.computeShiftPay(rp18).total === 1800 &&
+    rp26.callHours === 26 && rpGrow.callHours === 30 && rpGrow.rates.id === "new30" && sb.computeShiftPay(rpGrow).total === 3000 &&
+    rpEv.id === "rpe" && JSON.stringify(rpEv.events) === JSON.stringify(withEv.events),
+    [rp6.callHours, rp18.callHours, rp26.callHours, rpGrow.callHours, rpGrow.rates.id].join(","));
+  const rpStore = { entries: [], settings: { ratePerRVU: 55, annualGoal: 0, reconGoal: 0 }, paySites: [S1back], payShifts: JSON.parse(JSON.stringify([rp, rpPart])) };
+  const rpJson = JSON.stringify(rpStore.payShifts);
+  const rpFixed = sb.repairData(rpStore);
+  check("payRepriceShift: rates copied (not shared), input untouched, passes repairData unchanged",
+    rp.rates !== R12 && JSON.stringify(base24) === rpBefore && JSON.stringify(rpStore.payShifts) === rpJson && !rpFixed.some(f => /^payShifts/.test(f)), rpFixed.join(","));
+  const useCur = sb.payShiftFromDraft(draft({ id: "rp1", date: "2026-05-10", events: [], reprice: true }), S1back, base24);
+  check("payShiftFromDraft reprice flag re-takes the version in force", !!useCur.shift && useCur.ratesFrom === "inForce" && useCur.shift.rates.id === "new12");
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);

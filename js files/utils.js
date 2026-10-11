@@ -656,8 +656,9 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 //   [{ date, cls: "wd"|"wn"|"we"|"hol", fee: bool, hours, time? }], cases?,
 //   note? }] - note never holds patient info. events[].time is an optional
 //   "HH:MM" start, informational only: cls alone decides pay.
-//   Every shift write goes through payShiftFromDraft; a shift's rate copy
-//   changes only when its site/date is edited or on a confirmed re-price.
+//   Every shift write goes through payShiftFromDraft (or payRepriceShift);
+//   a shift's rate copy changes only when its site/date is edited, the
+//   user taps "Use current rates" in the editor, or a confirmed re-price.
 const defState = () => ({ entries: [], settings: defSettings(), rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: [], payShifts: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
@@ -1150,7 +1151,8 @@ function payShiftFromDraft(draft, site, orig, ctx) {
   var dateOk = isYMD(draft.date);
   if (!dateOk) add("date", -1, true);
   var rates = null, ratesFrom = "";
-  if (orig && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) {
+  // draft.reprice (the editor's "Use current rates") skips the kept copy.
+  if (orig && !draft.reprice && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) {
     rates = { ...orig.rates };
     ratesFrom = "kept";
   } else if (siteOk && dateOk) {
@@ -1230,6 +1232,33 @@ function payUndoApply(list, action) {
     else l.splice(typeof at === "number" && at >= 0 ? Math.min(at, l.length) : l.length, 0, r);
   });
   return l;
+}
+// ---- Re-pricing (4c) ----
+// Two rate versions price differently when any amount or the weekday-day
+// flag differs; id, label and effective date do not matter.
+function payRatesDiffer(a, b) {
+  if (!a || !b) return true;
+  for (var i = 0; i < PAY_RATE_NUMS.length; i++) { if (a[PAY_RATE_NUMS[i]] !== b[PAY_RATE_NUMS[i]]) return true; }
+  return a.hourlyWeekdayDay !== b.hourlyWeekdayDay;
+}
+// A recorded shift is "stale" when the site's version in force for the
+// shift's date prices differently from the shift's own rate copy. A deleted
+// site or a date with no version in force is never stale (nothing to apply).
+function payShiftStale(shift, site) {
+  if (!shift || !site || shift.siteId !== site.id) return false;
+  var rif = rateInForce(site, shift.date);
+  return !!rif && payRatesDiffer(shift.rates, rif);
+}
+// The shift re-priced at the version in force for its date - a NEW object
+// with a COPY of that version (never shared with the site). A full-length
+// shift (hours on call = its old shift length) takes the new length; a
+// partial shift keeps its hours. null when the shift is not stale. Output
+// passes repairData unchanged (check.js).
+function payRepriceShift(shift, site) {
+  if (!payShiftStale(shift, site)) return null;
+  var rif = rateInForce(site, shift.date);
+  var full = shift.rates && shift.callHours === shift.rates.stipendHours;
+  return { ...shift, siteName: site.name, callHours: full ? rif.stipendHours : shift.callHours, rates: { ...rif } };
 }
 // Display name per siteId - ONE rule for the Totals split and every shift
 // row: a current site shows its CURRENT name; a deleted site shows the name

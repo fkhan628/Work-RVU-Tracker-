@@ -74,12 +74,14 @@ the per-file gates below. Run it after EVERY file change.
 - Call-pay math has ONE implementation in utils.js (payHolidayName,
   classifyPayEvent, computeShiftPay, rateInForce, plus the entry helpers
   addDaysYMD/payDefaultShiftDate/payStartBack, the shift-form draft rules
-  payDraftEvent/payDraftNewEvent/payDraftRefresh, payUndoApply, and the
-  whole-cent month totals payShiftYears/payMonthTotals);
+  payDraftEvent/payDraftNewEvent/payDraftRefresh, payUndoApply, the
+  whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, and
+  re-pricing payRatesDiffer/payShiftStale/payRepriceShift);
   callpay.js only holds state and passes "now" in. Shifts are priced only
   from their own rate copy. Every payShifts write goes through
-  payShiftFromDraft, whose output must pass repairData unchanged (check.js
-  contract test) - otherwise every load silently rewrites user data. utils.js must stay loadable in check.js's vm sandbox: a
+  payShiftFromDraft (or payRepriceShift for a confirmed re-price), whose
+  output must pass repairData unchanged (check.js contract tests) -
+  otherwise every load silently rewrites user data. utils.js must stay loadable in check.js's vm sandbox: a
   new top-level browser-API call needs a stub there, not a skipped test.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
