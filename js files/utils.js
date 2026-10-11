@@ -1001,6 +1001,88 @@ function computeAcuteSplit(month) {
   return { pool: pool, units: units, valuePerUnit: vpu, shares: shares, empty: false };
 }
 
+// --- Call pay math (dollars; single implementation - do not duplicate) ---
+// Holidays: the SAME list at every site. Fixed-date "Day" holidays that fall
+// on a weekend ALSO count on the observed weekday (Sat -> Fri, Sun -> Mon);
+// the two Eves never shift. All dates built from LOCAL parts.
+var _payHolCache = {};
+function payHolidayMap(y) {
+  if (_payHolCache[y]) return _payHolCache[y];
+  var m = {};
+  function add(d, name) { var k = localYMD(d); m[k] = m[k] ? m[k] + " / " + name : name; }
+  function fixedDay(yy, mo, day, name) {
+    var d = new Date(yy, mo, day), wd = d.getDay();
+    add(d, name);
+    if (wd === 6) add(new Date(yy, mo, day - 1), name + " (observed)");
+    if (wd === 0) add(new Date(yy, mo, day + 1), name + " (observed)");
+  }
+  function nthWeekday(mo, wd, n) { var d = new Date(y, mo, 1); while (d.getDay() !== wd) d.setDate(d.getDate() + 1); d.setDate(d.getDate() + 7 * (n - 1)); return d; }
+  function lastWeekday(mo, wd) { var d = new Date(y, mo + 1, 0); while (d.getDay() !== wd) d.setDate(d.getDate() - 1); return d; }
+  fixedDay(y, 0, 1, "New Year's Day");
+  add(lastWeekday(4, 1), "Memorial Day");
+  fixedDay(y, 6, 4, "July 4");
+  add(nthWeekday(8, 1, 1), "Labor Day");
+  add(nthWeekday(10, 4, 4), "Thanksgiving");
+  add(new Date(y, 11, 24), "Christmas Eve");
+  fixedDay(y, 11, 25, "Christmas Day");
+  add(new Date(y, 11, 31), "New Year's Eve");
+  fixedDay(y + 1, 0, 1, "New Year's Day"); // a Saturday Jan 1 is observed Fri Dec 31 of THIS year
+  _payHolCache[y] = m;
+  return m;
+}
+function payHolidayName(ymd) {
+  if (!isYMD(ymd)) return "";
+  return payHolidayMap(+ymd.slice(0, 4))[ymd] || "";
+}
+// Night = 17:00 through 06:59 (night ends at 7 am); time is "HH:MM" 24-hour.
+var PAY_NIGHT_START = 17, PAY_NIGHT_END = 7;
+// Pre-selects a call-in's class from its OWN date: holiday > the site's
+// weekend days > weekday night/day by start time. Returns "" for a weekday
+// with no readable time - the user must pick Day or Night (a guessed
+// default would misprice silently).
+function classifyPayEvent(ymd, time, weekendDays) {
+  if (!isYMD(ymd)) return "";
+  if (payHolidayName(ymd)) return "hol";
+  var p = ymd.split("-");
+  var wd = new Date(+p[0], +p[1] - 1, +p[2]).getDay();
+  if (Array.isArray(weekendDays) && weekendDays.indexOf(wd) !== -1) return "we";
+  if (typeof time !== "string" || !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) return "";
+  var h = +time.slice(0, 2);
+  return (h >= PAY_NIGHT_START || h < PAY_NIGHT_END) ? "wn" : "wd";
+}
+// Pay for ONE shift from its own rate copy (never the site's current rates).
+// Returns null when anything pay depends on is unreadable (a draft with a
+// blank field shows no total, never a silent partial), else
+// { lines: [{ kind: "stipend"|"fee"|"hourly", ev?, hours?, paid, amount }], total }.
+//   stipend = stipend x callHours / stipendHours
+//   fee (ev.fee): weekend/holiday rate on "we"/"hol", else the weekday rate
+//   hourly: unpaid on "wd" unless hourlyWeekdayDay; billed hours =
+//     max(hours, hourlyMinHours), only when hours > 0 (a fee-only call-in
+//     never triggers the minimum)
+// Each line is rounded to the cent ONCE; total = sum of the rounded lines.
+function computeShiftPay(shift) {
+  if (!shift || typeof shift !== "object") return null;
+  var r = cleanPayRate(shift.rates, "x");
+  var callHours = payNum(shift.callHours);
+  var evs = (shift.events === undefined || shift.events === null) ? [] : shift.events;
+  if (!r || callHours === null || !Array.isArray(evs)) return null;
+  var lines = [{ kind: "stipend", hours: callHours, paid: true, amount: round2(r.stipend * callHours / r.stipendHours) }];
+  for (var i = 0; i < evs.length; i++) {
+    var ev = evs[i];
+    var h = (ev && typeof ev === "object") ? payNum(ev.hours) : null;
+    if (h === null || PAY_EVENT_CLS.indexOf(ev.cls) === -1 || typeof ev.fee !== "boolean") return null;
+    if (ev.fee) lines.push({ kind: "fee", ev: i, paid: true, amount: round2((ev.cls === "we" || ev.cls === "hol") ? r.callInWeekendHoliday : r.callInWeekday) });
+    if (h > 0) {
+      var paid = ev.cls !== "wd" || r.hourlyWeekdayDay;
+      var billed = Math.max(h, r.hourlyMinHours);
+      lines.push({ kind: "hourly", ev: i, hours: paid ? billed : h, paid: paid, amount: paid ? round2(billed * r.hourly) : 0 });
+    }
+  }
+  var total = 0;
+  lines.forEach(function(l) { total += l.amount; });
+  return { lines: lines, total: round2(total) };
+}
+
 // Years that have ANY data (logged entries, institution months, acute
 // months), newest first. Shared by the Dashboard and Trends year chips so
 // the two surfaces can never drift. Callers wrap in useMemo.

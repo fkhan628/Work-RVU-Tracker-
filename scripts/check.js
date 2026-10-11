@@ -171,6 +171,101 @@ if (rows) {
 }
 check("cpt-data.js has no raw < or > characters", !/[<>]/.test(cpt), "descriptors must escape angle brackets as unicode escapes");
 
+// 7. Call-pay math. Runs the REAL cpt-data.js + utils.js in a Node vm
+// sandbox (minimal DOM/localStorage stubs) - no copy of the logic lives
+// here. All rates below are MADE UP: real site names/rates never go in
+// source (CLAUDE.md). If utils.js gains a new top-level browser API call,
+// extend the stubs rather than skipping these tests.
+const vm = require("vm");
+let sb = null, sbErr = null;
+try {
+  const noop = () => {};
+  const elt = () => ({ style: {}, appendChild: noop, setAttribute: noop });
+  sb = vm.createContext({ console, React: {},
+    localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+    document: { createElement: elt, head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+  vm.runInContext(cpt, sb, { filename: "cpt-data.js" });
+  vm.runInContext(utils, sb, { filename: "utils.js" });
+} catch (e) { sbErr = e.message; sb = null; }
+check("utils.js loads in a vm sandbox", !!sb, sbErr);
+if (sb) {
+  const ymdOf = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
+  const holidaysIn = y => { const out = []; for (let d = new Date(y, 0, 1); d.getFullYear() === y; d.setDate(d.getDate() + 1)) { if (sb.payHolidayName(ymdOf(d))) out.push(ymdOf(d)); } return out; };
+  const HOL = {
+    2026: ["2026-01-01", "2026-05-25", "2026-07-03", "2026-07-04", "2026-09-07", "2026-11-26", "2026-12-24", "2026-12-25", "2026-12-31"],
+    2027: ["2027-01-01", "2027-05-31", "2027-07-04", "2027-07-05", "2027-09-06", "2027-11-25", "2027-12-24", "2027-12-25", "2027-12-31"],
+  };
+  Object.keys(HOL).forEach(y => {
+    const got = holidaysIn(+y);
+    check("call-pay holidays " + y + " exact set", got.join(",") === HOL[y].join(","), "got " + got.join(","));
+  });
+  check("Sat Jan 1 observed on prior Fri Dec 31", /New Year's Day \(observed\)/.test(sb.payHolidayName("2021-12-31")), sb.payHolidayName("2021-12-31"));
+  check("Sun Christmas observed Mon; Sat Eve not shifted",
+    sb.payHolidayName("2022-12-26") !== "" && sb.payHolidayName("2022-12-23") === "" && sb.payHolidayName("2022-12-24") !== "");
+  check("non-holidays stay plain", ["2026-07-05", "2026-11-27", "2027-12-26", "2026-02-30", "junk"].every(d => sb.payHolidayName(d) === ""));
+  check("Sat New Year's Eve not shifted; Sun Jan 1 observed Mon",
+    sb.payHolidayName("2022-12-30") === "" && /observed/.test(sb.payHolidayName("2023-01-02")));
+  check("Thanksgiving is the 4th Thursday, not the last", sb.payHolidayName("2028-11-23") !== "" && sb.payHolidayName("2028-11-30") === "");
+
+  const A_WKND = [5, 6, 0], B_WKND = [6, 0];
+  const CLS = [
+    ["2026-03-10", "21:00", B_WKND, "wn"], ["2026-03-10", "06:59", B_WKND, "wn"], ["2026-03-10", "07:00", B_WKND, "wd"],
+    ["2026-03-10", "16:59", B_WKND, "wd"], ["2026-03-10", "17:00", B_WKND, "wn"], ["2026-03-10", "", B_WKND, ""],
+    ["2026-03-10", "7:00", B_WKND, ""], ["2026-03-10", "24:00", B_WKND, ""],
+    ["2026-03-13", "10:00", A_WKND, "we"], ["2026-03-13", "10:00", B_WKND, "wd"], ["2026-03-14", "", B_WKND, "we"],
+    ["2026-07-03", "10:00", B_WKND, "hol"], ["2026-11-26", "", A_WKND, "hol"], ["2026-02-30", "10:00", A_WKND, ""],
+    ["2026-07-04", "", B_WKND, "hol"], ["2026-12-25", "10:00", A_WKND, "hol"],
+  ];
+  const badCls = CLS.filter(c => sb.classifyPayEvent(c[0], c[1], c[2]) !== c[3]);
+  check("call-in classification (" + CLS.length + " cases)", badCls.length === 0,
+    badCls.map(c => c[0] + " " + c[1] + " -> " + sb.classifyPayEvent(c[0], c[1], c[2]) + " (want " + c[3] + ")").join("; "));
+
+  // Generic made-up rate shapes (not any real contract): A pays hourly any
+  // time with no minimum and a higher weekend/holiday fee; B has one fee for
+  // all days, a per-trip minimum, and no weekday-day hourly.
+  const RA = { id: "a", effective: "2026-01-01", stipend: 1000, stipendHours: 24, callInWeekday: 100, callInWeekendHoliday: 200, hourly: 50, hourlyMinHours: 0, hourlyWeekdayDay: true };
+  const RB = { id: "b", effective: "2026-01-01", stipend: 2000.10, stipendHours: 10, callInWeekday: 150.15, callInWeekendHoliday: 150.15, hourly: 100.33, hourlyMinHours: 2, hourlyWeekdayDay: false };
+  const RC = { id: "c", effective: "2026-01-01", stipend: 100, stipendHours: 3, callInWeekday: 0, callInWeekendHoliday: 0, hourly: 10.005, hourlyMinHours: 0, hourlyWeekdayDay: true };
+  const ev = (cls, fee, hours) => ({ date: "2026-03-10", cls, fee, hours });
+  const sh = (rates, callHours, events) => ({ id: "t", date: "2026-03-10", siteId: "", siteName: "", callHours, rates, events });
+  const PAY = [
+    ["A weekday night", sh(RA, 24, [ev("wn", true, 2.5)]), 1225],
+    ["A weekend", sh(RA, 24, [ev("we", true, 1.5)]), 1275],
+    ["A holiday", sh(RA, 24, [ev("hol", true, 3)]), 1350],
+    ["A weekday day: fee + hourly", sh(RA, 24, [ev("wd", true, 2)]), 1200],
+    ["B night under minimum", sh(RB, 10, [ev("wn", true, 1)]), 2350.91],
+    ["B weekday day: fee, no hourly", sh(RB, 10, [ev("wd", true, 2)]), 2150.25],
+    ["B weekend 4h", sh(RB, 10, [ev("we", true, 4)]), 2551.57],
+    ["B holiday under minimum", sh(RB, 10, [ev("hol", true, 1)]), 2350.91],
+    ["B fee-only (0h) skips minimum", sh(RB, 10, [ev("wn", true, 0)]), 2150.25],
+    ["B two short trips: minimum per trip", sh(RB, 10, [ev("wn", true, 1), ev("wn", true, 1)]), 2701.72],
+    ["A partial 12h shift, no call-ins", sh(RA, 12, []), 500],
+    ["A two call-ins (night + weekend)", sh(RA, 24, [ev("wn", true, 1), ev("we", true, 2)]), 1450],
+    ["A hours without fee", sh(RA, 24, [ev("we", false, 2)]), 1100],
+    ["per-line rounding beats total-only rounding", sh(RC, 3, [ev("we", false, 1), ev("we", false, 1)]), 120.02],
+    ["events missing = none", { callHours: 24, rates: RA }, 1000],
+  ];
+  const badPay = PAY.filter(p => { const r = sb.computeShiftPay(p[1]); return !r || r.total !== p[2]; });
+  check("shift pay totals (" + PAY.length + " cases)", badPay.length === 0,
+    badPay.map(p => { const r = sb.computeShiftPay(p[1]); return p[0] + " -> " + (r ? r.total : "null") + " (want " + p[2] + ")"; }).join("; "));
+  const wd = sb.computeShiftPay(sh(RB, 10, [ev("wd", true, 2)]));
+  check("unpaid weekday-day hours shown as a $0 line", !!wd && wd.lines.some(l => l.kind === "hourly" && l.paid === false && l.amount === 0 && l.hours === 2));
+  const rc = sb.computeShiftPay(sh(RC, 1, [ev("we", false, 1)]));
+  check("each line rounded half-up to the cent", !!rc && rc.lines.map(l => l.amount).join(",") === "33.33,10.01" && rc.total === 43.34,
+    rc ? rc.lines.map(l => l.amount).join(",") + " = " + rc.total : "null");
+  const input = sh(RB, 10, [ev("wn", true, 1)]);
+  const before = JSON.stringify(input);
+  sb.computeShiftPay(input);
+  check("computeShiftPay does not mutate its input", JSON.stringify(input) === before);
+  const NULLS = [
+    ["no rates", sh(undefined, 24, [])], ["blank callHours", sh(RA, "", [])], ["bad class", sh(RA, 24, [ev("xx", true, 1)])],
+    ["negative hours", sh(RA, 24, [ev("wn", true, -1)])], ["string fee flag", sh(RA, 24, [ev("wn", "true", 1)])],
+    ["string weekday-day flag", sh(Object.assign({}, RA, { hourlyWeekdayDay: "false" }), 24, [])],
+  ];
+  const badNull = NULLS.filter(n => sb.computeShiftPay(n[1]) !== null);
+  check("unreadable shift input yields no total (" + NULLS.length + " cases)", badNull.length === 0, badNull.map(n => n[0]).join(", "));
+}
+
 console.log("");
 if (failures.length) {
   console.log("CHECK FAILED (" + failures.length + "): " + failures.join(" | "));

@@ -28,7 +28,8 @@ Script execution order:
 
 `scripts/check.js` (`npm run check`) enforces this structure: both arrays
 parsed, disk<->array set equality, pinned plain-set membership, ASSET_V
-presence, store-field parity (defState = loadData = finishRestore), plus
+presence, store-field parity (defState = loadData = finishRestore),
+call-pay math tests (the REAL utils.js run in a Node vm sandbox), plus
 the per-file gates below. Run it after EVERY file change.
 
 ## Deploy rules
@@ -70,6 +71,10 @@ the per-file gates below. Run it after EVERY file change.
   finishRestore (check.js asserts parity), give it repairData +
   validateData shape rules, and read it as `(data.x || [])` - last-good
   recovery can return a snapshot that predates the field.
+- Call-pay math has ONE implementation in utils.js (payHolidayName,
+  classifyPayEvent, computeShiftPay); shifts are priced only from their
+  own rate copy. utils.js must stay loadable in check.js's vm sandbox: a
+  new top-level browser-API call needs a stub there, not a skipped test.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).
