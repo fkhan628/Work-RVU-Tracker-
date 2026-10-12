@@ -159,26 +159,49 @@ if (defObj && loadObj && restoreObj) {
     "missing: " + diff(dk, rk).join(", ") + " | extra: " + diff(rk, dk).join(", "));
 }
 
-// 5d. Credited wRVU: creditedRVU(e) in utils.js is the ONE rule deciding
-// whether a case counts toward wRVU/comp totals. A raw `.adjustedRVU` used
-// in arithmetic (+ - * / %, compound assignment; directly or through ||,
-// ?:, parens, unary, Number/parseFloat/round2) anywhere but inside
-// creditedRVU would silently count no-credit cases. Sort comparators (raw
-// a - raw b) and a row's own wRVU display stay raw; their per-file counts
-// are pinned so any new raw read is a conscious choice - route totals
-// through creditedRVU(e) and bump RAW_RVU_PIN only for a sort or display.
-const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 6, "settings.js": 3, "utils.js": 1 };
+// 5d. wRVU credit: isNoCredit / creditedRVU / noCreditRVU (top level of
+// utils.js) are the ONE rule deciding whether a case counts toward wRVU and
+// comp totals. A raw `.adjustedRVU` used in arithmetic (+ - * / %, compound
+// assignment; directly or through ||, ?:, parens, unary,
+// Number/parseFloat/round2) anywhere but inside the top-level utils.js
+// creditedRVU/noCreditRVU would silently count no-credit cases. Sort
+// comparators (raw a - raw b) and a row's own wRVU display stay raw; their
+// per-file counts are pinned so any new raw read is a conscious choice -
+// route totals through creditedRVU(e) (noCreditRVU(e) for the "Logged, no
+// credit" lines) and bump RAW_RVU_PIN only for a sort or display. Reads the
+// gate cannot classify (destructuring, e["adjustedRVU"], any "adjustedRVU"
+// string) are refused. Further gates: only isNoCredit and repairData may
+// mention noCredit; the three helper names may only be called or passed
+// (utils.js declares each once); adjustedRVU is never written as literal 0.
+const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 6, "settings.js": 3, "utils.js": 2 };
+const CREDIT_HELPERS = ["creditedRVU", "isNoCredit", "noCreditRVU"];
 const ARITH_OPS = { "+": 1, "-": 1, "*": 1, "/": 1, "%": 1 };
 const WALK_SKIP = { loc: 1, start: 1, end: 1, leadingComments: 1, trailingComments: 1, innerComments: 1 };
 const isRawRVU = n => !!n && n.type === "MemberExpression" && !n.computed && !!n.property && n.property.name === "adjustedRVU";
 const isRVUWrap = (p, child) => p.type === "LogicalExpression" || p.type === "ParenthesizedExpression" || p.type === "UnaryExpression" ||
   (p.type === "ConditionalExpression" && p.test !== child) ||
   (p.type === "CallExpression" && p.callee.type === "Identifier" && /^(Number|parseFloat|round2)$/.test(p.callee.name));
-function rawRVUReads(src) {
-  const out = [], stack = [];
+// Visits every node with its ancestor stack: stack[0] is the Program and
+// stack[1] the top-level statement that contains the node.
+function walkStack(src, cb) {
+  const stack = [];
   (function visit(n) {
     if (!n || typeof n !== "object") return;
     if (Array.isArray(n)) { n.forEach(visit); return; }
+    cb(n, stack);
+    stack.push(n);
+    for (const k in n) { if (!WALK_SKIP[k] && n[k] && typeof n[k] === "object") visit(n[k]); }
+    stack.pop();
+  })(parser.parse(src, AST_OPTS).program);
+}
+// Inside a TOP-LEVEL utils.js function with one of these names (a nested or
+// other-file function of the same name gets no exemption).
+const inTopFn = (stack, file, names) => file === "utils.js" && !!stack[1] && stack[1].type === "FunctionDeclaration" && !!stack[1].id && names.indexOf(stack[1].id.name) !== -1;
+const litValue = n => !n ? null : n.type === "StringLiteral" ? n.value : (n.type === "TemplateLiteral" && n.expressions.length === 0 ? n.quasis[0].value.cooked : null);
+function rawRVUReads(src, file) {
+  const out = [];
+  walkStack(src, (n, stack) => {
+    const parent = stack[stack.length - 1], gp = stack[stack.length - 2];
     if (isRawRVU(n)) {
       let child = n, i = stack.length - 1;
       while (i >= 0 && isRVUWrap(stack[i], child)) { child = stack[i]; i--; }
@@ -186,44 +209,126 @@ function rawRVUReads(src) {
       const sortPair = !!p && p.type === "BinaryExpression" && p.operator === "-" && isRawRVU(p.left) && isRawRVU(p.right);
       const arith = !!p && !sortPair && ((p.type === "BinaryExpression" && !!ARITH_OPS[p.operator]) ||
         (p.type === "AssignmentExpression" && p.operator !== "=" && p.right === child));
-      const inHelper = stack.some(a => a.type === "FunctionDeclaration" && !!a.id && a.id.name === "creditedRVU");
-      out.push({ line: n.loc.start.line, arith: arith && !inHelper });
+      out.push({ line: n.loc.start.line, arith: arith && !inTopFn(stack, file, ["creditedRVU", "noCreditRVU"]) });
     }
     // Reads the gate cannot classify are refused outright: a destructured
-    // { adjustedRVU } or e["adjustedRVU"] would otherwise bypass it.
-    const parent = stack[stack.length - 1];
-    if ((n.type === "ObjectProperty" && parent && parent.type === "ObjectPattern" && (n.key.name || n.key.value) === "adjustedRVU") ||
-        (n.type === "MemberExpression" && n.computed && n.property.type === "StringLiteral" && n.property.value === "adjustedRVU")) {
+    // { adjustedRVU }, e["adjustedRVU"] / e[`adjustedRVU`], or any other
+    // "adjustedRVU" string (an alias such as var k = "adjustedRVU"; e[k]).
+    // An object-literal key is a write and is allowed; the key/property of
+    // the two refused forms above is not counted twice.
+    const keyOfObj = !!parent && parent.type === "ObjectProperty" && parent.key === n && !!gp && (gp.type === "ObjectExpression" || gp.type === "ObjectPattern");
+    const propOfComputed = !!parent && parent.type === "MemberExpression" && parent.computed && parent.property === n;
+    if ((n.type === "ObjectProperty" && parent && parent.type === "ObjectPattern" && (n.key.name || litValue(n.key)) === "adjustedRVU") ||
+        (n.type === "MemberExpression" && n.computed && litValue(n.property) === "adjustedRVU") ||
+        (litValue(n) === "adjustedRVU" && !keyOfObj && !propOfComputed)) {
       out.push({ line: n.loc.start.line, arith: true });
     }
-    stack.push(n);
-    for (const k in n) { if (!WALK_SKIP[k] && n[k] && typeof n[k] === "object") visit(n[k]); }
-    stack.pop();
-  })(parser.parse(src, AST_OPTS).program);
+  });
   return out;
 }
-const gateSelfTest = [
-  ["var t = list.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);", 1, 1],
-  ["m.total += (e.adjustedRVU || 0); var c = Number(e.adjustedRVU) * rate;", 2, 2],
-  ["list.sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });", 2, 0],
-  ["var t = s + creditedRVU(e); var label = e.adjustedRVU.toFixed(2);", 1, 0],
-  ["function creditedRVU(e) { return e.noCredit === true ? 0 : e.adjustedRVU + 0; }", 1, 0],
-  ["var t = list.reduce(function(s, { adjustedRVU }) { return s + adjustedRVU; }, 0); var u = e[\"adjustedRVU\"];", 2, 2],
-  ["var o = { ...e, adjustedRVU: 2 }; var w = calcAdj(o.baseRVU, []);", 0, 0],
+// Any mention of the noCredit field (identifier, JSX prop, string or
+// template key) outside the top-level utils.js isNoCredit / repairData.
+function noCreditUses(src, file) {
+  const out = [];
+  walkStack(src, (n, stack) => {
+    const hit = ((n.type === "Identifier" || n.type === "JSXIdentifier") && n.name === "noCredit") || litValue(n) === "noCredit";
+    if (hit && !inTopFn(stack, file, ["isNoCredit", "repairData"])) out.push(n.loc.start.line);
+  });
+  return out;
+}
+// The helper names may only be called or passed as an argument; utils.js
+// declares each as a top-level function (counted in decls).
+function helperNameUses(src, file) {
+  const bad = [], decls = {};
+  walkStack(src, (n, stack) => {
+    if (n.type !== "Identifier" || CREDIT_HELPERS.indexOf(n.name) === -1) return;
+    const p = stack[stack.length - 1];
+    if (p && p.type === "CallExpression" && (p.callee === n || p.arguments.indexOf(n) !== -1)) return;
+    if (file === "utils.js" && stack.length === 2 && p.type === "FunctionDeclaration" && p.id === n) { decls[n.name] = (decls[n.name] || 0) + 1; return; }
+    bad.push(n.name + "@" + n.loc.start.line);
+  });
+  return { bad: bad, decls: decls };
+}
+// adjustedRVU is never zeroed: refuse { adjustedRVU: 0 } and x.adjustedRVU = 0.
+function zeroRVUWrites(src) {
+  const out = [];
+  const isZero = v => !!v && v.type === "NumericLiteral" && v.value === 0;
+  const isKey = k => !!k && ((k.type === "Identifier" && k.name === "adjustedRVU") || litValue(k) === "adjustedRVU");
+  walkStack(src, (n, stack) => {
+    const parent = stack[stack.length - 1];
+    if (n.type === "ObjectProperty" && parent && parent.type === "ObjectExpression" && isKey(n.key) && isZero(n.value)) out.push(n.loc.start.line);
+    if (n.type === "AssignmentExpression" && n.operator === "=" && n.left.type === "MemberExpression" &&
+        (n.left.computed ? litValue(n.left.property) === "adjustedRVU" : n.left.property.name === "adjustedRVU") && isZero(n.right)) out.push(n.loc.start.line);
+  });
+  return out;
+}
+const gateSelfTest = [ // [src, raw reads, flagged, file]
+  ["var t = list.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);", 1, 1, "x.js"],
+  ["m.total += (e.adjustedRVU || 0); var c = Number(e.adjustedRVU) * rate;", 2, 2, "x.js"],
+  ["list.sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });", 2, 0, "x.js"],
+  ["var t = s + creditedRVU(e); var label = e.adjustedRVU.toFixed(2);", 1, 0, "x.js"],
+  ["function creditedRVU(e) { return e.noCredit === true ? 0 : e.adjustedRVU + 0; }", 1, 0, "utils.js"],
+  ["var t = list.reduce(function(s, { adjustedRVU }) { return s + adjustedRVU; }, 0); var u = e[\"adjustedRVU\"];", 2, 2, "x.js"],
+  ["var o = { ...e, adjustedRVU: 2 }; var w = calcAdj(o.baseRVU, []);", 0, 0, "x.js"],
+  ["function creditedRVU(e) { return isNoCredit(e) ? 0 : e.adjustedRVU + 0; }", 1, 1, "dashboard.js"],
+  ["function noCreditRVU(e) { return isNoCredit(e) ? e.adjustedRVU : 0; }", 1, 0, "utils.js"],
+  ["function noCreditRVU(e) { return isNoCredit(e) ? e.adjustedRVU + 0 : 0; }", 1, 0, "utils.js"],
+  ["function outer() { function noCreditRVU(e) { return e.adjustedRVU + 0; } }", 1, 1, "utils.js"],
+  ["var t = s + (e.noCredit === true ? e.adjustedRVU : 0);", 1, 1, "x.js"],
+  ["var t = s + noCreditRVU(e);", 0, 0, "x.js"],
+  ["var k = \"adjustedRVU\"; var t = s + e[k];", 1, 1, "x.js"],
+  ["var t = s + e[`adjustedRVU`];", 1, 1, "x.js"],
+  ["var o = { \"adjustedRVU\": 2 };", 0, 0, "x.js"],
+  ["var { \"adjustedRVU\": a } = e;", 1, 1, "x.js"],
+  ["var { [`adjustedRVU`]: a } = e; t = t + a;", 1, 1, "x.js"],
+  ["var t = list.reduce(function(s, { [\"adjustedRVU\"]: a }) { return s + a; }, 0);", 1, 1, "x.js"],
 ];
-const badSelf = gateSelfTest.filter(t => { const r = rawRVUReads(t[0]); return r.length !== t[1] || r.filter(x => x.arith).length !== t[2]; });
+const badSelf = gateSelfTest.filter(t => { const r = rawRVUReads(t[0], t[3]); return r.length !== t[1] || r.filter(x => x.arith).length !== t[2]; });
 check("raw-wRVU gate self-test (" + gateSelfTest.length + " snippets)", badSelf.length === 0, badSelf.map(t => t[0]).join(" | "));
-const rawCounts = {}, rawArith = [];
+const ncSelfTest = [ // [src, file, must be flagged]
+  ["if (e.noCredit) x();", "history.js", true], ["var v = e[\"noCredit\"];", "history.js", true],
+  ["var t = e[`noCredit`];", "history.js", true], ["var h = \"noCredit\" in e;", "history.js", true],
+  ["var { noCredit } = e;", "history.js", true], ["var o = { ...e, noCredit: true };", "history.js", true],
+  ["delete e.noCredit;", "history.js", true], ["var r = <Row noCredit={x} />;", "history.js", true],
+  ["var n = list.filter(isNoCredit).length;", "history.js", false],
+  ["function isNoCredit(e) { return !!e && e.noCredit === true; }", "utils.js", false],
+  ["function repairData(d) { d.entries.forEach(function(e) { if (e.noCredit !== true) delete e.noCredit; }); }", "utils.js", false],
+  ["function helper(e) { return e.noCredit ? 1 : 0; }", "utils.js", true],
+  ["function outer() { function isNoCredit(e) { return e.noCredit; } }", "utils.js", true],
+];
+const badNcSelf = ncSelfTest.filter(t => (noCreditUses(t[0], t[1]).length > 0) !== t[2]);
+check("noCredit gate self-test (" + ncSelfTest.length + " snippets)", badNcSelf.length === 0, badNcSelf.map(t => t[0]).join(" | "));
+const helperSelfTest = [ // [src, file, must be flagged]
+  ["function isNoCredit(e) { return true; }", "history.js", true], ["function f(isNoCredit) { return isNoCredit; }", "history.js", true],
+  ["var o = { creditedRVU: 1 };", "history.js", true], ["var p = x.noCreditRVU;", "history.js", true],
+  ["var isNoCredit = function(e) { return false; };", "utils.js", true], ["function outer() { function creditedRVU(e) { return 0; } }", "utils.js", true],
+  ["var a = list.filter(isNoCredit); var b = creditedRVU(e) + noCreditRVU(e);", "history.js", false],
+  ["function creditedRVU(e) { return 0; }", "utils.js", false],
+];
+const badHelperSelf = helperSelfTest.filter(t => (helperNameUses(t[0], t[1]).bad.length > 0) !== t[2]);
+check("credit-helper name gate self-test (" + helperSelfTest.length + " snippets)", badHelperSelf.length === 0, badHelperSelf.map(t => t[0]).join(" | "));
+check("zero-write gate self-test", zeroRVUWrites("var o = { ...e, adjustedRVU: 0 }; e.adjustedRVU = 0;").length === 2 &&
+  zeroRVUWrites("var o = { ...e, adjustedRVU: adj }; e.adjustedRVU = calcAdj(b, m);").length === 0);
+const rawCounts = {}, rawArith = [], ncMentions = [], helperBad = [], helperDecls = {}, zeroWrites = [];
 jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
-  let reads = [];
-  try { reads = rawRVUReads(fs.readFileSync(path.join(JS_DIR, f), "utf8")); } catch (e) { return; } // parse failure is reported in step 1
+  let src = "", reads = [];
+  try { src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); reads = rawRVUReads(src, f); } catch (e) { return; } // parse failure is reported in step 1
   if (reads.length) rawCounts[f] = reads.length;
   reads.filter(r => r.arith).forEach(r => rawArith.push(f + ":" + r.line));
+  noCreditUses(src, f).forEach(l => ncMentions.push(f + ":" + l));
+  const h = helperNameUses(src, f);
+  h.bad.forEach(b => helperBad.push(f + ":" + b));
+  Object.keys(h.decls).forEach(k => { helperDecls[k] = (helperDecls[k] || 0) + h.decls[k]; });
+  zeroRVUWrites(src).forEach(l => zeroWrites.push(f + ":" + l));
 });
-check("wRVU/comp sums go through creditedRVU (no raw adjustedRVU arithmetic, destructuring or [\"adjustedRVU\"])", rawArith.length === 0, rawArith.join(", "));
+check("wRVU/comp sums go through creditedRVU/noCreditRVU (no raw adjustedRVU arithmetic, destructuring or \"adjustedRVU\" strings)", rawArith.length === 0, rawArith.join(", "));
 const pinDiff = Object.keys(Object.assign({}, RAW_RVU_PIN, rawCounts)).filter(f => (RAW_RVU_PIN[f] || 0) !== (rawCounts[f] || 0));
 check("raw adjustedRVU reads match the pinned sort/display counts", pinDiff.length === 0,
   pinDiff.map(f => f + " has " + (rawCounts[f] || 0) + ", pinned " + (RAW_RVU_PIN[f] || 0)).join("; "));
+check("noCredit is mentioned only in utils.js isNoCredit / repairData", ncMentions.length === 0, ncMentions.join(", "));
+check("credit helpers: declared once each at the top of utils.js; elsewhere only called or passed",
+  helperBad.length === 0 && CREDIT_HELPERS.every(k => helperDecls[k] === 1), helperBad.join(", ") + " decls " + JSON.stringify(helperDecls));
+check("adjustedRVU is never written as a literal 0", zeroWrites.length === 0, zeroWrites.join(", "));
 
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");
@@ -625,6 +730,71 @@ if (sb) {
     sb.creditedRVU(ce) === ce.adjustedRVU && sb.creditedRVU(cn) === 0 && cn.adjustedRVU === 7.96 &&
     [false, "true", 1, null, undefined].every(v => sb.creditedRVU({ adjustedRVU: 2.5, noCredit: v }) === 2.5) &&
     sb.creditedRVU({}) === undefined);
+  // isNoCredit is the strict flag test; noCreditRVU mirrors creditedRVU for
+  // the "Logged, no credit" lines.
+  const NC_NOT = [false, "true", 1, "1", null, undefined, {}];
+  check("isNoCredit: true only for noCredit === true; safe on null/undefined/{}",
+    sb.isNoCredit(cn) === true && NC_NOT.every(v => sb.isNoCredit({ adjustedRVU: 2.5, noCredit: v }) === false) &&
+    sb.isNoCredit(null) === false && sb.isNoCredit(undefined) === false && sb.isNoCredit({}) === false);
+  const ncFix = [ce, cn, { adjustedRVU: 4.25 }, { adjustedRVU: 0 }, { adjustedRVU: 12.5, noCredit: true }, { adjustedRVU: 3, noCredit: "true" }];
+  const ncFixJson = JSON.stringify(ncFix);
+  check("noCreditRVU: mirrors creditedRVU (credited + no credit = adjustedRVU); inputs untouched",
+    sb.noCreditRVU(cn) === 7.96 && sb.noCreditRVU(ce) === 0 && NC_NOT.every(v => sb.noCreditRVU({ adjustedRVU: 2.5, noCredit: v }) === 0) &&
+    ncFix.every(x => sb.creditedRVU(x) + sb.noCreditRVU(x) === x.adjustedRVU) && JSON.stringify(ncFix) === ncFixJson);
+  // repairData rule for entries[].noCredit (true or absent): false dropped
+  // silently, anything else dropped LOUDLY in one combined banner, in-shape
+  // data untouched (a fixed point), validateData deliberately not tightened.
+  const ncE = (i, nc) => Object.assign({ id: "nc" + i, date: "2026-03-1" + i, cptCode: "4756" + i, adjustedRVU: 10 + i }, nc === undefined ? {} : { noCredit: nc });
+  const ncStore = ents => seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, entries: ents });
+  const realAlert = sb.showDataAlert, banners = [];
+  try {
+    sb.showDataAlert = function(msg) { banners.push(msg); };
+    const sA = ncStore([ncE(1, true), ncE(2)]), jA = JSON.stringify(sA);
+    const fA = sb.repairData(sA), bA = banners.length;
+    const sB = ncStore([ncE(1, false), ncE(2, true)]);
+    const fB = sb.repairData(sB), bB = banners.length - bA;
+    const sC = ncStore([ncE(0, "true"), ncE(1, 1), ncE(2, "1"), ncE(3, null), ncE(4, "yes"), ncE(5, {}), ncE(6, true), ncE(7, false), null, 42]);
+    const fC = sb.repairData(sC), bC = banners.slice(bA + bB);
+    const kept = sC.entries.filter(x => !!x && typeof x === "object" && "noCredit" in x);
+    const jC = JSON.stringify(sC), nBefore = banners.length;
+    const fD = sb.repairData(sC);
+    const sOne = ncStore([ncE(1, "x")]); sb.repairData(sOne);
+    check("repairData noCredit rule: in-shape untouched; false dropped silently; garbled dropped with ONE ASCII banner; fixed point",
+      JSON.stringify(sA) === jA && fA.length === 0 && bA === 0 &&
+      !("noCredit" in sB.entries[0]) && sB.entries[1].noCredit === true && fB.filter(x => x === "entries.noCredit").length === 1 && bB === 0 &&
+      kept.length === 1 && kept[0].id === "nc6" && fC.filter(x => x === "entries.noCredit").length === 1 && bC.length === 1 &&
+      !/[^\x00-\x7f]/.test(bC[0]) && bC[0].indexOf("6 procedures (") !== -1 && bC[0].indexOf("and 1 more) were") !== -1 && bC[0].indexOf("they count") !== -1 &&
+      sC.entries[8] === null && sC.entries[9] === 42 && fD.length === 0 && banners.length === nBefore + 1 && JSON.stringify(sC) === jC &&
+      banners[banners.length - 1] === "The no-credit mark on procedure 2026-03-11 47561 was unreadable and removed - it counts for wRVU credit, as before. Check it in History.",
+      JSON.stringify({ fA: fA, fB: fB, fC: fC, fD: fD, banners: banners }));
+    check("validateData deliberately ignores noCredit (a bad mark never triggers last-good recovery)",
+      [sA, sB, sC, ncStore([ncE(1, "junk")])].every(s => sb.validateData(s) === true));
+  } finally { sb.showDataAlert = realAlert; }
+  // "No rewrite on reload": loadData persists a noCredit repair ONCE; the
+  // repaired store then reloads with no write, banner or warning, and an
+  // in-shape store never writes on load.
+  const realLS = sb.localStorage, realConsole = sb.console, realAlert2 = sb.showDataAlert;
+  try {
+    const mem = {}, writes = [], warns = [], banners2 = [];
+    sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null), setItem: (k, v) => { writes.push(k); mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+    sb.console = { log: () => {}, warn: m => warns.push(String(m)), error: () => {} };
+    sb.showDataAlert = m => banners2.push(m);
+    const SKEY = vm.runInContext("SK", sb);
+    mem[SKEY] = JSON.stringify(ncStore([ncE(0, "true"), ncE(1, 1), ncE(6, true), ncE(7, false), ncE(8)]));
+    sb.loadData();
+    const w1 = writes.length, b1 = banners2.length, warn1 = warns.slice(), persisted = mem[SKEY];
+    const l2 = sb.loadData();
+    const w2 = writes.length - w1, b2 = banners2.length - b1, warn2 = warns.length - warn1.length;
+    mem[SKEY] = JSON.stringify(ncStore([ncE(1, true), ncE(2)]));
+    const w3start = writes.length, b3start = banners2.length, warn3start = warns.length;
+    sb.loadData();
+    check("loadData: a repaired noCredit store is written once, then reloads with no write, banner or warning; in-shape store never writes",
+      w1 === 1 && b1 === 1 && warn1.length === 1 && warn1[0].indexOf("repaired field(s): entries.noCredit") !== -1 &&
+      w2 === 0 && b2 === 0 && warn2 === 0 && JSON.stringify(l2.entries) === JSON.stringify(JSON.parse(persisted).entries) &&
+      l2.entries.filter(x => x.noCredit === true).length === 1 &&
+      writes.length === w3start && banners2.length === b3start && warns.length === warn3start,
+      JSON.stringify({ w1: w1, b1: b1, warn1: warn1, w2: w2, b2: b2, warn2: warn2, w3: writes.length - w3start }));
+  } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realAlert2; }
 }
 
 console.log("");

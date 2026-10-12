@@ -90,12 +90,25 @@ the per-file gates below. Run it after EVERY file change.
 - CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
   rankCPTMatches only reorders them (exact, prefix, usage, favorites,
   CPT order). Log and History both use it; check.js pins it.
-- wRVU credit has ONE rule: creditedRVU(e) in utils.js (0 when
-  e.noCredit === true, otherwise the snapshot adjustedRVU, uncoerced).
-  Every wRVU or comp SUM goes through it; sort comparators and a row's own
-  wRVU display stay raw. adjustedRVU is never zeroed to remove credit.
-  check.js fails on raw adjustedRVU arithmetic and pins each file's count
-  of remaining raw reads - bump RAW_RVU_PIN only for a new sort/display.
+- wRVU credit has ONE rule, in utils.js: isNoCredit(e) is the only
+  no-credit test (strict e.noCredit === true); creditedRVU(e) feeds every
+  wRVU or comp SUM (the snapshot adjustedRVU, uncoerced, or 0);
+  noCreditRVU(e) is the only way to total no-credit wRVU. adjustedRVU is
+  never zeroed to remove credit; sort comparators and a row's own wRVU
+  display stay raw. entry.noCredit is `true` or absent: repairData deletes
+  `false` silently and any other value LOUDLY (the case stays credited) and
+  is a fixed point; validateData deliberately ignores the field. Only
+  utils.js touches noCredit (isNoCredit, repairData; 7b's single writer
+  joins them with a repairData contract test). repairData strips any
+  non-true value, so a change to the field's type must deploy its
+  repairData change first. check.js refuses raw adjustedRVU arithmetic
+  outside creditedRVU/noCreditRVU, destructuring adjustedRVU, any
+  "adjustedRVU" string or template literal (an object-literal key - a
+  write - aside), a literal-0 adjustedRVU write, any noCredit mention
+  outside isNoCredit/repairData, and any use of the three helper names
+  other than calling them or passing them as a call argument; RAW_RVU_PIN
+  pins the remaining raw reads (utils.js 2) - bump it only for a new
+  sort/display.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

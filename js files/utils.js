@@ -957,6 +957,23 @@ function repairData(d) {
       d.payShifts = cleanP;
     }
   }
+  // entries[].noCredit is true or absent. false is dropped silently (it
+  // already means credited); any other value is dropped LOUDLY - the case
+  // stays credited, exactly as creditedRVU already counted it, so no total
+  // moves. Data already in shape is untouched (no tag, no banner, no rewrite).
+  if (d && Array.isArray(d.entries)) {
+    var ncBad = [], ncFix = false;
+    d.entries.forEach(function(e) {
+      if (!e || typeof e !== "object" || e.noCredit === undefined || e.noCredit === true) return;
+      if (e.noCredit !== false) ncBad.push((typeof e.date === "string" ? e.date : "?") + " " + (typeof e.cptCode === "string" ? e.cptCode : "?"));
+      delete e.noCredit; ncFix = true;
+    });
+    if (ncFix) fixed.push("entries.noCredit");
+    if (ncBad.length > 0) {
+      var ncOne = ncBad.length === 1;
+      lossMsgs.push((ncOne ? "The no-credit mark on procedure " : "The no-credit marks on " + ncBad.length + " procedures (") + ncBad.slice(0, 5).join(", ") + (ncBad.length > 5 ? " and " + (ncBad.length - 5) + " more" : "") + (ncOne ? " was" : ") were") + " unreadable and removed - " + (ncOne ? "it counts" : "they count") + " for wRVU credit, as before. Check " + (ncOne ? "it" : "them") + " in History.");
+    }
+  }
   if (lossMsgs.length > 0) showDataAlert(lossMsgs.join(" "));
   return fixed;
 }
@@ -998,7 +1015,7 @@ function loadData() {
         // Persist the self-heal so the bad value is gone for good,
         // not re-coerced on every boot.
         try { localStorage.setItem(SK, JSON.stringify(d)); } catch(e) {}
-        console.warn("RVU Tracker: repaired non-numeric settings field(s): " + repaired.join(", "));
+        console.warn("RVU Tracker: repaired field(s): " + repaired.join(", "));
       }
       clearCorruptCopy();
       return d;
@@ -1041,15 +1058,21 @@ function calcAdj(base, mods) {
   let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r;
 }
 
-// Credited wRVU of one entry - the ONE place that decides whether a case
-// counts toward wRVU and comp TOTALS. Every sum of wRVU or comp goes
-// through it (check.js gates raw adjustedRVU arithmetic); sorts and a row's
-// own wRVU display keep the raw snapshot. noCredit === true (strict) marks
-// a case logged for the record but credited elsewhere (e.g. acute-care pool
-// call cases); adjustedRVU itself is never zeroed.
-function creditedRVU(e) {
-  return e.noCredit === true ? 0 : e.adjustedRVU;
-}
+// wRVU credit - the ONE rule deciding whether a case counts toward wRVU and
+// comp TOTALS. entry.noCredit === true (strict) marks a case logged for the
+// record but credited elsewhere (e.g. acute-care pool call cases);
+// adjustedRVU itself is never zeroed. Readers test the flag ONLY through
+// isNoCredit; every sum of wRVU or comp goes through creditedRVU, and the
+// "Logged, no credit" totals through noCreditRVU. Sorts and a row's own wRVU
+// display keep the raw snapshot. Only isNoCredit and repairData touch the
+// noCredit field (check.js gates raw adjustedRVU arithmetic, any noCredit
+// mention elsewhere, and any use of these three names other than calling
+// them or passing them as a call argument, e.g. list.filter(isNoCredit)).
+function isNoCredit(e) { return !!e && e.noCredit === true; }
+function creditedRVU(e) { return isNoCredit(e) ? 0 : e.adjustedRVU; }
+// Mirror of creditedRVU: for a numeric adjustedRVU,
+// creditedRVU(e) + noCreditRVU(e) === e.adjustedRVU.
+function noCreditRVU(e) { return isNoCredit(e) ? e.adjustedRVU : 0; }
 
 // --- Acute care group split math (single implementation - do not duplicate) ---
 // Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in

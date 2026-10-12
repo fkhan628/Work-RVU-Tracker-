@@ -172,6 +172,9 @@ var S = {
     fontSize: 14, fontFamily: "'JetBrains Mono'", color: "var(--text-primary)", fontWeight: 600
   },
   recentDate: { fontSize: 11, color: "var(--text-dim)" },
+  // "no credit" tag (History rows/cards, Home recent list) - same look as the
+  // "imported" tag; explicit font because some parents use the mono font.
+  ncTag: { fontSize: 9, fontFamily: "'DM Sans', sans-serif", fontWeight: 400, color: "var(--text-dim)", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 },
   linkBtn: {
     background: "none", border: "none", color: "#0ea5e9",
     fontSize: 12, fontWeight: 500, cursor: "pointer", padding: 0
