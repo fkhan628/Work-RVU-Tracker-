@@ -657,10 +657,12 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // only, never wRVU values (those resolve from the current db at apply
 // time) and never patient info.
 // paySites / payShifts: call-pay tracking in DOLLARS - never touches entries
-// or wRVU totals. Site names and rates are USER-ENTERED data only - never
-// hardcode a site name or rate anywhere in source, tests, or docs.
-// paySites: [{ id, name, weekendDays: [0-6] (day-chip pre-select hint only),
-//   casesEarnRVU: bool, rates: [RateVersion] }]
+// or wRVU totals. Site names and rates are USER-ENTERED data - never hardcode
+// a site name or rate anywhere in source, tests, or docs, except the
+// built-in preset DEFAULT_PAY_SITES below (CLAUDE.md).
+// paySites: [{ id, name, weekendDays: [0-6] (the site's weekend days: a
+//   call-in on one gets the weekend fee and weekend hourly rules through
+//   classifyPayEvent), casesEarnRVU: bool, rates: [RateVersion] }]
 // RateVersion: { id, effective: "YYYY-MM-DD", stipend, stipendHours,
 //   callInWeekday, callInWeekendHoliday, hourly, hourlyMinHours (numbers
 //   >= 0; stipendHours > 0 - it is the stipend period divisor),
@@ -696,6 +698,91 @@ function defaultPaySites() { return JSON.parse(JSON.stringify(DEFAULT_PAY_SITES)
 function payWillSeed(d) {
   var empty = function(v) { return v === undefined || (Array.isArray(v) && v.length === 0); };
   return !!d && !!d.settings && typeof d.settings === "object" && d.settings.paySitesSeeded !== true && empty(d.paySites) && empty(d.payShifts);
+}
+// "Use built-in rates": a phone whose own same-named sites lack paying
+// rates (e.g. sites typed in before the preset existed) gets the preset's
+// version on ONE confirmed tap in Call Pay. These helpers are pure; callpay.js
+// re-plans inside the updater so a stale render or a second tap is a no-op.
+// repairData never adds rates, and amounts the user typed are never changed.
+// payBuiltInFor: the site that stands for a built-in def - its id, else the
+// ONE site with the same name (case/space-insensitive), else the ONE site
+// named "<def name> <more>" (e.g. "Davenport East"). The name tiers skip
+// sites carrying a built-in id; two candidates in a tier = ambiguous.
+function payBuiltInFor(sites, def) {
+  if (!Array.isArray(sites) || !def || typeof def.name !== "string") return null;
+  var list = sites.filter(function(s) { return !!s && typeof s === "object" && typeof s.name === "string"; });
+  var byId = list.filter(function(s) { return s.id === def.id; });
+  if (byId.length) return { site: byId[0], by: "id" };
+  var builtInIds = DEFAULT_PAY_SITES.map(function(x) { return x.id; });
+  var pool = list.filter(function(s) { return builtInIds.indexOf(s.id) === -1; });
+  var key = def.name.toLowerCase();
+  var norm = function(s) { return s.name.trim().replace(/\s+/g, " ").toLowerCase(); };
+  var tiers = [["name", function(s) { return norm(s) === key; }], ["alias", function(s) { return norm(s).indexOf(key + " ") === 0; }]];
+  for (var i = 0; i < tiers.length; i++) {
+    var hits = pool.filter(tiers[i][1]);
+    if (hits.length === 1) return { site: hits[0], by: tiers[i][0] };
+    if (hits.length > 1) return { site: null, by: "ambiguous" };
+  }
+  return null;
+}
+// Built-in defs with no standing site at all (the "Add built-in sites" list).
+// A site of ANY id already using the def's name also counts as present, so
+// adding never creates a second site with the same name.
+function payMissingBuiltIns(sites) {
+  var names = (Array.isArray(sites) ? sites : []).filter(function(s) { return !!s && typeof s.name === "string"; })
+    .map(function(s) { return s.name.trim().replace(/\s+/g, " ").toLowerCase(); });
+  return DEFAULT_PAY_SITES.filter(function(def) { return payBuiltInFor(sites, def) === null && names.indexOf(def.name.toLowerCase()) === -1; });
+}
+function payRateZero(r) {
+  return !!r && r.stipend === 0 && r.callInWeekday === 0 && r.callInWeekendHoliday === 0 && r.hourly === 0;
+}
+// $0 versions dated on/after the built-in start: they would shadow it.
+function payBuiltInDrops(site, from) {
+  return site.rates.filter(function(r) { return payRateZero(r) && typeof r.effective === "string" && r.effective >= from; });
+}
+// What "Use built-in rates" would do to one site, or null when a non-$0
+// version is in force on the built-in start date (then the site is never
+// touched). remove/removeDates: the $0 versions dropped; later: the user's
+// next own version after the start (it still applies from its date); days:
+// a hand-made site still on the default Sat/Sun weekend takes the preset's
+// weekend days (e.g. adds Friday).
+function payBuiltInPlan(site, def) {
+  if (!site || !Array.isArray(site.rates) || !def || !Array.isArray(def.rates) || !def.rates[0]) return null;
+  var from = def.rates[0].effective;
+  var drops = payBuiltInDrops(site, from);
+  var left = site.rates.filter(function(r) { return drops.indexOf(r) === -1; });
+  var inForce = rateInForce({ rates: left }, from);
+  if (inForce && !payRateZero(inForce)) return null;
+  var later = left.map(function(r) { return r && r.effective; }).filter(function(e) { return isYMD(e) && e > from; }).sort()[0] || "";
+  var wd = Array.isArray(site.weekendDays) ? site.weekendDays.slice().sort() : [];
+  var dwd = def.weekendDays.slice().sort();
+  var days = site.id !== def.id && wd.join(",") === "0,6" && dwd.join(",") !== "0,6";
+  return { remove: drops.map(function(r) { return r.id; }), removeDates: drops.map(function(r) { return r.effective; }), later: later, days: days };
+}
+// A NEW site object with the plan applied: $0 versions dropped, a deep copy
+// of the preset version appended (preset key order = repairData's, so no
+// rewrite on load), weekend days only when plan.days. casesEarnRVU is never
+// touched (batch 7b owns it).
+function payApplyBuiltIn(site, def, plan) {
+  var from = def.rates[0].effective;
+  var drops = payBuiltInDrops(site, from);
+  var rates = site.rates.filter(function(r) { return drops.indexOf(r) === -1; });
+  var add = JSON.parse(JSON.stringify(def.rates[0]));
+  if (rates.some(function(r) { return !!r && r.id === add.id; })) add.id = add.id + "-" + Date.now().toString(36);
+  var out = { ...site, rates: rates.concat([add]) };
+  if (plan && plan.days) out.weekendDays = def.weekendDays.slice();
+  return out;
+}
+// Every built-in def whose standing site would take the preset version.
+function payBuiltInOffers(sites) {
+  var out = [];
+  DEFAULT_PAY_SITES.forEach(function(def) {
+    var m = payBuiltInFor(sites, def);
+    if (!m || !m.site) return;
+    var plan = payBuiltInPlan(m.site, def);
+    if (plan) out.push({ def: def, site: m.site, by: m.by, plan: plan });
+  });
+  return out;
 }
 const defState = () => ({ entries: [], settings: { ...defSettings(), paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: defaultPaySites(), payShifts: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
@@ -1338,6 +1425,26 @@ function payRepriceShift(shift, site) {
   var rif = rateInForce(site, shift.date);
   var full = shift.rates && shift.callHours === shift.rates.stipendHours;
   return { ...shift, siteName: site.name, callHours: full ? rif.stipendHours : shift.callHours, rates: { ...rif } };
+}
+// After "Use built-in rates" ADDED weekend days to a site (oldDays ->
+// newDays), a recorded weekday call-in ("wd"/"wn") dated on or after `from`
+// that falls on an added day becomes a weekend call-in ("we"), exactly as
+// it would be classified if logged now; holidays, weekend/holiday classes
+// and earlier shifts are untouched. Used only inside the confirmed re-price
+// (before/after totals, Undo). A NEW shift, or null when nothing changes.
+function payReclassShift(shift, oldDays, newDays, from) {
+  if (!shift || !Array.isArray(shift.events) || !isYMD(shift.date) || !isYMD(from) || shift.date < from) return null;
+  var od = Array.isArray(oldDays) ? oldDays : [], nd = Array.isArray(newDays) ? newDays : [];
+  var added = nd.filter(function(x) { return od.indexOf(x) === -1; });
+  if (!added.length) return null;
+  var changed = false;
+  var evs = shift.events.map(function(e) {
+    if (!e || typeof e !== "object" || (e.cls !== "wd" && e.cls !== "wn")) return e;
+    if (added.indexOf(ymdWeekday(e.date)) === -1 || classifyPayEvent(e.date, e.time || "", nd) !== "we") return e;
+    changed = true;
+    return { ...e, cls: "we" };
+  });
+  return changed ? { ...shift, events: evs } : null;
 }
 // Display name per siteId - ONE rule for the Totals split and every shift
 // row: a current site shows its CURRENT name; a deleted site shows the name

@@ -865,7 +865,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     </div>
 
     {/* Call Pay - dollar-only call-shift pay (callpay.js). Site names and
-        rates are USER-ENTERED data only; never hardcode them in source. */}
+        rates are USER-ENTERED data; never hardcode them in source, except
+        the built-in preset DEFAULT_PAY_SITES in utils.js (CLAUDE.md). */}
     <div style={S.card}>
       <div style={S.cardLabel}>Call Pay</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Call stipends, call-in fees and hourly pay per site, in dollars. Kept separate from wRVUs and Comp.</div>
@@ -1017,5 +1018,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
 
     <div style={{ marginTop: 8 }}><button onClick={removeDuplicates} style={{ ...S.secondaryBtn, width: "100%", color: "#fbbf24", borderColor: "rgba(251,191,36,0.3)" }}>Remove Duplicates</button></div>
     <div style={{ marginTop: 8 }}><button onClick={clear} style={{ ...S.dangerBtn, width: "100%" }}>Delete All Procedures</button></div>
+    {/* Which build this phone runs (index.html ASSET_V) - a home-screen app
+        can keep an old copy until it is fully closed and reopened. */}
+    <div style={{ marginTop: 16, textAlign: "center", fontSize: 11, color: "var(--text-faint)" }}>{"App version " + (typeof ASSET_V === "string" ? ASSET_V : "?")}</div>
   </div>);
 }

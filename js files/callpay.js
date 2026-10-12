@@ -4,8 +4,9 @@
 // Dollar-only call-shift pay, fully separate from entries, wRVU totals and
 // Comp. All pay math and validity rules live in utils.js (cleanPayRate,
 // payNum, rateInForce, computeShiftPay) - this file only edits paySites and
-// renders. Site names and rates are USER-ENTERED data only: never hardcode
-// either anywhere in source (public repo). Recorded shifts keep their own
+// renders. Site names and rates are USER-ENTERED data: never hardcode either
+// anywhere in source (public repo), except the built-in preset
+// DEFAULT_PAY_SITES in utils.js (CLAUDE.md). Recorded shifts keep their own
 // rate copy, so editing or deleting a rate version here never changes pay
 // already recorded - unless the user confirms the re-price offered after a
 // version is saved, or taps "Use current rates" while editing a shift. Nav-less view opened from Log or Settings; onBack returns
@@ -15,6 +16,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var shifts = data.payShifts || [];
   var today = todayLocal();
   var DAYS = ["Su", "M", "Tu", "W", "Th", "F", "Sa"];
+  var DAY3 = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
   var DOT = " \u00B7 ";
   var RATE_FIELDS = [
     ["stipend", "Stipend ($ per shift)"],
@@ -36,7 +38,8 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   const savingRef = useRef(false);                // double-tap guard on Save
   const [allShifts, setAllShifts] = useState(false); // Recent: newest 5 vs every shift
   const listScroll = useRef(0);                      // list scroll position while a form is open
-  const [repriceOffer, setRepriceOffer] = useState(null); // { siteId } after a rate version is saved
+  const [repriceOffer, setRepriceOffer] = useState(null); // { siteIds: [...] } after rates change
+  const [offerHidden, setOfferHidden] = useState(false); // "Not now" on the Built-in rates card (this visit)
   const [payYear, setPayYear] = useState("");     // Totals year chip ("" = newest)
   const [openMonth, setOpenMonth] = useState(""); // expanded Totals month "YYYY-MM"
   var payYears = payShiftYears(shifts);
@@ -54,16 +57,23 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     updSites(function(l) { return l.concat([{ id: "site-" + Date.now().toString(36), name: n, weekendDays: [0, 6], casesEarnRVU: true, rates: [] }]); });
     setNewSite("");
   };
-  // Built-in sites (utils.js DEFAULT_PAY_SITES) not present by name - e.g.
-  // after deleting one, or on a phone that had its own sites first.
-  var missingDefaults = DEFAULT_PAY_SITES.filter(function(ds) { return !sites.some(function(s) { return s.id === ds.id || s.name.trim().toLowerCase() === ds.name.toLowerCase(); }); });
+  // Built-in sites (utils.js DEFAULT_PAY_SITES) with no standing site at all
+  // (payMissingBuiltIns: id, same name or "<name> ..." alias) - e.g. after
+  // deleting one. A standing site that lacks rates gets the Built-in rates
+  // card instead (payBuiltInOffers).
+  var missingDefaults = payMissingBuiltIns(sites);
   var addDefaults = function() {
     var names = missingDefaults.map(function(ds) { return ds.name; }).join(" and ");
     if (!names || !confirm("Add " + names + " with the built-in rates? You can edit them afterwards.")) return;
     updSites(function(l) {
-      return l.concat(defaultPaySites().filter(function(ds) { return !l.some(function(s) { return s.id === ds.id || s.name.trim().toLowerCase() === ds.name.toLowerCase(); }); }));
+      var miss = payMissingBuiltIns(l).map(function(ds) { return ds.id; });
+      return l.concat(defaultPaySites().filter(function(ds) { return miss.indexOf(ds.id) !== -1; }));
     });
   };
+  var offers = payBuiltInOffers(sites);
+  var builtInDefOf = {}; // site id -> the built-in def it stands for
+  DEFAULT_PAY_SITES.forEach(function(def) { var m = payBuiltInFor(sites, def); if (m && m.site) builtInDefOf[m.site.id] = def; });
+  var dayList = function(days) { return days.slice().sort(function(a, b) { return (a + 6) % 7 - (b + 6) % 7; }).map(function(d) { return DAY3[d]; }).join(", "); };
   var saveRename = function(id) {
     var n = renameDraft.trim();
     if (!n || nameTaken(n, id)) return;
@@ -130,7 +140,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     setRateForm(null);
     // Offer to re-price this site's shifts; the card shows only if any
     // recorded shift now prices differently from the version in force.
-    setRepriceOffer({ siteId: rf.siteId });
+    setRepriceOffer({ siteIds: [rf.siteId] });
   };
   var deleteRate = function(s, r) {
     if (!confirm("Delete the " + s.name + " rate version starting " + r.effective + "? Recorded shifts keep their own rates.")) return;
@@ -141,7 +151,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     return money(r.stipend) + " per " + r.stipendHours + "h shift" + DOT +
       "call-in " + money(r.callInWeekday) + " weekday / " + money(r.callInWeekendHoliday) + " weekend-holiday" + DOT +
       money(r.hourly) + "/hr" + (r.hourlyMinHours > 0 ? " (min " + r.hourlyMinHours + "h per trip)" : "") + DOT +
-      (r.hourlyWeekdayDay ? "hourly any time" : "no hourly on weekday days");
+      (r.hourlyWeekdayDay ? "hourly any time" : "no hourly weekdays 7am-5pm");
   };
   // ---- Shift form ----
   // The draft holds text as typed plus UI-only flags (rel, timeAuto, clsSet,
@@ -175,6 +185,34 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var shortDay = function(ymd) { var w = ymdWeekday(ymd); return w < 0 ? ymd : DAYS[w] + " " + (+ymd.slice(5, 7)) + "/" + (+ymd.slice(8, 10)); };
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var monthLabel = function(mk) { return MONTHS[+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4); };
+  var fromLabel = function(ymd) { return isYMD(ymd) ? MONTHS[+ymd.slice(5, 7) - 1] + " " + (+ymd.slice(8, 10)) + ", " + ymd.slice(0, 4) : ymd; };
+  // One confirmed tap applies the preset version to every offered site. The
+  // updater re-plans against the CURRENT list, so a second tap is a no-op.
+  var useBuiltIns = function() {
+    if (!offers.length) return;
+    var froms = offers.map(function(o) { return o.def.rates[0].effective; }).filter(function(f, i, a) { return a.indexOf(f) === i; });
+    var parts = offers.map(function(o) {
+      var p = o.plan, n = p.removeDates.length;
+      var added = o.def.weekendDays.filter(function(d) { return (o.site.weekendDays || []).indexOf(d) === -1; });
+      return o.site.name + (o.site.name.trim().toLowerCase() !== o.def.name.toLowerCase() ? " (built-in " + o.def.name + ")" : "") + ": " + rateSummary(o.def.rates[0]) + "." +
+        (n ? " Removes the $0 version" + (n > 1 ? "s" : "") + " from " + p.removeDates.join(", ") + "." : "") +
+        (p.later ? " Your version from " + p.later + " still applies from that date." : "") +
+        (p.days && added.length ? " Also counts " + dayList(added) + " as " + (added.length > 1 ? "weekend days" : "a weekend day") + ", as the built-in rates do." : "");
+    });
+    if (!confirm("Use the built-in rates" + (froms.length === 1 ? " from " + fromLabel(froms[0]) : "") + "?\n\n" + parts.join("\n\n") +
+      "\n\nYour other rate versions stay as they are. Recorded shifts keep their own rates until you re-price them.")) return;
+    var ids = offers.map(function(o) { return o.site.id; });
+    // Sites whose weekend days this tap extends: their recorded weekday
+    // call-ins on the added days (from the built-in start) become weekend
+    // call-ins in the re-price that follows (payReclassShift).
+    var reclass = {};
+    offers.forEach(function(o) { if (o.plan.days) reclass[o.site.id] = { oldDays: (o.site.weekendDays || []).slice(), from: o.def.rates[0].effective }; });
+    updSites(function(l) {
+      var fresh = payBuiltInOffers(l);
+      return l.map(function(s) { var o = fresh.filter(function(x) { return x.site === s; })[0]; return o ? payApplyBuiltIn(s, o.def, o.plan) : s; });
+    });
+    setRepriceOffer({ siteIds: ids, reclass: reclass });
+  };
   // Rows use the SAME name rule as the Totals split (utils.js paySiteNames):
   // current name for a live site, newest stored name for a deleted one.
   var siteNameMap = paySiteNames(shifts, sites);
@@ -285,20 +323,40 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     .map(function(x) { return x.s; });
   var recent = allShifts ? sortedShifts : sortedShifts.slice(0, 5);
 
-  // ---- Re-pricing (utils.js payShiftStale / payRepriceShift) ----
-  var staleFor = function(site) { return shifts.filter(function(x) { return payShiftStale(x, site); }); };
+  // ---- Re-pricing (utils.js payShiftStale / payRepriceShift / payReclassShift) ----
+  // fixShift: the shift re-priced at the version in force and, for a site
+  // whose weekend days "Use built-in rates" just extended, re-classified;
+  // null when nothing changes.
+  var reclassFor = function(site) { return repriceOffer && repriceOffer.reclass ? repriceOffer.reclass[site.id] || null : null; };
+  var fixShift = function(x, site, rc) {
+    if (!x || x.siteId !== site.id) return null;
+    var r = payRepriceShift(x, site) || x;
+    var c = rc ? payReclassShift(r, rc.oldDays, site.weekendDays || [], rc.from) : null;
+    return c || (r !== x ? r : null);
+  };
+  var staleFor = function(site) { var rc = reclassFor(site); return shifts.filter(function(x) { return !!fixShift(x, site, rc); }); };
   var dateRange = function(list) {
     var ds = list.map(function(x) { return x.date; }).sort();
     return ds.length ? (ds[0] === ds[ds.length - 1] ? ds[0] : ds[0] + " to " + ds[ds.length - 1]) : "";
   };
   var shiftCents = function(x) { var p = computeShiftPay(x); return p ? Math.round(p.total * 100) : 0; };
+  var dropOffer = function(siteId) {
+    setRepriceOffer(function(o) { var rest = o ? o.siteIds.filter(function(id) { return id !== siteId; }) : []; return rest.length ? { siteIds: rest, reclass: o.reclass } : null; });
+  };
   var repriceSite = function(site) {
+    var rc = reclassFor(site);
     var stale = staleFor(site);
-    if (!stale.length) { setRepriceOffer(null); return; }
-    var lenChange = false, before = 0, after = 0;
-    stale.forEach(function(x) { var r = payRepriceShift(x, site); if (r && r.callHours !== x.callHours) lenChange = true; before += shiftCents(x); after += r ? shiftCents(r) : shiftCents(x); });
+    if (!stale.length) { dropOffer(site.id); return; }
+    var lenChange = false, before = 0, after = 0, moved = 0;
+    stale.forEach(function(x) {
+      var r = fixShift(x, site, rc) || x;
+      if (r.callHours !== x.callHours) lenChange = true;
+      r.events.forEach(function(e, i) { if (x.events[i] && e.cls !== x.events[i].cls) moved++; });
+      before += shiftCents(x); after += shiftCents(r);
+    });
     var msg = "Re-price " + plural(stale.length, "shift") + " at " + site.name + " (" + dateRange(stale) + ") with the rate version in force for each date?" +
       (lenChange ? " Full-length shifts take the new shift length; partial shifts keep their hours." : "") +
+      (moved ? " " + plural(moved, "call-in") + " on " + (moved === 1 ? "a new weekend day becomes a weekend call-in." : "new weekend days become weekend call-ins.") : "") +
       (showComp ? " Their total changes from " + money(before / 100) + " to " + money(after / 100) + "." : "") + " You can Undo.";
     if (!confirm(msg)) return;
     var ids = stale.map(function(x) { return x.id; });
@@ -306,12 +364,12 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
       var cur = (prev.paySites || []).filter(function(x) { return x.id === site.id; })[0];
       return { ...prev, payShifts: (prev.payShifts || []).map(function(x) {
         if (ids.indexOf(x.id) === -1) return x;
-        var r = cur ? payRepriceShift(x, cur) : null; // re-checked against the CURRENT site
+        var r = cur ? fixShift(x, cur, rc) : null; // re-checked against the CURRENT site
         return r || x;
       }) };
     });
     if (showUndo) showUndo({ type: "pay", remove: [], restore: stale, message: "Re-priced " + plural(stale.length, "shift") + " - " + site.name });
-    setRepriceOffer(null);
+    dropOffer(site.id);
   };
   // Editor: re-take the version in force for this date (a full-length shift
   // takes the new shift length, like a bulk re-price).
@@ -454,10 +512,24 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
       {eyeBtn}
     </div>
 
+    {offers.length > 0 && !offerHidden && <div style={{ ...S.card, border: "1px solid rgba(14,165,233,0.4)", background: "rgba(14,165,233,0.06)" }}>
+      <div style={S.cardLabel}>Built-in rates</div>
+      {offers.map(function(o) {
+        return (<div key={o.site.id} style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 6, lineHeight: 1.5 }}>{o.site.name + ": no paying rates from " + fromLabel(o.def.rates[0].effective) + (o.plan.later ? " until " + o.plan.later : "") + "."}</div>);
+      })}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button onClick={useBuiltIns} style={btn({ ...primary, flex: 1 })}>Use built-in rates</button>
+        <button onClick={function() { setOfferHidden(true); }} style={btn()}>Not now</button>
+      </div>
+    </div>}
+
     <div style={S.card}>
       <div style={S.cardLabel}>Call shifts</div>
       {sites.length === 0
-        ? <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Add a site and its rates below to get started.</div>
+        ? <div>
+            <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Add a site and its rates below to get started.</div>
+            {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
+          </div>
         : <div>
             <button onClick={openNew} style={btn({ ...primary, width: "100%", marginTop: 10, minHeight: 50, fontSize: 15 })}>+ New shift</button>
             {recent.length === 0
@@ -547,6 +619,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
               return (<button key={dn} onClick={function() { toggleWeekend(s.id, d); }} style={btn({ flex: 1, padding: 0, fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-faint)" })}>{dn}</button>);
             })}
           </div>
+          {builtInDefOf[s.id] && wd.slice().sort().join(",") !== builtInDefOf[s.id].weekendDays.slice().sort().join(",") && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{"The built-in " + builtInDefOf[s.id].name + " rates count " + dayList(builtInDefOf[s.id].weekendDays) + " as weekend days."}</div>}
 
           <div style={{ marginTop: 10 }}>
             {sorted.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "6px 0" }}>No rates yet - add the first version.</div>}
@@ -569,11 +642,11 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
             {(hidden > 0 || (showAll[s.id] && cur && sorted.length > 1)) && <button onClick={function() { setShowAll({ ...showAll, [s.id]: !showAll[s.id] }); }} style={btn({ marginTop: 4, width: "100%" })}>{showAll[s.id] ? "Show current only" : "Show " + hidden + " other version" + (hidden === 1 ? "" : "s")}</button>}
           </div>
 
-          {repriceOffer && repriceOffer.siteId === s.id && staleFor(s).length > 0 && <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}>
+          {repriceOffer && repriceOffer.siteIds.indexOf(s.id) !== -1 && staleFor(s).length > 0 && <div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}>
             <div style={{ fontSize: 12, color: "var(--text-primary)", lineHeight: 1.5 }}>{plural(staleFor(s).length, "recorded shift") + " (" + dateRange(staleFor(s)) + ") use rates that differ from the version now in force for their dates."}</div>
             <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
               <button onClick={function() { repriceSite(s); }} style={btn({ ...primary, flex: 1 })}>{"Re-price " + plural(staleFor(s).length, "shift")}</button>
-              <button onClick={function() { setRepriceOffer(null); }} style={btn()}>Not now</button>
+              <button onClick={function() { dropOffer(s.id); }} style={btn()}>Not now</button>
             </div>
           </div>}
 

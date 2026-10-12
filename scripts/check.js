@@ -696,9 +696,10 @@ if (sb) {
     [work(DAV, "2026-10-15", 12, "2026-10-15", "10:00", 2), "3480.78/wd"],     // Davenport Thu 10am 2h (no hourly)
     [work(DAV, "2026-10-17", 12, "2026-10-17", "11:00", 4), "4451.54/we"],     // Davenport Sat 4h
     [work(DAV, "2026-12-25", 12, "2026-12-25", "10:00", 2), "4208.85/hol"],    // Davenport Christmas day 2h (3h min)
+    [work(DAV, "2027-07-05", 12, "2027-07-05", "10:00", 2), "4208.85/hol"],    // Davenport observed July 4 (Mon) 2h
   ];
   const badWorked = WORKED.filter(w => w[0] !== w[1]);
-  check("built-in sites reproduce the owner's worked examples (7)", badWorked.length === 0, badWorked.map(w => w[0] + " want " + w[1]).join("; "));
+  check("built-in sites reproduce the owner's worked examples (8)", badWorked.length === 0, badWorked.map(w => w[0] + " want " + w[1]).join("; "));
   check("built-in sites: none in force before Oct 1 2026", sb.rateInForce(SIL, "2026-09-30") === null && sb.rateInForce(DAV, "2026-09-30") === null);
   const seedStore = (o) => Object.assign({ entries: [], settings: { ratePerRVU: 55, annualGoal: 0, reconGoal: 0 }, paySites: [], payShifts: [] }, o || {});
   const sEmpty = seedStore(); sb.repairData(sEmpty);
@@ -719,6 +720,105 @@ if (sb) {
   check("built-in sites pass repairData unchanged (no rewrite on later loads)", JSON.stringify(sEmpty.paySites) === seededJson && fixed2.length === 0, fixed2.join(","));
   const ds = vm.runInContext("defState()", sb), ds2 = vm.runInContext("defState()", sb);
   check("new installs start with the built-in sites + marker (fresh copies)", ds.paySites.length === 2 && ds.settings.paySitesSeeded === true && ds.paySites[0] !== ds2.paySites[0]);
+  // "Use built-in rates" (R1): a phone whose own same-named sites lack paying
+  // rates gets the preset version on a confirmed tap. Names come from the
+  // preset at run time; other rates are the made-up RA (paying) / RZ ($0).
+  const BI = vm.runInContext("DEFAULT_PAY_SITES", sb), B0 = BI[0], B1 = BI[1], FROM = B0.rates[0].effective;
+  const hand = (id, name, rates, wd) => ({ id: id, name: name, weekendDays: wd || [0, 6], casesEarnRVU: true, rates: rates || [] });
+  const ver = (base, id, eff) => Object.assign({}, base, { id: id, effective: eff });
+  const bf = (sites, def) => { const m = sb.payBuiltInFor(sites, def); return m ? m.by + ":" + (m.site ? m.site.id : "-") : "null"; };
+  check("payBuiltInFor: id, then one same name (any case/spaces), then one '<name> ...' alias; ambiguous / other built-in ids / junk = no match",
+    bf([hand(B0.id, "Renamed")], B0) === "id:" + B0.id && bf([hand("h1", "  " + B0.name.toUpperCase() + "  ")], B0) === "name:h1" &&
+    bf([hand("h2", B1.name + " East")], B1) === "alias:h2" && bf([hand("h3", B1.name), hand("h4", B1.name.toLowerCase())], B1) === "ambiguous:-" &&
+    bf([hand("h5", B1.name + " East"), hand("h6", B1.name + " West")], B1) === "ambiguous:-" && bf([hand("h7", B1.name), hand("h8", B1.name + " East")], B1) === "name:h7" &&
+    bf([hand(B0.id, B1.name)], B1) === "null" && bf([hand("h9", B1.name + "ville")], B1) === "null" && bf(null, B0) === "null" && bf([null, 3, { id: "x" }], B0) === "null");
+  check("payMissingBuiltIns: only defs with no standing site (an alias or ambiguous match counts as present)",
+    sb.payMissingBuiltIns([]).length === 2 && sb.payMissingBuiltIns([hand("a", B0.name)]).map(d => d.id).join() === B1.id &&
+    sb.payMissingBuiltIns([hand("a", B0.name + " Clinic"), hand("b", B1.name), hand("c", B1.name)]).length === 0);
+  check("payRateZero: all four amounts 0", sb.payRateZero(RZ) === true && sb.payRateZero(RA) === false && sb.payRateZero(null) === false &&
+    sb.payRateZero(Object.assign({}, RZ, { hourly: 0.01 })) === false);
+  const PLAN_SHAPES = [ // [label, site, def, expected plan as JSON or null]
+    ["hand-made, no rates", hand("s1", B0.name), B0, { remove: [], removeDates: [], later: "", days: true }],
+    ["hand-made other site, no rates", hand("d1", B1.name), B1, { remove: [], removeDates: [], later: "", days: false }],
+    ["seeded site whose rates were deleted", hand(B0.id, B0.name, [], B0.weekendDays.slice()), B0, { remove: [], removeDates: [], later: "", days: false }],
+    ["own version only after the start", hand("s2", B0.name, [ver(RA, "v1", "2026-11-01")]), B0, { remove: [], removeDates: [], later: "2026-11-01", days: true }],
+    ["... plus a later $0 version", hand("s3", B0.name, [ver(RA, "v1", "2026-11-01"), ver(RZ, "z1", "2026-12-01")]), B0, { remove: ["z1"], removeDates: ["2026-12-01"], later: "2026-11-01", days: true }],
+    ["$0 version after the start", hand("d2", B1.name, [ver(RZ, "z1", "2026-10-05")]), B1, { remove: ["z1"], removeDates: ["2026-10-05"], later: "", days: false }],
+    ["$0 version on exactly the start", hand("d3", B1.name, [ver(RZ, "z1", FROM)]), B1, { remove: ["z1"], removeDates: [FROM], later: "", days: false }],
+    ["$0 version before the start (kept)", hand("d4", B1.name, [ver(RZ, "z0", "2026-09-01")]), B1, { remove: [], removeDates: [], later: "", days: false }],
+    ["own paying version in force", hand("s4", B0.name, [ver(RA, "v0", "2026-09-01")]), B0, null],
+    ["own paying version on exactly the start", hand("s5", B0.name, [ver(RA, "v0", FROM)]), B0, null],
+    ["own paying version + a later $0 (no remove-only plan)", hand("s6", B0.name, [ver(RA, "v0", "2026-09-01"), ver(RZ, "z1", "2026-11-01")]), B0, null],
+    ["hand-touched weekend days", hand("s7", B0.name, [], [5, 6]), B0, { remove: [], removeDates: [], later: "", days: false }],
+  ];
+  const planBad = [], applyBad = [];
+  PLAN_SHAPES.forEach(t => {
+    const before = JSON.stringify(t[1]);
+    const plan = sb.payBuiltInPlan(t[1], t[2]);
+    if (JSON.stringify(plan) !== JSON.stringify(t[3]) || JSON.stringify(t[1]) !== before) { planBad.push(t[0] + " -> " + JSON.stringify(plan)); return; }
+    if (!plan) return;
+    const inStore = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [JSON.parse(before)] });
+    const inJson = JSON.stringify(inStore);
+    if (sb.repairData(inStore).length || JSON.stringify(inStore) !== inJson) { applyBad.push(t[0] + ": fixture not canonical"); return; }
+    const out = sb.payApplyBuiltIn(t[1], t[2], plan);
+    const store = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [out] }), json = JSON.stringify(store);
+    const fx = sb.repairData(store);
+    const effs = out.rates.map(r => r.effective);
+    const keptPaying = t[1].rates.filter(r => !sb.payRateZero(r)).every(r => out.rates.some(o => JSON.stringify(o) === JSON.stringify(r)));
+    const ok = fx.length === 0 && JSON.stringify(store) === json && sb.payBuiltInPlan(out, t[2]) === null &&
+      effs.length === new Set(effs).size && keptPaying && out.casesEarnRVU === t[1].casesEarnRVU && JSON.stringify(t[1]) === before &&
+      JSON.stringify(out.weekendDays) === JSON.stringify(plan.days ? t[2].weekendDays : t[1].weekendDays) &&
+      JSON.stringify(sb.rateInForce(out, FROM)) === JSON.stringify(t[2].rates[0]);
+    if (!ok) applyBad.push(t[0] + " " + JSON.stringify({ fx: fx, effs: effs, keptPaying: keptPaying }));
+  });
+  check("payBuiltInPlan: " + PLAN_SHAPES.length + " phone shapes (paying amounts never touched; $0 versions from the start removed)", planBad.length === 0, planBad.join(" | "));
+  check("payApplyBuiltIn: repairData fixed point, second apply a no-op, no duplicate dates, paying versions + casesEarnRVU kept, preset in force from the start",
+    applyBad.length === 0, applyBad.join(" | "));
+  const idFree = hand(B0.id, B0.name, [Object.assign({}, RZ, { id: B0.rates[0].id, effective: "2026-11-01" })], B0.weekendDays.slice());
+  const idFreeOut = sb.payApplyBuiltIn(idFree, B0, sb.payBuiltInPlan(idFree, B0));
+  const idTaken = hand("s8", B0.name, [ver(RA, B0.rates[0].id, "2027-01-01")]);
+  const idTakenOut = sb.payApplyBuiltIn(idTaken, B0, sb.payBuiltInPlan(idTaken, B0));
+  check("payApplyBuiltIn rate ids: a removed $0 version frees the preset id; a taken id gets a new one",
+    idFreeOut.rates.length === 1 && idFreeOut.rates[0].id === B0.rates[0].id && JSON.stringify(idFreeOut.rates[0]) === JSON.stringify(B0.rates[0]) &&
+    idTakenOut.rates.length === 2 && idTakenOut.rates[1].id !== B0.rates[0].id && idTakenOut.rates[1].id.indexOf(B0.rates[0].id + "-") === 0);
+  const offerSites = [hand("s1", B0.name), hand("d9", B1.name + " East", [ver(RA, "v0", "2026-09-01")])];
+  const offs = sb.payBuiltInOffers(offerSites);
+  check("payBuiltInOffers: one offer per standing site without paying rates; a site with its own rates gets none",
+    offs.length === 1 && offs[0].site === offerSites[0] && offs[0].def.id === B0.id && offs[0].by === "name" && sb.payBuiltInOffers([]).length === 0);
+  // Filled hand-made sites must price the owner's examples exactly like the preset.
+  const fS = sb.payApplyBuiltIn(hand("s1", B0.name), B0, sb.payBuiltInPlan(hand("s1", B0.name), B0));
+  const fD = sb.payApplyBuiltIn(hand("d1", B1.name), B1, sb.payBuiltInPlan(hand("d1", B1.name), B1));
+  const viaFilled = [work(fS, "2026-10-13", 24, "2026-10-13", "21:00", 2.5), work(fS, "2026-10-16", 24, "2026-10-17", "01:00", 1.5), work(fS, "2026-11-26", 24, "2026-11-26", "14:00", 3),
+    work(fD, "2026-10-14", 12, "2026-10-14", "20:00", 1), work(fD, "2026-10-15", 12, "2026-10-15", "10:00", 2), work(fD, "2026-10-17", 12, "2026-10-17", "11:00", 4)];
+  check("filled hand-made sites price the owner's worked examples exactly like the preset",
+    viaFilled.join(",") === WORKED.slice(0, 6).map(w => w[1]).join(","), viaFilled.join(","));
+  check("payMissingBuiltIns: a site of any id already using a built-in's name blocks adding a same-named second site",
+    sb.payMissingBuiltIns([hand(B0.id, B1.name)]).length === 0 && sb.payMissingBuiltIns([hand(B1.id, "  " + B0.name.toLowerCase())]).length === 0);
+  // Weekend days added by "Use built-in rates" (hand-made site on Sat/Sun ->
+  // preset weekend): recorded weekday call-ins on an added day, dated from the
+  // built-in start, re-price as weekend call-ins - the same pay as logging
+  // them now. Holidays, weekend classes and earlier shifts are untouched.
+  const zSite = hand("sz", B0.name, [ver(RZ, "z0", "2026-09-01")]);
+  const zPlan = sb.payBuiltInPlan(zSite, B0), zFilled = sb.payApplyBuiltIn(zSite, B0, zPlan);
+  const OLD = zSite.weekendDays, NEW = zFilled.weekendDays;
+  const fri = mkShift("fz", zSite, "2026-10-02", [dEv({ date: "2026-10-02", time: "21:00", cls: "wn", hours: "2" })]);
+  const friBefore = JSON.stringify(fri);
+  const friRe = sb.payRepriceShift(fri, zFilled), friFix = sb.payReclassShift(friRe, OLD, NEW, FROM);
+  const friNow = mkShift("fn", zFilled, "2026-10-02", [dEv({ date: "2026-10-02", time: "21:00", cls: "we", hours: "2" })]);
+  const rcl = (date, ev) => sb.payReclassShift(mkShift("r", zSite, date, [dEv(ev)]), OLD, NEW, FROM);
+  const timeless = rcl("2026-10-09", { date: "2026-10-09", time: "", cls: "wd", hours: "1" });
+  const fixStore = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [zFilled], payShifts: [JSON.parse(JSON.stringify(friFix))] });
+  const fixJson = JSON.stringify(fixStore), fixFixed = sb.repairData(fixStore);
+  check("payReclassShift: a recorded Friday call-in re-prices at the weekend fee once Friday is added (same pay as logging it now)",
+    !!zPlan && zPlan.days === true && !!friRe && friRe.events[0].cls === "wn" && !!friFix && friFix.events[0].cls === "we" &&
+    sb.computeShiftPay(friFix).total === 2332 && sb.computeShiftPay(friFix).total === sb.computeShiftPay(friNow).total &&
+    !!timeless && timeless.events[0].cls === "we" && JSON.stringify(fri) === friBefore && fixFixed.length === 0 && JSON.stringify(fixStore) === fixJson,
+    JSON.stringify({ re: friRe && friRe.events[0].cls, fix: friFix && friFix.events[0].cls, total: friFix && sb.computeShiftPay(friFix).total, fixed: fixFixed }));
+  check("payReclassShift: holidays, weekend classes, other weekdays, shifts before the start and no added days are untouched (null)",
+    rcl("2026-12-25", { date: "2026-12-25", time: "10:00", cls: "hol" }) === null && rcl("2026-12-25", { date: "2026-12-25", time: "10:00", cls: "wd" }) === null &&
+    rcl("2026-10-02", { date: "2026-10-03", time: "01:00", cls: "we" }) === null && rcl("2026-10-08", { date: "2026-10-08", time: "21:00", cls: "wn" }) === null &&
+    rcl("2026-09-25", { date: "2026-09-25", time: "21:00", cls: "wn" }) === null &&
+    sb.payReclassShift(fri, NEW, NEW, FROM) === null && sb.payReclassShift(null, OLD, NEW, FROM) === null);
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);

@@ -79,9 +79,15 @@ the per-file gates below. Run it after EVERY file change.
   addDaysYMD/payDefaultShiftDate/payStartBack, the shift-form draft rules
   payDraftEvent/payDraftNewEvent/payDraftRefresh, payUndoApply, the
   whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, the
-  Dashboard's payTotalInRange (a separate line, never added to Comp), and
-  re-pricing payRatesDiffer/payShiftStale/payRepriceShift);
-  callpay.js only holds state and passes "now" in. Shifts are priced only
+  Dashboard's payTotalInRange (a separate line, never added to Comp),
+  re-pricing payRatesDiffer/payShiftStale/payRepriceShift, and the built-in
+  rates fill-in payBuiltInFor/payMissingBuiltIns/payRateZero/
+  payBuiltInPlan/payApplyBuiltIn/payBuiltInOffers);
+  callpay.js only holds state and passes "now" in. Built-in rates reach an
+  existing site ONLY through the user's confirmed "Use built-in rates" tap
+  (re-planned inside the updater); repairData never adds rates, amounts the
+  user typed are never changed, and casesEarnRVU is never touched by it.
+  Shifts are priced only
   from their own rate copy. Every payShifts write goes through
   payShiftFromDraft (or payRepriceShift for a confirmed re-price), whose
   output must pass repairData unchanged (check.js contract tests) -
