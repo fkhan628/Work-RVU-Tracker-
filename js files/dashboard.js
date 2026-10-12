@@ -44,7 +44,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
 
   // Tracked data for selected year
   const ye = entries.filter(function(e) { var d = new Date(e.date + "T12:00:00"); return d >= ys && d < yearBounds.end; });
-  const trackedRVU = ye.reduce((s, e) => s + e.adjustedRVU, 0);
+  const trackedRVU = ye.reduce((s, e) => s + creditedRVU(e), 0);
 
   // Use institution if available, otherwise tracked
   const tRVU = hasInst ? instTotal : trackedRVU;
@@ -65,7 +65,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     var mLabel = md.toLocaleDateString("en-US", { month: "short" });
     var instMonth = instData.find(function(d) { return d.month === mKey; });
     var trackedMonth = entries.filter(function(e) { var ed = new Date(e.date + "T12:00:00"); return ed.getMonth() === md.getMonth() && ed.getFullYear() === md.getFullYear(); });
-    var trackedMRVU = trackedMonth.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var trackedMRVU = trackedMonth.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     var instMRVU = instMonth ? (instMonth.workRVU || 0) + (instMonth.splitRVU || 0) : 0;
     months.push({ label: mLabel, inst: instMRVU, tracked: trackedMRVU, primary: hasInst ? instMRVU : trackedMRVU });
   }
@@ -73,8 +73,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
 
   // Today and this week from tracked entries (current year only)
   const ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
-  const wRVU = isCurrent ? entries.filter(e => new Date(e.date + "T12:00:00") >= ws).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
-  const todayRVU = isCurrent ? entries.filter(e => e.date === localYMD(now)).reduce((s, e) => s + e.adjustedRVU, 0) : 0;
+  const wRVU = isCurrent ? entries.filter(e => new Date(e.date + "T12:00:00") >= ws).reduce((s, e) => s + creditedRVU(e), 0) : 0;
+  const todayRVU = isCurrent ? entries.filter(e => e.date === localYMD(now)).reduce((s, e) => s + creditedRVU(e), 0) : 0;
 
   // Projected annual based on current pace
   var monthsElapsed = instYTD.length || Math.max(1, dp / 30.44);
@@ -109,7 +109,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // information, shown plainly, never clamped.
   var reconKeySet = {};
   reconKeys.forEach(function(k) { reconKeySet[k] = true; });
-  var orSameMonths = ye.reduce(function(s, e) { return reconKeySet[e.date.slice(0, 7)] ? s + e.adjustedRVU : s; }, 0);
+  var orSameMonths = ye.reduce(function(s, e) { return reconKeySet[e.date.slice(0, 7)] ? s + creditedRVU(e) : s; }, 0);
   var derivedCallClinic = reconYTD - orSameMonths;
 
   // --- Acute care: my share + derived decomposition (quiet lines, no cards) ---
@@ -140,7 +140,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var overlapKeySet = {};
   overlapKeys.forEach(function(k) { overlapKeySet[k] = true; });
   var overlapRecon = overlapKeys.reduce(function(s, k) { return s + instByMonth[k]; }, 0);
-  var overlapOR = ye.reduce(function(s, e) { return overlapKeySet[e.date.slice(0, 7)] ? s + e.adjustedRVU : s; }, 0);
+  var overlapOR = ye.reduce(function(s, e) { return overlapKeySet[e.date.slice(0, 7)] ? s + creditedRVU(e) : s; }, 0);
   var overlapMyAcute = 0;
   overlapKeys.forEach(function(k) {
     var sp = computeAcuteSplit(acuteMonthsAll[k]);
@@ -154,7 +154,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     var prevStart = new Date(ys); prevStart.setFullYear(prevStart.getFullYear() - 1);
     var prevEnd = new Date(ys);
     var prevEntries = entries.filter(function(e) { var d = new Date(e.date + "T12:00:00"); return d >= prevStart && d < prevEnd; });
-    var prevTracked = prevEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var prevTracked = prevEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     var prevInst = instData.filter(function(d) { var dDate = new Date(d.month + "-01"); return dDate >= prevStart && dDate < prevEnd; });
     var prevInstTotal = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
     var prevInstWork = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0); }, 0);

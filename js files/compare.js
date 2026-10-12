@@ -223,7 +223,7 @@ function Compare({ data, upd, setView, showComp }) {
     entries.forEach(function(e) {
       var key = e.date.slice(0, 7); // YYYY-MM
       if (!m[key]) m[key] = { rvu: 0, cases: 0 };
-      m[key].rvu += e.adjustedRVU;
+      m[key].rvu += creditedRVU(e);
       m[key].cases += 1;
     });
     return m;

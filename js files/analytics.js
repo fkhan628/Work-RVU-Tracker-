@@ -62,14 +62,14 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     filteredEntries.forEach(function(e) {
       var key = e.date.slice(0, 7);
       if (!months[key]) months[key] = { key: key, rvu: 0, comp: 0, count: 0, entries: [] };
-      months[key].rvu += e.adjustedRVU;
-      months[key].comp += e.adjustedRVU * rate;
+      months[key].rvu += creditedRVU(e);
+      months[key].comp += creditedRVU(e) * rate;
       months[key].count++;
       months[key].entries.push(e);
     });
     return Object.values(months).sort(function(a, b) { return a.key.localeCompare(b.key); });
   }, [filteredEntries, rate]);
-  var selTotal = filteredEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+  var selTotal = filteredEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
   var selComp = selTotal * rate;
 
   // YTD totals
@@ -77,7 +77,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     var d = new Date(e.date + "T00:00:00");
     return d >= yearStartDate && d < yearEndDate;
   });
-  var ytdRVU = ytdEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+  var ytdRVU = ytdEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
 
   // Pace calculations
   var daysPassed = Math.max(1, Math.floor((now - yearStartDate) / 86400000));
@@ -108,7 +108,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       var sorted = encEntries.slice().sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });
       var codes = sorted.map(function(e) { return e.cptCode; });
       var comboKey = codes.join("+");
-      var encRVU = sorted.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+      var encRVU = sorted.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
       if (!combos[comboKey]) {
         combos[comboKey] = {
           key: comboKey,
@@ -135,10 +135,10 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     filteredEntries.forEach(function(e) {
       var cat = e.category || "Other";
       if (!cats[cat]) cats[cat] = { name: cat, rvu: 0, count: 0 };
-      cats[cat].rvu += e.adjustedRVU;
+      cats[cat].rvu += creditedRVU(e);
       cats[cat].count++;
       totalProcs++;
-      totalRVU += e.adjustedRVU;
+      totalRVU += creditedRVU(e);
     });
     return { list: Object.values(cats).sort(function(a, b) { return b.rvu - a.rvu; }), totalProcs: totalProcs, totalRVU: totalRVU };
   }, [filteredEntries]);
@@ -150,7 +150,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     filteredEntries.forEach(function(e) {
       if (!m[e.cptCode]) m[e.cptCode] = { code: e.cptCode, desc: e.description, count: 0, rvu: 0 };
       m[e.cptCode].count++;
-      m[e.cptCode].rvu += e.adjustedRVU;
+      m[e.cptCode].rvu += creditedRVU(e);
     });
     return Object.values(m).sort(function(a, b) { return b.rvu - a.rvu; }).slice(0, 10);
   }, [filteredEntries]);
@@ -167,7 +167,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     return Object.keys(byMonth).sort().map(function(mk) {
       var arr = byMonth[mk];
       var encs = countEncounters(arr);
-      var rvu = arr.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+      var rvu = arr.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
       return { key: mk, encs: encs, avg: encs > 0 ? rvu / encs : 0 };
     }).filter(function(p) { return p.encs > 0; });
   }, [filteredEntries]);
@@ -182,7 +182,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       var p = e.date.split("-");
       var wd = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)).getDay();
       counts[wd]++;
-      rvus[wd] += e.adjustedRVU;
+      rvus[wd] += creditedRVU(e);
     });
     var order = [1, 2, 3, 4, 5, 6, 0];
     var names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
@@ -243,14 +243,14 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
   // crashes React (rules of hooks).
   var summaryData = useMemo(function() {
     var mEntries = entries.filter(function(e) { return e.date.slice(0, 7) === summaryMonth; });
-    var totalRVU = mEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var totalRVU = mEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     var totalComp = totalRVU * rate;
     var caseCount = countEncounters(mEntries);
     var avgRVU = caseCount > 0 ? totalRVU / caseCount : 0;
     var privateEntries = mEntries.filter(function(e) { return !e.isCall; });
     var callEntries = mEntries.filter(function(e) { return e.isCall; });
-    var privateRVU = privateEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
-    var callRVU = callEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var privateRVU = privateEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
+    var callRVU = callEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     // Group by encounter for top procedure combinations (shared identity:
     // utils.js encounterKey)
     var mEncounters = {};
@@ -264,7 +264,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       var sorted = encEntries.slice().sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });
       var codes = sorted.map(function(e) { return e.cptCode; });
       var comboKey = codes.join("+");
-      var encRVU = sorted.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+      var encRVU = sorted.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
       if (!mCombos[comboKey]) {
         mCombos[comboKey] = { key: comboKey, code: sorted[0].cptCode, desc: sorted[0].description, addons: codes.length > 1 ? codes.slice(1) : [], count: 0, rvu: 0 };
       }
@@ -287,7 +287,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     dm.entries.forEach(function(e) {
       if (!monthProcs[e.cptCode]) monthProcs[e.cptCode] = { code: e.cptCode, desc: e.description, count: 0, totalRVU: 0 };
       monthProcs[e.cptCode].count++;
-      monthProcs[e.cptCode].totalRVU += e.adjustedRVU;
+      monthProcs[e.cptCode].totalRVU += creditedRVU(e);
     });
     var monthProcList = Object.values(monthProcs).sort(function(a, b) { return b.totalRVU - a.totalRVU; });
 

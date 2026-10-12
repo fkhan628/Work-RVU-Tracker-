@@ -1041,6 +1041,16 @@ function calcAdj(base, mods) {
   let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r;
 }
 
+// Credited wRVU of one entry - the ONE place that decides whether a case
+// counts toward wRVU and comp TOTALS. Every sum of wRVU or comp goes
+// through it (check.js gates raw adjustedRVU arithmetic); sorts and a row's
+// own wRVU display keep the raw snapshot. noCredit === true (strict) marks
+// a case logged for the record but credited elsewhere (e.g. acute-care pool
+// call cases); adjustedRVU itself is never zeroed.
+function creditedRVU(e) {
+  return e.noCredit === true ? 0 : e.adjustedRVU;
+}
+
 // --- Acute care group split math (single implementation - do not duplicate) ---
 // Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in
 // decimal but 16.004999... in binary floats, and naive toFixed(2) would display

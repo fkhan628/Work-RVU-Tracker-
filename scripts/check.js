@@ -159,6 +159,72 @@ if (defObj && loadObj && restoreObj) {
     "missing: " + diff(dk, rk).join(", ") + " | extra: " + diff(rk, dk).join(", "));
 }
 
+// 5d. Credited wRVU: creditedRVU(e) in utils.js is the ONE rule deciding
+// whether a case counts toward wRVU/comp totals. A raw `.adjustedRVU` used
+// in arithmetic (+ - * / %, compound assignment; directly or through ||,
+// ?:, parens, unary, Number/parseFloat/round2) anywhere but inside
+// creditedRVU would silently count no-credit cases. Sort comparators (raw
+// a - raw b) and a row's own wRVU display stay raw; their per-file counts
+// are pinned so any new raw read is a conscious choice - route totals
+// through creditedRVU(e) and bump RAW_RVU_PIN only for a sort or display.
+const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 6, "settings.js": 3, "utils.js": 1 };
+const ARITH_OPS = { "+": 1, "-": 1, "*": 1, "/": 1, "%": 1 };
+const WALK_SKIP = { loc: 1, start: 1, end: 1, leadingComments: 1, trailingComments: 1, innerComments: 1 };
+const isRawRVU = n => !!n && n.type === "MemberExpression" && !n.computed && !!n.property && n.property.name === "adjustedRVU";
+const isRVUWrap = (p, child) => p.type === "LogicalExpression" || p.type === "ParenthesizedExpression" || p.type === "UnaryExpression" ||
+  (p.type === "ConditionalExpression" && p.test !== child) ||
+  (p.type === "CallExpression" && p.callee.type === "Identifier" && /^(Number|parseFloat|round2)$/.test(p.callee.name));
+function rawRVUReads(src) {
+  const out = [], stack = [];
+  (function visit(n) {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (isRawRVU(n)) {
+      let child = n, i = stack.length - 1;
+      while (i >= 0 && isRVUWrap(stack[i], child)) { child = stack[i]; i--; }
+      const p = i >= 0 ? stack[i] : null;
+      const sortPair = !!p && p.type === "BinaryExpression" && p.operator === "-" && isRawRVU(p.left) && isRawRVU(p.right);
+      const arith = !!p && !sortPair && ((p.type === "BinaryExpression" && !!ARITH_OPS[p.operator]) ||
+        (p.type === "AssignmentExpression" && p.operator !== "=" && p.right === child));
+      const inHelper = stack.some(a => a.type === "FunctionDeclaration" && !!a.id && a.id.name === "creditedRVU");
+      out.push({ line: n.loc.start.line, arith: arith && !inHelper });
+    }
+    // Reads the gate cannot classify are refused outright: a destructured
+    // { adjustedRVU } or e["adjustedRVU"] would otherwise bypass it.
+    const parent = stack[stack.length - 1];
+    if ((n.type === "ObjectProperty" && parent && parent.type === "ObjectPattern" && (n.key.name || n.key.value) === "adjustedRVU") ||
+        (n.type === "MemberExpression" && n.computed && n.property.type === "StringLiteral" && n.property.value === "adjustedRVU")) {
+      out.push({ line: n.loc.start.line, arith: true });
+    }
+    stack.push(n);
+    for (const k in n) { if (!WALK_SKIP[k] && n[k] && typeof n[k] === "object") visit(n[k]); }
+    stack.pop();
+  })(parser.parse(src, AST_OPTS).program);
+  return out;
+}
+const gateSelfTest = [
+  ["var t = list.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);", 1, 1],
+  ["m.total += (e.adjustedRVU || 0); var c = Number(e.adjustedRVU) * rate;", 2, 2],
+  ["list.sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });", 2, 0],
+  ["var t = s + creditedRVU(e); var label = e.adjustedRVU.toFixed(2);", 1, 0],
+  ["function creditedRVU(e) { return e.noCredit === true ? 0 : e.adjustedRVU + 0; }", 1, 0],
+  ["var t = list.reduce(function(s, { adjustedRVU }) { return s + adjustedRVU; }, 0); var u = e[\"adjustedRVU\"];", 2, 2],
+  ["var o = { ...e, adjustedRVU: 2 }; var w = calcAdj(o.baseRVU, []);", 0, 0],
+];
+const badSelf = gateSelfTest.filter(t => { const r = rawRVUReads(t[0]); return r.length !== t[1] || r.filter(x => x.arith).length !== t[2]; });
+check("raw-wRVU gate self-test (" + gateSelfTest.length + " snippets)", badSelf.length === 0, badSelf.map(t => t[0]).join(" | "));
+const rawCounts = {}, rawArith = [];
+jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
+  let reads = [];
+  try { reads = rawRVUReads(fs.readFileSync(path.join(JS_DIR, f), "utf8")); } catch (e) { return; } // parse failure is reported in step 1
+  if (reads.length) rawCounts[f] = reads.length;
+  reads.filter(r => r.arith).forEach(r => rawArith.push(f + ":" + r.line));
+});
+check("wRVU/comp sums go through creditedRVU (no raw adjustedRVU arithmetic, destructuring or [\"adjustedRVU\"])", rawArith.length === 0, rawArith.join(", "));
+const pinDiff = Object.keys(Object.assign({}, RAW_RVU_PIN, rawCounts)).filter(f => (RAW_RVU_PIN[f] || 0) !== (rawCounts[f] || 0));
+check("raw adjustedRVU reads match the pinned sort/display counts", pinDiff.length === 0,
+  pinDiff.map(f => f + " has " + (rawCounts[f] || 0) + ", pinned " + (RAW_RVU_PIN[f] || 0)).join("; "));
+
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");
 let rows = null, evalErr = null;
@@ -551,6 +617,14 @@ if (sb) {
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);
+  // creditedRVU: strict noCredit === true gives 0; anything else passes the
+  // raw snapshot through UNCHANGED (no coercion - same as the raw read), so
+  // routing every sum through it changes no existing total.
+  const ce = { adjustedRVU: 0.1 + 0.2 }, cn = { adjustedRVU: 7.96, noCredit: true };
+  check("creditedRVU: raw value passes through; only noCredit === true gives 0; entry untouched",
+    sb.creditedRVU(ce) === ce.adjustedRVU && sb.creditedRVU(cn) === 0 && cn.adjustedRVU === 7.96 &&
+    [false, "true", 1, null, undefined].every(v => sb.creditedRVU({ adjustedRVU: 2.5, noCredit: v }) === 2.5) &&
+    sb.creditedRVU({}) === undefined);
 }
 
 console.log("");

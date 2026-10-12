@@ -575,7 +575,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       });
     });
     upd(function(prev) { return { ...prev, entries: prev.entries.concat(newEntries) }; });
-    var loggedRVU = newEntries.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);
+    var loggedRVU = newEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc (" + loggedRVU.toFixed(1) + " wRVUs)" });
     setSaved(true);
     resetTimer.current = setTimeout(function() {

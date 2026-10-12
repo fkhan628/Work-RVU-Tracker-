@@ -90,6 +90,12 @@ the per-file gates below. Run it after EVERY file change.
 - CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
   rankCPTMatches only reorders them (exact, prefix, usage, favorites,
   CPT order). Log and History both use it; check.js pins it.
+- wRVU credit has ONE rule: creditedRVU(e) in utils.js (0 when
+  e.noCredit === true, otherwise the snapshot adjustedRVU, uncoerced).
+  Every wRVU or comp SUM goes through it; sort comparators and a row's own
+  wRVU display stay raw. adjustedRVU is never zeroed to remove credit.
+  check.js fails on raw adjustedRVU arithmetic and pins each file's count
+  of remaining raw reads - bump RAW_RVU_PIN only for a new sort/display.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

@@ -483,7 +483,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
 
   const expCSV = () => {
     const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"];
-    const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.notes || '']);
+    const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.notes || '']);
     var csv = [h.join(','), ...rows.map(r => r.map(csvField).join(','))].join('\n');
     // Acute block appended as a second long-form table. Round-trip safety: under
     // the entries header the CPT column is index 1; every acute row (incl. its
@@ -536,8 +536,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       data.entries.forEach(function(e) {
         var key = e.date.slice(0, 7);
         if (!monthMap[key]) monthMap[key] = { rvu: 0, comp: 0, cases: 0 };
-        monthMap[key].rvu += e.adjustedRVU;
-        monthMap[key].comp += e.adjustedRVU * settings.ratePerRVU;
+        monthMap[key].rvu += creditedRVU(e);
+        monthMap[key].comp += creditedRVU(e) * settings.ratePerRVU;
         monthMap[key].cases += 1;
       });
       var instData = data.institutionData || [];
@@ -569,7 +569,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       }
       var procHeaders = ["Date", "CPT Code", "Description", "Category", "Type", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes"];
       var procRows = data.entries.slice().sort(function(a, b) { return a.date.localeCompare(b.date); }).map(function(e) {
-        return [e.date, e.cptCode, e.description, e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((e.adjustedRVU * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || ""];
+        return [e.date, e.cptCode, e.description, e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((creditedRVU(e) * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || ""];
       });
       var procData = [procHeaders].concat(procRows);
       var ws1 = XLSX.utils.aoa_to_sheet(procData);
@@ -593,7 +593,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       data.entries.forEach(function(e) {
         if (!codeMap[e.cptCode]) codeMap[e.cptCode] = { code: e.cptCode, desc: e.description, cat: e.category, count: 0, totalRVU: 0 };
         codeMap[e.cptCode].count += 1;
-        codeMap[e.cptCode].totalRVU += e.adjustedRVU;
+        codeMap[e.cptCode].totalRVU += creditedRVU(e);
       });
       var topList = Object.values(codeMap).sort(function(a, b) { return b.totalRVU - a.totalRVU; });
       var topHeaders = ["CPT Code", "Description", "Category", "Times Logged", "Total wRVUs", "Avg wRVU", "Total Compensation"];
@@ -652,7 +652,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     }
   };
 
-  const tRVU = data.entries.reduce((s, e) => s + e.adjustedRVU, 0);
+  const tRVU = data.entries.reduce((s, e) => s + creditedRVU(e), 0);
   const avg = data.entries.length > 0 ? tRVU / data.entries.length : 0;
   const overrideCount = Object.keys(data.rvuOverrides).length;
 

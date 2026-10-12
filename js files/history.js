@@ -35,7 +35,7 @@ function Import({ data, cptMap, upd, setView, showUndo }) {
   </div>);
 
   if (mode === "preview" && parsed) {
-    const matched = parsed.entries.filter(e => cptMap[e.cptCode]); const tRVU = parsed.entries.reduce((s, e) => s + e.adjustedRVU, 0);
+    const matched = parsed.entries.filter(e => cptMap[e.cptCode]); const tRVU = parsed.entries.reduce((s, e) => s + creditedRVU(e), 0);
     return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
       {status === 'ok' && <div style={S.successBanner}> Imported {addedCount} procedure{addedCount === 1 ? "" : "s"}{addedCount < parsed.entries.length ? " (" + (parsed.entries.length - addedCount) + " already present, skipped)" : ""}</div>}
       <div style={{ ...S.card, background: "linear-gradient(135deg, var(--bg-card), var(--bg-inset))", border: "1px solid var(--border-default)" }}><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>{[[parsed.entries.length, "Procedures", "var(--text-bright)"], [tRVU.toFixed(0), "Total wRVUs", "#0ea5e9"], [matched.length, "Matched", "#10b981"]].map(([v, l, c]) => (<div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: c }}>{v}</div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div></div>))}</div></div>
@@ -158,7 +158,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       showUndo({ type: "delete", entries: [entry], message: "Deleted " + (entry.cptCode || "entry") + " (" + entry.adjustedRVU.toFixed(2) + " wRVU)" });
     }
   };
-  const tF = filtered.reduce((s, e) => s + e.adjustedRVU, 0);
+  const tF = filtered.reduce((s, e) => s + creditedRVU(e), 0);
   const filteredCount = filtered.length;
   const [swipedId, setSwipedId] = useState(null);
   var touchStart = useRef({ x: 0, id: null });
@@ -192,7 +192,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       if (o.type === "enc") {
         var ents = encMap[o.key];
         if (ents.length === 1) return { type: "single", entry: ents[0] };
-        return { type: "encounter", patient: o.key, entries: ents, totalRVU: ents.reduce(function(s, x) { return s + x.adjustedRVU; }, 0) };
+        return { type: "encounter", patient: o.key, entries: ents, totalRVU: ents.reduce(function(s, x) { return s + creditedRVU(x); }, 0) };
       }
       return o;
     });
@@ -222,7 +222,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div>
-          <div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(e.adjustedRVU * settings.ratePerRVU).toFixed(0)}</div>
+          <div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(creditedRVU(e) * settings.ratePerRVU).toFixed(0)}</div>
           {!isSwiped && <button onClick={function(ev) { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button>}
         </div>
       </div>
@@ -235,7 +235,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   var exportFiltered = function() {
     var h = ["Date","CPT","Description","Category","Type","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Patient","Notes"];
     var rows = filtered.map(function(e) {
-      return [e.date, e.cptCode, e.description || "", e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (e.adjustedRVU * settings.ratePerRVU).toFixed(2), e.encounterId || "", e.notes || ""];
+      return [e.date, e.cptCode, e.description || "", e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.encounterId || "", e.notes || ""];
     });
     var csv = [h.join(",")].concat(rows.map(function(r) { return r.map(csvField).join(","); })).join("\n");
     var b = new Blob([csv], { type: "text/csv" });
@@ -471,7 +471,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         if (items.length === 0) return null;
         var encounters = groupBy === "date" ? buildEncounters(items) : null;
         return (<div key={group} style={{ marginBottom: 16 }}>
-          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {allItems.reduce((s, e) => s + e.adjustedRVU, 0).toFixed(1)} wRVU  ({allItems.length}){items.length < allItems.length ? " - showing " + items.length : ""}</span></div>
+          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {allItems.reduce((s, e) => s + creditedRVU(e), 0).toFixed(1)} wRVU  ({allItems.length}){items.length < allItems.length ? " - showing " + items.length : ""}</span></div>
           {encounters ? encounters.map(function(enc, ei) {
             if (enc.type === "single") return renderProcRow(enc.entry, false);
             return (<div key={enc.patient + "-" + ei} style={{ background: "rgba(14,165,233,0.03)", border: "1px solid rgba(14,165,233,0.12)", borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
