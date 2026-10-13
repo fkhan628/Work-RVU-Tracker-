@@ -1270,6 +1270,26 @@ function entryEncounterMates(entries, e) {
   if (!e || typeof e !== "object" || typeof e.encounterId !== "string" || !e.encounterId || !Array.isArray(entries)) return [];
   return entries.filter(function(x) { return !!x && typeof x === "object" && x !== e && x.id !== e.id && x.date === e.date && x.encounterId === e.encounterId; });
 }
+// The rest of an encounter (History's checkbox): when a case's Call/Private
+// or site changes, or the rule is re-applied, the other procedures of its
+// encounter (entryEncounterMates of the case BEFORE the edit) take the same
+// call fields, each with credit from its OWN date. Returns { id: new entry }
+// for the mates whose call fields actually change (entryCallKey); every
+// other mate is left out and stays exactly as it is.
+function entryEncounterCallPlan(entries, cur, isCall, siteKey, sites, rederive) {
+  var out = {};
+  if (!cur || typeof cur !== "object") return out;
+  var call = isCall === true;
+  // A siteless Call pick is "" or CALL_SITE_OTHER - entryWithCall treats both
+  // as no site, so they compare equal here too.
+  var key = call ? (typeof siteKey === "string" && siteKey !== "" ? siteKey : CALL_SITE_OTHER) : "";
+  if (call === !!cur.isCall && key === entrySiteKey(cur) && rederive !== true) return out;
+  entryEncounterMates(entries, cur).forEach(function(m) {
+    var m2 = entryWithCall(m, m, call, siteKey, sites, true);
+    if (entryCallKey(m2) !== entryCallKey(m)) out[m.id] = m2;
+  });
+  return out;
+}
 // Row label: a current site's CURRENT name, else the stored name + " (deleted)"
 // (paySiteNames precedent), "" when the case stores no site. Always a string.
 function entrySiteLabel(e, sites) {

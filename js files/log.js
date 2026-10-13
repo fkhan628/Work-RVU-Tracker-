@@ -15,7 +15,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   const [cat, setCat] = useState("All");
   // Favorites show when the ACTIVE procedure is empty (as after addProc).
   const [showFavs, setShowFavs] = useState(function() { var ap = dr ? (dr.procs[dr.activeProc] || dr.procs[0]) : null; return !(ap && (ap.code || ap.search)); });
-  const [isCall, setIsCall] = useState(function() { return dr ? dr.isCall : false; });
+  const [isCall, setIsCall] = useState(function() { return dr ? dr.call : false; });
   // Procedure templates: PRE-FILL only. applyTemplate composes the exact
   // state manual entry writes (selectCode / companion addSuggestion draft
   // shapes) and then STOPS - it never saves, never touches the save
@@ -137,7 +137,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   useEffect(function() {
     if (!logDraft || savingRef.current) return;
     var empty = !procs.some(function(p) { return p.code || p.search; }) && !notes && !patientId && !isCall;
-    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, isCall: isCall, nextId: nextId.current };
+    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, call: isCall, nextId: nextId.current };
   }, [date, patientId, procs, notes, activeProc, isCall]);
 
   var favorites = data.favorites || [];
@@ -559,7 +559,9 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       var info = cptMap[p.code];
       if (!info) return;
       var adj = calcAdj(info.wRVU, p.mods);
-      newEntries.push({
+      // Call fields go through utils.js entryWithCall (check.js G8). No site
+      // yet: a Call case here is siteless and credited, exactly as before.
+      newEntries.push(entryWithCall({
         id: Date.now().toString() + "-" + p.id + "-" + Math.random().toString(36).slice(2, 8),
         date: date,
         cptCode: p.code,
@@ -572,7 +574,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         encounterId: patientId || undefined,
         isCall: isCall,
         imported: false
-      });
+      }, null, isCall, "", [], true));
     });
     upd(function(prev) { return { ...prev, entries: prev.entries.concat(newEntries) }; });
     var loggedRVU = newEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);

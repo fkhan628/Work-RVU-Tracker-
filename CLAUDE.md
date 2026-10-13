@@ -155,7 +155,15 @@ the per-file gates below. Run it after EVERY file change.
   a site store siteId + siteName; Private and siteless Call cases store
   neither (CALL_SITE_OTHER is a picker key, never stored). There is no
   repair rule for siteId/siteName: readers use entrySiteId/entrySiteKey/
-  entrySiteLabel, which ignore junk.
+  entrySiteLabel, which ignore junk. Every entry write of isCall goes
+  through entryWithCall (check.js G8: an isCall object literal must be its
+  first argument; siteId/siteName are written only in utils.js and
+  callpay.js). Log derives (src null). History edits pass the stored case
+  as src and preview with the same call; "Apply site rule" re-derives;
+  Private clears site and credit; + Add inherits from its source; the rest
+  of the encounter (checkbox, entryEncounterCallPlan) gets only the call
+  fields, credit from each case's own date; a case's own deleted site can
+  only lose the mark.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

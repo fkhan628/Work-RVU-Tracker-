@@ -298,6 +298,24 @@ function casesEarnWrites(src, file) {
   });
   return out;
 }
+// G8 (7b): outside utils.js an entry's isCall is written only through
+// entryWithCall - an object literal with an isCall key must be its FIRST
+// argument; assigning or deleting .isCall is refused. siteId / siteName are
+// written only in utils.js and callpay.js (call shifts own those keys there).
+function callFieldWrites(src, file) {
+  const out = [];
+  if (file === "utils.js") return out;
+  const named = (q, name) => q.type === "ObjectProperty" && (q.computed ? litValue(q.key) === name : keyIs(q.key, name));
+  const writes = (n, name) => (n.type === "AssignmentExpression" && memberIs(n.left, name)) || (n.type === "UnaryExpression" && n.operator === "delete" && memberIs(n.argument, name));
+  walkStack(src, (n, stack) => {
+    const p = stack[stack.length - 1];
+    if (n.type === "ObjectExpression" && n.properties.some(q => named(q, "isCall")) &&
+        !(p && p.type === "CallExpression" && p.callee.type === "Identifier" && p.callee.name === "entryWithCall" && p.arguments[0] === n)) out.push(n.loc.start.line);
+    if (writes(n, "isCall")) out.push(n.loc.start.line);
+    if (file !== "callpay.js" && ((n.type === "ObjectExpression" && n.properties.some(q => named(q, "siteId") || named(q, "siteName"))) || writes(n, "siteId") || writes(n, "siteName"))) out.push(n.loc.start.line);
+  });
+  return out;
+}
 const gateSelfTest = [ // [src, raw reads, flagged, file]
   ["var t = list.reduce(function(s, e) { return s + e.adjustedRVU; }, 0);", 1, 1, "x.js"],
   ["m.total += (e.adjustedRVU || 0); var c = Number(e.adjustedRVU) * rate;", 2, 2, "x.js"],
@@ -379,7 +397,28 @@ const earnSelfTest = [ // [src, file, must be flagged]
 ];
 const badEarnSelf = earnSelfTest.filter(t => (casesEarnWrites(t[0], t[1]).length > 0) !== t[2]);
 check("G9 casesEarnRVU-write gate self-test (" + earnSelfTest.length + " snippets)", badEarnSelf.length === 0, badEarnSelf.map(t => t[0]).join(" | "));
-const rawCounts = {}, rawArith = [], ncMentions = [], helperBad = [], helperDecls = {}, zeroWrites = [], writerBad = [], earnWrites = [];
+const callSelfTest = [ // [src, file, must be flagged]
+  ["var o = { cptCode: c, isCall: x };", "history.js", true],
+  ["var o = entryWithCall({ cptCode: c, isCall: x }, null, x, k, s, true);", "history.js", false],
+  ["var o = entryWithCall(e, { isCall: x });", "history.js", true],
+  ["f({ isCall: x });", "history.js", true],
+  ["var o = { isCall };", "history.js", true],
+  ["var o = { \"isCall\": true };", "log.js", true],
+  ["Object.assign(e, { isCall: x });", "history.js", true],
+  ["e.isCall = false;", "history.js", true],
+  ["e[\"isCall\"] = true;", "history.js", true],
+  ["delete e.isCall;", "history.js", true],
+  ["var d = { call: isCall, nextId: 2 }; var t = e.isCall ? 1 : 0; var { isCall: ic } = e;", "log.js", false],
+  ["var o = { ...e, siteId: x };", "history.js", true],
+  ["e.siteName = n;", "history.js", true],
+  ["delete e.siteId;", "log.js", true],
+  ["var lbl = entrySiteLabel(e, s) + e.siteName;", "history.js", false],
+  ["var sh = { id: i, siteId: s.id, siteName: s.name };", "callpay.js", false],
+  ["var o = { isCall: true, siteId: \"a\" };", "utils.js", false],
+];
+const badCallSelf = callSelfTest.filter(t => (callFieldWrites(t[0], t[1]).length > 0) !== t[2]);
+check("G8 call-field gate self-test (" + callSelfTest.length + " snippets)", badCallSelf.length === 0, badCallSelf.map(t => t[0]).join(" | "));
+const rawCounts = {}, rawArith = [], ncMentions = [], helperBad = [], helperDecls = {}, zeroWrites = [], writerBad = [], earnWrites = [], callWrites = [];
 jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
   let src = "", reads = [];
   try { src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); reads = rawRVUReads(src, f); } catch (e) { return; } // parse failure is reported in step 1
@@ -392,6 +431,7 @@ jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
   zeroRVUWrites(src).forEach(l => zeroWrites.push(f + ":" + l));
   writerUses(src, f).forEach(l => writerBad.push(f + ":" + l));
   casesEarnWrites(src, f).forEach(l => earnWrites.push(f + ":" + l));
+  callFieldWrites(src, f).forEach(l => callWrites.push(f + ":" + l));
 });
 check("wRVU/comp sums go through creditedRVU/noCreditRVU (no raw adjustedRVU arithmetic, destructuring or \"adjustedRVU\" strings)", rawArith.length === 0, rawArith.join(", "));
 const pinDiff = Object.keys(Object.assign({}, RAW_RVU_PIN, rawCounts)).filter(f => (RAW_RVU_PIN[f] || 0) !== (rawCounts[f] || 0));
@@ -403,6 +443,7 @@ check("credit helpers: declared once each at the top of utils.js; elsewhere only
 check("adjustedRVU is never written as a literal 0", zeroWrites.length === 0, zeroWrites.join(", "));
 check("withNoCredit (the one noCredit writer) is used only inside utils.js entryWithCall", writerBad.length === 0, writerBad.join(", "));
 check("casesEarnRVU changes only through utils.js paySiteWithCredit (repairData, the preset and a fresh site's literal true aside)", earnWrites.length === 0, earnWrites.join(", "));
+check("entry isCall is written only through entryWithCall (first argument); siteId/siteName only in utils.js/callpay.js", callWrites.length === 0, callWrites.join(", "));
 
 // 5e. Hooks before any conditional return (CLAUDE.md; this crashed analytics
 // once). For every top-level component (capitalized function declaration)
@@ -1468,6 +1509,39 @@ if (sb) {
     check("paySiteCreditNote: \"\" for a crediting site; no credit / credited before / from the start; ASCII",
       notes[0] === "" && notes[1] === "no wRVU credit" && notes[2].indexOf("credited before ") === 0 && notes[3].indexOf("no wRVU credit from ") === 0 && notes[4] === "" && notes.every(ascii7),
       JSON.stringify(notes));
+  }
+
+  {
+    // The rest of an encounter (History's checkbox).
+    const cur = Object.assign(lit7("2026-10-05"), { id: "c0" });                     // siteless Call
+    const m1 = Object.assign(lit7("2026-10-05"), { id: "c1", cptCode: "49650" });    // siteless Call
+    const m2 = Object.assign(lit7("2026-10-05"), { id: "c2", isCall: false });       // Private
+    const m3 = Object.assign(lit7("2026-10-06"), { id: "c3" });                     // another date
+    const m4 = Object.assign(lit7("2026-10-05"), { id: "c4", encounterId: "ab" });  // other initials
+    const m5 = sb.entryWithCall(Object.assign(lit7("2026-10-05"), { id: "c5" }), null, true, "st-n", S7, true); // Call at N, marked
+    const m6 = sb.entryWithCall(Object.assign(lit7("2026-10-05"), { id: "c6" }), null, true, "st-n", [sb.paySiteWithCredit(N7, true)], true); // Call at N, credited when N still earned
+    const ents = [cur, m1, m2, m3, m4, m5, m6], entsJ = JSON.stringify(ents);
+    const keysOf = p => Object.keys(p).sort().join(",");
+    const pN = sb.entryEncounterCallPlan(ents, cur, true, "st-n", S7, false);
+    const pSame = sb.entryEncounterCallPlan(ents, cur, true, sb.CALL_SITE_OTHER, S7, false);
+    const pRe = sb.entryEncounterCallPlan(ents, m5, true, "st-n", S7, true);
+    const pPriv = sb.entryEncounterCallPlan(ents, m5, false, "", S7, false);
+    const o0 = Object.assign(lit7("2026-09-28"), { id: "o0" }), o1 = Object.assign(lit7("2026-09-28"), { id: "o1" });
+    const pOld = sb.entryEncounterCallPlan([o0, o1], o0, true, "st-n", S7, false);
+    // A siteless Call pick may be "" (no sites to force a pick) or OTHER: same.
+    const pBlank = sb.entryEncounterCallPlan(ents, cur, true, "", [], false);
+    const q0 = Object.assign(lit7("2026-10-05"), { id: "q0", isCall: false, encounterId: "QQ" }), q1 = Object.assign(lit7("2026-10-05"), { id: "q1", isCall: false, encounterId: "QQ" });
+    const pToCall = sb.entryEncounterCallPlan([q0, q1], q0, true, "", [], false);
+    check("entryEncounterCallPlan: only same-date exact-initials mates whose call fields change, credit by each mate's own date; nothing when the picks are unchanged; inputs untouched",
+      keysOf(pN) === "c1,c2,c6" && sb.isNoCredit(pN.c1) && pN.c1.siteId === "st-n" && pN.c2.isCall === true && sb.isNoCredit(pN.c2) && sb.isNoCredit(pN.c6) &&
+      keysOf(pSame) === "" && keysOf(pPriv) === "c0,c1,c6" && pPriv.c0.isCall === false && !hasK7(pPriv.c0, "siteId") && !hasK7(pPriv.c1, "noCredit") &&
+      keysOf(pRe) === "c0,c1,c2,c6" && [pRe.c0, pRe.c1, pRe.c2, pRe.c6].every(x => sb.isNoCredit(x) && x.siteName === "North") &&
+      keysOf(pOld) === "o1" && !sb.isNoCredit(pOld.o1) && pOld.o1.siteId === "st-n" &&
+      keysOf(pBlank) === "" && keysOf(pToCall) === "q1" && pToCall.q1.isCall === true && !hasK7(pToCall.q1, "siteId") && !hasK7(pToCall.q1, "noCredit") &&
+      keysOf(sb.entryEncounterCallPlan(ents, null, true, "st-n", S7, true)) === "" && keysOf(sb.entryEncounterCallPlan(null, cur, true, "st-n", S7, true)) === "" &&
+      JSON.stringify(ents) === entsJ &&
+      fixedPoint7(entStore7(JSON.parse(JSON.stringify([pN.c1, pN.c2, pRe.c0, pPriv.c0, pOld.o1])))),
+      JSON.stringify({ pN: keysOf(pN), pSame: keysOf(pSame), pRe: keysOf(pRe), pPriv: keysOf(pPriv), pOld: keysOf(pOld), pBlank: keysOf(pBlank), pToCall: keysOf(pToCall) }));
   }
 }
 

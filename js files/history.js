@@ -60,6 +60,12 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [editSearch, setEditSearch] = useState("");
   const [editPatient, setEditPatient] = useState("");
   const [editIsCall, setEditIsCall] = useState(false);
+  // Call site + credit drafts (7b). editSite: "" (Private / not picked yet), a
+  // site id, or CALL_SITE_OTHER. editRederive: "Apply site rule" tapped.
+  // editApplyEnc: also give the rest of the encounter the new call fields.
+  const [editSite, setEditSite] = useState("");
+  const [editRederive, setEditRederive] = useState(false);
+  const [editApplyEnc, setEditApplyEnc] = useState(true);
   // Manual wRVU draft, used ONLY when the user actively changes an entry's
   // code to one the database doesn't know. Prefilled with the entry's prior
   // base value, so leaving it untouched means "keep prior value".
@@ -211,7 +217,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
           <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
             <span style={S.histCode}>{e.cptCode}</span>
             {e.modifiers.map(function(m) { return <span key={m} style={S.histMod}>{m}</span>; })}
-            {e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
+            {e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>{"call" + (entrySiteId(e) ? " \u00B7 " + entrySiteLabel(e, data.paySites || []) : "")}</span>}
             {isNoCredit(e) && <span style={S.ncTag}>no credit</span>}
             {e.imported &&<span style={{ fontSize: 9, color: "var(--text-dim)", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}
             {getGlobalDays(e.cptCode) && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.15)", color: getGlobalColor(e.cptCode), fontFamily: "JetBrains Mono", fontWeight: 600 }}>{getGlobalDays(e.cptCode)}</span>}
@@ -259,6 +265,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     setEditSearch("");
     setEditPatient(e.encounterId || "");
     setEditIsCall(!!e.isCall);
+    setEditSite(entrySiteKey(e));
+    setEditRederive(false);
+    setEditApplyEnc(true);
     setEditManualBase(String(e.baseRVU || 0));
   };
 
@@ -278,6 +287,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     setEditSearch("");
     setEditPatient(src.encounterId || "");
     setEditIsCall(!!src.isCall);
+    setEditSite(entrySiteKey(src));
+    setEditRederive(false);
     addSavingRef.current = false;
   };
 
@@ -291,8 +302,22 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     setEditCode("");
     setEditMods([]);
     setEditSearch("");
+    setEditRederive(false); // the site pick carries over; the source now holds the saved result
     addSavingRef.current = false;
   };
+
+  // The open panel's call inputs (7b): the source case (edit: the case; add:
+  // the encounter's source), its own deleted site, and whether Save waits for
+  // a site pick. Credit itself is decided only by utils.js entryWithCall.
+  var editCallInfo = function() {
+    var sites = data.paySites || [];
+    var srcId = editId === ADD_SENTINEL ? addSourceId : editId;
+    var src = data.entries.find(function(x) { return x.id === srcId; }) || null;
+    var sid = src && src.isCall ? entrySiteId(src) : "";
+    var gone = sid && !paySiteById(sites, sid) ? { id: sid, label: entrySiteLabel(src, sites) } : null;
+    return { sites: sites, src: src, gone: gone, need: editIsCall && editSite === "" && (sites.length > 0 || !!gone) };
+  };
+  var siteChip = function(on) { return { flex: "1 1 120px", minHeight: 44, padding: "6px 10px", borderRadius: 10, border: on ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: on ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: on ? "#a78bfa" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer", textAlign: "left" }; };
 
   // Add-mode save: appends a NEW entry in the Log flow's shape. Unlike
   // saveEdit, an unknown code is refused (the Log flow skips unknown codes;
@@ -300,10 +325,11 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   // ref lock guards double-taps; it resets on the next startAdd/addAnother.
   var saveAdd = function() {
     var info = cptMap[editCode];
-    if (!info || addSavingRef.current) return;
+    var ci = editCallInfo();
+    if (!info || addSavingRef.current || ci.need) return;
     addSavingRef.current = true;
     var adj = calcAdj(info.wRVU, editMods);
-    var newEntry = {
+    var newEntry = entryWithCall({
       id: Date.now().toString() + "-h-" + Math.random().toString(36).slice(2, 8),
       date: editDate,
       cptCode: editCode,
@@ -316,7 +342,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       encounterId: editPatient || undefined,
       isCall: editIsCall,
       imported: false
-    };
+    }, ci.src, editIsCall, editSite, ci.sites, editRederive);
     var srcId = addSourceId;
     var pat = editPatient;
     upd(function(prev) {
@@ -329,7 +355,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       }
       return { ...prev, entries: next };
     });
-    showUndo({ type: "log", ids: [newEntry.id], message: "Added " + editCode + " (" + adj.toFixed(2) + " wRVU)" });
+    showUndo({ type: "log", ids: [newEntry.id], message: "Added " + editCode + " (" + adj.toFixed(2) + " wRVU" + (isNoCredit(newEntry) ? ", no credit" : "") + ")" });
     setEditId(null);
     setAddSourceId(null);
   };
@@ -345,6 +371,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const saveEdit = () => {
     var orig = data.entries.find(function(e) { return e.id === editId; });
     if (!orig) { setEditId(null); return; }
+    if (editCallInfo().need) return; // Save is disabled in this state; backstop
     var info = cptMap[editCode];
     var codeChanged = editCode !== orig.cptCode;
     var baseRVU, desc, cat;
@@ -363,7 +390,23 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       cat = "Other";
     }
     var adj = calcAdj(baseRVU, editMods);
-    upd(prev => ({ ...prev, entries: prev.entries.map(e => e.id === editId ? { ...e, date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes, encounterId: editPatient || undefined, isCall: editIsCall } : e) }));
+    var edited = { date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes, encounterId: editPatient || undefined };
+    var call = editIsCall, siteKey = editSite, rederive = editRederive, applyEnc = editApplyEnc, id = editId;
+    // Credit and site through utils.js entryWithCall (kept unless Call/
+    // Private, site or the side of the start date changed, or the rule was
+    // re-applied). The rest of the encounter - read from prev, matched on the
+    // case BEFORE this edit - takes the new call fields when the box is
+    // checked; only mates whose call fields change are rewritten.
+    upd(function(prev) {
+      var sites = prev.paySites || [];
+      var cur = prev.entries.find(function(x) { return x.id === id; });
+      if (!cur) return prev;
+      var mates = applyEnc ? entryEncounterCallPlan(prev.entries, cur, call, siteKey, sites, rederive) : {};
+      return { ...prev, entries: prev.entries.map(function(e) {
+        if (e.id === id) return entryWithCall({ ...e, ...edited, isCall: call }, e, call, siteKey, sites, rederive);
+        return mates[e.id] || e;
+      }) };
+    });
     setEditId(null);
   };
 
@@ -389,25 +432,55 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     var editOrig = isAddMode ? null : data.entries.find(function(e) { return e.id === editId; });
     var editCodeChanged = editOrig ? editCode !== editOrig.cptCode : false;
     var editUnknownChanged = editCodeChanged && !editInfo;
-    // Display mirrors what save will write: db value for a known code,
-    // the snapshot for an unchanged unknown code, the manual draft for an
+    // Display mirrors what save will write: the stored snapshot for an
+    // unchanged code (known or not - saveEdit never re-derives it), the db
+    // value for a newly picked known code, the manual draft for an
     // actively-changed unknown code. Never a phantom 0.
-    var editBase = editInfo ? editInfo.wRVU
-      : editUnknownChanged ? (parseFloat(editManualBase) || 0)
-      : (editOrig ? (editOrig.baseRVU || 0) : 0);
+    var editBase = editOrig && !editCodeChanged ? (editOrig.baseRVU || 0)
+      : editInfo ? editInfo.wRVU
+      : editUnknownChanged ? (parseFloat(editManualBase) || 0) : 0;
     var editAdj = calcAdj(editBase, editMods);
-    var editSaveDisabled = editUnknownChanged && isNaN(parseFloat(editManualBase));
+    // Call site + credit (7b). The preview runs the SAME entryWithCall as
+    // Save, so what it shows is what Save writes. editRuleNC is the current
+    // site rule; a kept snapshot that disagrees offers "Apply site rule".
+    var ci = editCallInfo();
+    var editPv = entryWithCall({ date: editDate, adjustedRVU: editAdj }, ci.src, editIsCall, editSite, ci.sites, editRederive);
+    var editNC = isNoCredit(editPv);
+    var editRuleNC = isNoCredit(entryWithCall({ date: editDate, adjustedRVU: editAdj }, ci.src, editIsCall, editSite, ci.sites, true));
+    var editMismatch = !isAddMode && !editRederive && editRuleNC !== editNC;
+    var editSiteLbl = editIsCall ? entrySiteLabel(editPv, ci.sites) : "";
+    var editMates = !isAddMode && editOrig ? entryEncounterCallPlan(data.entries, editOrig, editIsCall, editSite, ci.sites, editRederive) : {};
+    var editMateOuts = Object.keys(editMates).map(function(k) { return editMates[k]; });
+    var editOffer = editIsCall && callNoCreditDate(editDate) ? payCreditOffers(ci.sites).filter(function(o) { return o.site.id === editSite; })[0] || null : null;
+    var applyEditOffer = function() {
+      if (!editOffer || !confirm(payCreditConfirm([editOffer]))) return;
+      var sid = editOffer.site.id;
+      upd(function(prev) { return { ...prev, paySites: payApplyNoCredit(prev.paySites || [], [sid]) }; });
+    };
+    var editSaveDisabled = (editUnknownChanged && isNaN(parseFloat(editManualBase))) || ci.need;
     return (<div style={S.page}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{isAddMode ? "Add Procedure" : "Edit Procedure"}</h1></div>
-      {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, and call status are carried over. Pick the CPT code below.</div>}
+      {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, call status and call site are carried over. Pick the CPT code below.</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} /></div></div>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { setEditPatient(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        <button onClick={function() { setEditIsCall(false); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: !editIsCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !editIsCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !editIsCall ? "#0ea5e9" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Private</button>
+        <button onClick={function() { setEditIsCall(false); setEditSite(""); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: !editIsCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !editIsCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !editIsCall ? "#0ea5e9" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Private</button>
         <button onClick={function() { setEditIsCall(true); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: editIsCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: editIsCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: editIsCall ? "#a78bfa" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Call</button>
       </div>
+      {editIsCall && (ci.sites.length > 0 || ci.gone) && <div style={{ marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: ci.need ? "#f59e0b" : "var(--text-muted)", marginBottom: 6 }}>{ci.need ? "Pick the call site" : "Call site"}</div>
+        <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+          {ci.sites.map(function(s) { var note = paySiteCreditNote(s, editDate); return (<button key={s.id} onClick={function() { setEditSite(s.id); }} style={siteChip(editSite === s.id)}>{s.name}{note ? <span style={{ fontWeight: 400, fontSize: 11 }}>{" - " + note}</span> : null}</button>); })}
+          {ci.gone && <button onClick={function() { setEditSite(ci.gone.id); }} style={siteChip(editSite === ci.gone.id)}>{ci.gone.label}</button>}
+          <button onClick={function() { setEditSite(CALL_SITE_OTHER); }} style={siteChip(editSite === CALL_SITE_OTHER)}>Other site</button>
+        </div>
+        {editOffer && <div style={{ marginTop: 8, padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.3)" }}>
+          <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{editOffer.site.name + " still credits its call cases. The built-in " + editOffer.def.name + " rule gives call cases from " + fmt(CALL_NO_CREDIT_FROM) + " no wRVU credit."}</div>
+          <button onClick={applyEditOffer} style={{ marginTop: 6, minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.4)", background: "transparent", color: "#f59e0b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{"No credit for " + editOffer.site.name}</button>
+        </div>}
+      </div>}
       <div style={S.fieldGroup}><label style={S.fieldLabel}>CPT Code</label>
         <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
           <div style={{ flex: 1, padding: "8px 12px", background: "var(--bg-card)", border: "1px solid var(--border-default)", borderRadius: 8, color: editCode ? "#0ea5e9" : "var(--text-faint)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{editCode || "\u2014"}</div>
@@ -424,11 +497,21 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         <input type="text" inputMode="decimal" value={editManualBase} onChange={function(e) { setEditManualBase(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="wRVU" style={{ ...S.numberInput, fontSize: 13 }} />
       </div>}
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
-      <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(editAdj * settings.ratePerRVU).toFixed(0)}</div></div></div></div>
+      <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(creditedRVU(editPv) * settings.ratePerRVU).toFixed(0)}</div>{editNC && <div style={{ marginTop: 2 }}><span style={S.ncTag}>no credit</span></div>}</div></div></div>
+      {editMismatch && <div style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.3)", marginBottom: 10 }}>
+        <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{editRuleNC
+          ? "Saved with credit. Call cases at " + editSiteLbl + " dated " + fmt(CALL_NO_CREDIT_FROM) + " or later now earn no wRVU credit."
+          : "Saved as no credit. " + (editSiteLbl ? "Call cases at " + editSiteLbl + " now earn credit." : "A call case with no site earns credit.")}</div>
+        <button onClick={function() { setEditRederive(true); }} style={{ marginTop: 6, minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.4)", background: "transparent", color: "#f59e0b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Apply site rule</button>
+      </div>}
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
+      {editMateOuts.length > 0 && <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 12, color: "var(--text-primary)", cursor: "pointer", marginBottom: 8 }}>
+        <input type="checkbox" checked={editApplyEnc} onChange={function(e) { setEditApplyEnc(e.target.checked); }} style={{ width: 20, height: 20, flexShrink: 0 }} />
+        {"Also set the other " + editMateOuts.length + " procedure" + (editMateOuts.length === 1 ? "" : "s") + " for " + editOrig.encounterId + " on " + fmt(editOrig.date) + " to " + (editIsCall ? "Call" + (editSiteLbl ? " - " + editSiteLbl : "") : "Private") + (editMateOuts.some(isNoCredit) ? " (no credit)" : "")}
+      </label>}
       {!isAddMode && <button onClick={addAnother} disabled={editSaveDisabled} style={{ width: "100%", marginBottom: 10, padding: "9px 12px", borderRadius: 10, border: "1px dashed rgba(14,165,233,0.4)", background: "rgba(14,165,233,0.04)", color: "#0ea5e9", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: editSaveDisabled ? 0.4 : 1 }}>+ Save + add another procedure to this encounter</button>}
       <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button>{isAddMode
-        ? <button onClick={saveAdd} disabled={!editInfo} style={{ ...S.saveBtn, flex: 1, opacity: editInfo ? 1 : 0.4 }}>Add Procedure</button>
+        ? <button onClick={saveAdd} disabled={!editInfo || ci.need} style={{ ...S.saveBtn, flex: 1, opacity: editInfo && !ci.need ? 1 : 0.4 }}>Add Procedure</button>
         : <button onClick={saveEdit} disabled={editSaveDisabled} style={{ ...S.saveBtn, flex: 1, opacity: editSaveDisabled ? 0.4 : 1 }}>Save Changes</button>}</div>
       {/* Delete from the edit panel - same no-confirm + 8s Undo as swipe. */}
       {!isAddMode && <button onClick={function() { var id = editId; cancelEdit(); del(id); }} style={{ ...S.dangerBtn, width: "100%", marginTop: 10, minHeight: 44 }}>Delete this procedure</button>}
@@ -477,13 +560,16 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
           <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {allItems.reduce((s, e) => s + creditedRVU(e), 0).toFixed(1)} wRVU  ({allItems.length}{gNC > 0 ? ", " + gNC + " no credit" : ""}){items.length < allItems.length ? " - showing " + items.length : ""}</span></div>
           {encounters ? encounters.map(function(enc, ei) {
             if (enc.type === "single") return renderProcRow(enc.entry, false);
+            // The card's call tag names the site only when every procedure shares it.
+            var encSite = enc.entries[0].isCall ? entrySiteLabel(enc.entries[0], data.paySites || []) : "";
+            if (!enc.entries.every(function(x) { return (x.isCall ? entrySiteLabel(x, data.paySites || []) : "") === encSite; })) encSite = "";
             return (<div key={enc.patient + "-" + ei} style={{ background: "rgba(14,165,233,0.03)", border: "1px solid rgba(14,165,233,0.12)", borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
               <div style={{ padding: "8px 12px", display: "flex", justifyContent: "space-between", alignItems: "center", borderBottom: "1px solid rgba(14,165,233,0.1)" }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#0ea5e9" }}>{enc.patient}</span>
                   <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{enc.entries.length} procedures</span>
                   {enc.ncCount > 0 && <span style={S.ncTag}>{enc.ncCount === enc.entries.length ? "no credit" : "mixed"}</span>}
-                  {enc.entries[0].isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
+                  {enc.entries[0].isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>{"call" + (encSite ? " \u00B7 " + encSite : "")}</span>}
                 </div>
                 <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 8 }}>
                   <div>
