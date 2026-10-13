@@ -40,6 +40,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   const listScroll = useRef(0);                      // list scroll position while a form is open
   const [repriceOffer, setRepriceOffer] = useState(null); // { siteIds: [...] } after rates change
   const [offerHidden, setOfferHidden] = useState(false); // "Not now" on the Built-in rates card (this visit)
+  const [creditHidden, setCreditHidden] = useState(false); // "Not now" on the Built-in credit rule card (this visit)
   const [hoursOpen, setHoursOpen] = useState(false);     // shift form: hours-on-call input shown
   const [moreOpen, setMoreOpen] = useState({});          // shift form: call-in index -> "More options" open
   const [payYear, setPayYear] = useState("");     // Totals year chip ("" = newest)
@@ -75,6 +76,11 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var offers = payBuiltInOffers(sites);
   var builtInDefOf = {}; // site id -> the built-in def it stands for
   DEFAULT_PAY_SITES.forEach(function(def) { var m = payBuiltInFor(sites, def); if (m && m.site) builtInDefOf[m.site.id] = def; });
+  // Built-in credit rule (7b): sites matched to a no-credit built-in by name
+  // that still credit their call cases. Nothing changes without a confirmed tap.
+  var creditOffers = payCreditOffers(sites);
+  var creditOfferOf = {};
+  creditOffers.forEach(function(o) { creditOfferOf[o.site.id] = o; });
   var dayList = function(days) { return days.slice().sort(function(a, b) { return (a + 6) % 7 - (b + 6) % 7; }).map(function(d) { return DAY3[d]; }).join(", "); };
   var saveRename = function(id) {
     var n = renameDraft.trim();
@@ -85,8 +91,10 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   };
   var deleteSite = function(s) {
     var used = shifts.filter(function(p) { return p.siteId === s.id; }).length;
+    var cases = (data.entries || []).filter(function(e) { return entrySiteId(e) === s.id; }).length;
     var msg = "Delete " + s.name + " and its " + s.rates.length + " rate version" + (s.rates.length === 1 ? "" : "s") + "?" +
-      (used ? " Its " + used + " recorded shift" + (used === 1 ? "" : "s") + " keep their own pay and rates." : "");
+      (used ? " Its " + used + " recorded shift" + (used === 1 ? "" : "s") + " keep their own pay and rates." : "") +
+      (cases ? " Its " + cases + " logged call case" + (cases === 1 ? " keeps its" : "s keep their") + " site name and credit." : "");
     if (!confirm(msg)) return;
     updSites(function(l) { return l.filter(function(x) { return x.id !== s.id; }); });
     if (rateForm && rateForm.siteId === s.id) setRateForm(null);
@@ -192,6 +200,22 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   var monthLabel = function(mk) { return MONTHS[+mk.slice(5, 7) - 1] + " " + mk.slice(0, 4); };
   var fromLabel = function(ymd) { return isYMD(ymd) ? MONTHS[+ymd.slice(5, 7) - 1] + " " + (+ymd.slice(8, 10)) + ", " + ymd.slice(0, 4) : ymd; };
+  // Site credit switch (7b). One confirmed tap; the offer is re-planned
+  // inside the updater against the CURRENT list, so a stale render or a
+  // second tap changes nothing. Logged cases keep their credit either way.
+  var applyCreditRule = function() {
+    if (!creditOffers.length || !confirm(payCreditConfirm(creditOffers))) return;
+    var ids = creditOffers.map(function(o) { return o.site.id; });
+    updSites(function(l) { return payApplyNoCredit(l, ids); });
+  };
+  var setSiteCredit = function(s, earns) {
+    if ((s.casesEarnRVU !== false) === earns) return;
+    if (!confirm(earns
+      ? s.name + ": call cases you log here will earn wRVU credit.\n\nCases already logged keep their credit; you can change each one in History."
+      : s.name + ": call cases you log here dated " + fromLabel(CALL_NO_CREDIT_FROM) + " or later will earn NO wRVU credit - logged for the record, out of your wRVU and comp totals.\n\nCases already logged keep their credit; you can change each one in History.")) return;
+    var id = s.id;
+    updSites(function(l) { return l.map(function(x) { return x.id === id ? paySiteWithCredit(x, earns) : x; }); });
+  };
   // One confirmed tap applies the preset version to every offered site. The
   // updater re-plans against the CURRENT list, so a second tap is a no-op.
   var useBuiltIns = function() {
@@ -621,6 +645,17 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
       </div>
     </div>}
 
+    {creditOffers.length > 0 && !creditHidden && <div style={{ ...S.card, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}>
+      <div style={S.cardLabel}>Built-in credit rule</div>
+      {creditOffers.map(function(o) {
+        return (<div key={o.site.id} style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 6, lineHeight: 1.5 }}>{o.site.name + ": the built-in " + o.def.name + " rule gives call cases from " + fromLabel(CALL_NO_CREDIT_FROM) + " no wRVU credit. This site still credits them."}</div>);
+      })}
+      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+        <button onClick={applyCreditRule} style={btn({ ...primary, flex: 1 })}>Use no credit</button>
+        <button onClick={function() { setCreditHidden(true); }} style={btn()}>Not now</button>
+      </div>
+    </div>}
+
     <div style={S.card}>
       <div style={S.cardLabel}>Call shifts</div>
       {sites.length === 0
@@ -718,6 +753,16 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
             })}
           </div>
           {builtInDefOf[s.id] && wd.slice().sort().join(",") !== builtInDefOf[s.id].weekendDays.slice().sort().join(",") && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{"The built-in " + builtInDefOf[s.id].name + " rates count " + dayList(builtInDefOf[s.id].weekendDays) + " as weekend days."}</div>}
+
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 10, marginBottom: 6 }}>Call cases logged here</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {[[true, "Earn wRVU credit"], [false, "No wRVU credit"]].map(function(c) {
+              var on = (s.casesEarnRVU !== false) === c[0];
+              return (<button key={c[1]} onClick={function() { setSiteCredit(s, c[0]); }} style={btn({ flex: 1, padding: "0 8px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-faint)" })}>{c[1]}</button>);
+            })}
+          </div>
+          {s.casesEarnRVU === false && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{"Call cases dated " + fromLabel(CALL_NO_CREDIT_FROM) + " or later are logged with no wRVU credit; earlier ones earn credit."}</div>}
+          {creditOfferOf[s.id] && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6, lineHeight: 1.5 }}>{"The built-in " + creditOfferOf[s.id].def.name + " rule is no wRVU credit for call cases from " + fromLabel(CALL_NO_CREDIT_FROM) + " - tap No wRVU credit if that applies here."}</div>}
 
           <div style={{ marginTop: 10 }}>
             {sorted.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "6px 0" }}>No rates yet - add the first version.</div>}

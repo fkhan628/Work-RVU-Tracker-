@@ -87,11 +87,21 @@ the per-file gates below. Run it after EVERY file change.
   Dashboard's payTotalInRange (a separate line, never added to Comp),
   re-pricing payRatesDiffer/payShiftStale/payRepriceShift, and the built-in
   rates fill-in payBuiltInFor/payMissingBuiltIns/payRateZero/
-  payBuiltInPlan/payApplyBuiltIn/payBuiltInOffers);
+  payBuiltInPlan/payApplyBuiltIn/payBuiltInOffers, and the call-case credit
+  rule payCaseNoCredit/paySiteCreditNote with the site credit switch
+  paySiteWithCredit/payCreditOffers/payApplyNoCredit/payCreditConfirm);
   callpay.js only holds state and passes "now" in. Built-in rates reach an
   existing site ONLY through the user's confirmed "Use built-in rates" tap
   (re-planned inside the updater); repairData never adds rates, amounts the
   user typed are never changed, and casesEarnRVU is never touched by it.
+  casesEarnRVU (false = call cases logged at the site from
+  CALL_NO_CREDIT_FROM earn no wRVU credit) changes ONLY through
+  paySiteWithCredit on the user's confirmed tap: the site's "Call cases
+  logged here" control, or the "Built-in credit rule" offer
+  (payCreditOffers: one same name or one alias of a no-credit built-in,
+  never by built-in id or an ambiguous match; payApplyNoCredit re-plans
+  inside the updater). repairData and name matches never change it;
+  check.js G9 refuses any other write (a fresh site's literal true aside).
   Shifts are priced only
   from their own rate copy. Every payShifts write goes through
   payShiftFromDraft (or payRepriceShift for a confirmed re-price), whose
@@ -109,15 +119,16 @@ the per-file gates below. Run it after EVERY file change.
   display stay raw. entry.noCredit is `true` or absent: repairData deletes
   `false` silently and any other value LOUDLY (the case stays credited) and
   is a fixed point; validateData deliberately ignores the field. Only
-  utils.js touches noCredit (isNoCredit, repairData; 7b's single writer
-  joins them with a repairData contract test). repairData strips any
+  utils.js touches noCredit: isNoCredit, repairData and the one writer
+  withNoCredit (true or the key deleted, never false; check.js contract
+  test), which only entryWithCall calls (G7). repairData strips any
   non-true value, so a change to the field's type must deploy its
   repairData change first. check.js refuses raw adjustedRVU arithmetic
   outside creditedRVU/noCreditRVU, destructuring adjustedRVU, any
   "adjustedRVU" string or template literal (an object-literal key - a
   write - aside), a literal-0 adjustedRVU write, any noCredit mention
-  outside isNoCredit/repairData, and any use of the three helper names
-  other than calling them or passing them as a call argument; RAW_RVU_PIN
+  outside isNoCredit/repairData/withNoCredit, and any use of the four
+  helper names other than calling them or passing them as a call argument; RAW_RVU_PIN
   pins the remaining raw reads (utils.js 2) - bump it only for a new
   sort/display.
 - No-credit readers (7a): counts and averages shown next to, or dividing,
@@ -133,6 +144,18 @@ the per-file gates below. Run it after EVERY file change.
   column (Credited / No credit) LAST; CSV import never reads it back - it
   warns first instead. Remove Duplicates keys on credit and reports
   same-case pairs that differ only in credit.
+- Call cases and credit (7b): a case is no-credit only when it is Call,
+  logged at a CURRENT site whose casesEarnRVU === false, and dated on/after
+  CALL_NO_CREDIT_FROM ("2026-10-01", pinned by check.js to the no-credit
+  built-in's first rate date). payCaseNoCredit is that rule. Credit is
+  decided when a case is WRITTEN (entryWithCall) and kept as the noCredit
+  snapshot: an edit keeps it while Call/Private and site are unchanged and
+  the date stays on the same side of the start; a later site change never
+  rewrites logged cases (no bulk tool, by the owner's choice). Call cases at
+  a site store siteId + siteName; Private and siteless Call cases store
+  neither (CALL_SITE_OTHER is a picker key, never stored). There is no
+  repair rule for siteId/siteName: readers use entrySiteId/entrySiteKey/
+  entrySiteLabel, which ignore junk.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

@@ -661,7 +661,9 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // built-in preset DEFAULT_PAY_SITES below (CLAUDE.md).
 // paySites: [{ id, name, weekendDays: [0-6] (the site's weekend days: a
 //   call-in on one gets the weekend fee and weekend hourly rules through
-//   classifyPayEvent), casesEarnRVU: bool, rates: [RateVersion] }]
+//   classifyPayEvent), casesEarnRVU: bool (false = call cases logged here
+//   dated CALL_NO_CREDIT_FROM or later earn no wRVU credit; changed only
+//   through paySiteWithCredit), rates: [RateVersion] }]
 // RateVersion: { id, effective: "YYYY-MM-DD", stipend, stipendHours,
 //   callInWeekday, callInWeekendHoliday, hourly, hourlyMinHours (numbers
 //   >= 0; stipendHours > 0 - it is the stipend period divisor),
@@ -761,7 +763,7 @@ function payBuiltInPlan(site, def) {
 // A NEW site object with the plan applied: $0 versions dropped, a deep copy
 // of the preset version appended (preset key order = repairData's, so no
 // rewrite on load), weekend days only when plan.days. casesEarnRVU is never
-// touched (batch 7b owns it).
+// touched here (only paySiteWithCredit changes it, on a confirmed tap).
 function payApplyBuiltIn(site, def, plan) {
   var from = def.rates[0].effective;
   var drops = payBuiltInDrops(site, from);
@@ -782,6 +784,69 @@ function payBuiltInOffers(sites) {
     if (plan) out.push({ def: def, site: m.site, by: m.by, plan: plan });
   });
   return out;
+}
+// Call cases and wRVU credit (7b). A CALL case logged at a current site whose
+// casesEarnRVU is false earns no wRVU credit when dated on/after
+// CALL_NO_CREDIT_FROM (owner 2026-10-12: the acute-care pool covers them;
+// earlier cases stay credited). Private cases and every other site: credited.
+// Decided when a case is WRITTEN (entryWithCall) and kept as the noCredit
+// snapshot - a later site change never rewrites logged cases.
+var CALL_NO_CREDIT_FROM = "2026-10-01";
+// Log/History site picker: "Other site" = a Call case with no stored site.
+// A picker key only - never stored.
+var CALL_SITE_OTHER = "__other__";
+function callNoCreditDate(ymd) { return isYMD(ymd) && ymd >= CALL_NO_CREDIT_FROM; }
+function payCaseNoCredit(isCall, site, ymd) {
+  return isCall === true && !!site && typeof site === "object" && site.deleted !== true && site.casesEarnRVU === false && callNoCreditDate(ymd);
+}
+// The CURRENT site with this id (null for "", junk, or a deleted stand-in).
+function paySiteById(sites, id) {
+  if (typeof id !== "string" || !id || !Array.isArray(sites)) return null;
+  for (var i = 0; i < sites.length; i++) {
+    var s = sites[i];
+    if (s && typeof s === "object" && s.id === id && typeof s.name === "string" && s.deleted !== true) return s;
+  }
+  return null;
+}
+// The ONE way casesEarnRVU changes after a site is created: a confirmed tap
+// in Call Pay or Log (check.js G9). A new object; the key keeps its place,
+// so the result is a repairData fixed point.
+function paySiteWithCredit(site, earns) { return { ...site, casesEarnRVU: earns === true }; }
+// Built-in credit rule offers: a standing site that payBuiltInFor maps to a
+// no-credit built-in def by ONE same name or ONE "<name> ..." alias (never an
+// ambiguous match) and that still credits its cases. A site holding the
+// built-in id is never offered: seeding gives it no credit, so crediting
+// there is the user's own choice. A HINT only - nothing changes until the
+// user confirms; repairData and name matching never change the flag.
+function payCreditOffers(sites) {
+  var out = [];
+  DEFAULT_PAY_SITES.forEach(function(def) {
+    if (def.casesEarnRVU !== false) return;
+    var m = payBuiltInFor(sites, def);
+    if (m && m.site && m.by !== "id" && m.site.casesEarnRVU !== false) out.push({ def: def, site: m.site, by: m.by });
+  });
+  return out;
+}
+// Applies the offer to the listed site ids, re-planned against THIS list (a
+// stale render or a second tap changes nothing). Junk input comes back as is.
+function payApplyNoCredit(sites, ids) {
+  if (!Array.isArray(sites)) return sites;
+  var want = Array.isArray(ids) ? ids : [];
+  var hit = payCreditOffers(sites).filter(function(o) { return want.indexOf(o.site.id) !== -1; }).map(function(o) { return o.site; });
+  return sites.map(function(s) { return hit.indexOf(s) !== -1 ? paySiteWithCredit(s, false) : s; });
+}
+// Confirm text for the offer (the Call Pay card and the Log line say the same).
+function payCreditConfirm(offers) {
+  var names = (Array.isArray(offers) ? offers : []).map(function(o) {
+    return o.site.name + (o.site.name.trim().replace(/\s+/g, " ").toLowerCase() !== o.def.name.toLowerCase() ? " (built-in " + o.def.name + ")" : "");
+  });
+  return names.join(" and ") + ": call cases you log dated " + fmt(CALL_NO_CREDIT_FROM) + " or later will earn NO wRVU credit - logged for the record, out of your wRVU and comp totals.\n\nCases already logged keep their credit; you can change each one in History.";
+}
+// Picker note for a site on a case date ("" when the site credits its cases).
+function paySiteCreditNote(site, ymd) {
+  if (!site || typeof site !== "object" || site.casesEarnRVU !== false) return "";
+  if (!isYMD(ymd)) return "no wRVU credit from " + fmt(CALL_NO_CREDIT_FROM);
+  return callNoCreditDate(ymd) ? "no wRVU credit" : "credited before " + fmt(CALL_NO_CREDIT_FROM);
 }
 const defState = () => ({ entries: [], settings: { ...defSettings(), paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: defaultPaySites(), payShifts: [], dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
@@ -1150,15 +1215,70 @@ function calcAdj(base, mods) {
 // adjustedRVU itself is never zeroed. Readers test the flag ONLY through
 // isNoCredit; every sum of wRVU or comp goes through creditedRVU, and the
 // "Logged, no credit" totals through noCreditRVU. Sorts and a row's own wRVU
-// display keep the raw snapshot. Only isNoCredit and repairData touch the
-// noCredit field (check.js gates raw adjustedRVU arithmetic, any noCredit
-// mention elsewhere, and any use of these three names other than calling
-// them or passing them as a call argument, e.g. list.filter(isNoCredit)).
+// display keep the raw snapshot. Only isNoCredit, repairData and withNoCredit
+// (the one writer, called only by entryWithCall) touch the noCredit field
+// (check.js gates raw adjustedRVU arithmetic, any noCredit mention elsewhere,
+// and any use of these four names other than calling them or passing them as
+// a call argument, e.g. list.filter(isNoCredit)).
 function isNoCredit(e) { return !!e && e.noCredit === true; }
 function creditedRVU(e) { return isNoCredit(e) ? 0 : e.adjustedRVU; }
 // Mirror of creditedRVU: for a numeric adjustedRVU,
 // creditedRVU(e) + noCreditRVU(e) === e.adjustedRVU.
 function noCreditRVU(e) { return isNoCredit(e) ? e.adjustedRVU : 0; }
+// The ONE writer of entry.noCredit (7b): a NEW entry with noCredit: true when
+// on === true (strict, like isNoCredit), else the key removed - never false
+// (repairData would strip it: a rewrite on every load). Every other field,
+// adjustedRVU included, is copied as is. Called ONLY by entryWithCall (G7).
+function withNoCredit(e, on) {
+  var out = { ...e };
+  if (on === true) out.noCredit = true; else delete out.noCredit;
+  return out;
+}
+// A case's stored call-site id ("" for none/junk), its picker key ("" for
+// Private, CALL_SITE_OTHER for a siteless Call case), and the key History
+// compares call fields by.
+function entrySiteId(e) { return !!e && typeof e === "object" && typeof e.siteId === "string" ? e.siteId : ""; }
+function entrySiteKey(e) { return !!e && typeof e === "object" && e.isCall ? (entrySiteId(e) || CALL_SITE_OTHER) : ""; }
+function entryCallKey(e) { return (!!e && typeof e === "object" && e.isCall ? "call" : "private") + "|" + entrySiteId(e) + "|" + (isNoCredit(e) ? "nc" : ""); }
+// THE writer of a case's call fields (check.js G8): isCall, siteId + siteName
+// (Call at a CURRENT site; a case's own deleted site keeps its label) and the
+// credit flag, all decided together; the rest of `next` is copied as is and
+// keys keep their places (a notes edit writes what it read).
+// src: the stored case it came from (null = a new Log case). While Call/
+// Private and site are unchanged, the date stays on the same side of
+// CALL_NO_CREDIT_FROM and rederive !== true, src's credit is KEPT (the
+// snapshot - a later site change never rewrites it); otherwise it is derived
+// by payCaseNoCredit. On the case's own deleted site credit can only be LOST
+// (the date rule), never gained.
+function entryWithCall(next, src, isCall, siteKey, sites, rederive) {
+  var call = isCall === true;
+  var sid = call && typeof siteKey === "string" && siteKey !== CALL_SITE_OTHER ? siteKey : "";
+  var live = paySiteById(sites, sid);
+  var gone = !live && sid !== "" && sid === entrySiteId(src);
+  var same = !!src && typeof src === "object" && rederive !== true && callNoCreditDate(next.date) === callNoCreditDate(src.date) &&
+    call === !!src.isCall && sid === entrySiteId(src);
+  var nc = same ? call && isNoCredit(src) : gone ? isNoCredit(src) && callNoCreditDate(next.date) : payCaseNoCredit(call, live, next.date);
+  var out = { ...next, isCall: call };
+  if (live) { out.siteId = live.id; out.siteName = live.name; }
+  else if (gone) { out.siteId = sid; if (typeof src.siteName === "string" && src.siteName) out.siteName = src.siteName; else delete out.siteName; }
+  else { delete out.siteId; delete out.siteName; }
+  return withNoCredit(out, nc);
+}
+// History's encounter (buildEncounters' rule): same date + EXACT non-empty
+// encounterId, excluding e itself.
+function entryEncounterMates(entries, e) {
+  if (!e || typeof e !== "object" || typeof e.encounterId !== "string" || !e.encounterId || !Array.isArray(entries)) return [];
+  return entries.filter(function(x) { return !!x && typeof x === "object" && x !== e && x.id !== e.id && x.date === e.date && x.encounterId === e.encounterId; });
+}
+// Row label: a current site's CURRENT name, else the stored name + " (deleted)"
+// (paySiteNames precedent), "" when the case stores no site. Always a string.
+function entrySiteLabel(e, sites) {
+  var id = entrySiteId(e);
+  if (!id) return "";
+  var s = paySiteById(sites, id);
+  if (s) return s.name;
+  return typeof e.siteName === "string" && e.siteName ? e.siteName + " (deleted)" : "Deleted site";
+}
 
 // --- Acute care group split math (single implementation - do not duplicate) ---
 // Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in

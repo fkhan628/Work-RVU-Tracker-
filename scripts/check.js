@@ -174,11 +174,13 @@ if (defObj && loadObj && restoreObj) {
 // route totals through creditedRVU(e) (noCreditRVU(e) for the "Logged, no
 // credit" lines) and bump RAW_RVU_PIN only for a sort or display. Reads the
 // gate cannot classify (destructuring, e["adjustedRVU"], any "adjustedRVU"
-// string) are refused. Further gates: only isNoCredit and repairData may
-// mention noCredit; the three helper names may only be called or passed
-// (utils.js declares each once); adjustedRVU is never written as literal 0.
+// string) are refused. Further gates: only isNoCredit, repairData and
+// withNoCredit may mention noCredit; the four helper names may only be called
+// or passed (utils.js declares each once); adjustedRVU is never written as
+// literal 0; withNoCredit is called only by entryWithCall (G7); casesEarnRVU
+// is written only by paySiteWithCredit / repairData / the preset (G9).
 const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 6, "settings.js": 3, "utils.js": 2 };
-const CREDIT_HELPERS = ["creditedRVU", "isNoCredit", "noCreditRVU"];
+const CREDIT_HELPERS = ["creditedRVU", "isNoCredit", "noCreditRVU", "withNoCredit"];
 const ARITH_OPS = { "+": 1, "-": 1, "*": 1, "/": 1, "%": 1 };
 const WALK_SKIP = { loc: 1, start: 1, end: 1, leadingComments: 1, trailingComments: 1, innerComments: 1 };
 const isRawRVU = n => !!n && n.type === "MemberExpression" && !n.computed && !!n.property && n.property.name === "adjustedRVU";
@@ -231,12 +233,13 @@ function rawRVUReads(src, file) {
   return out;
 }
 // Any mention of the noCredit field (identifier, JSX prop, string or
-// template key) outside the top-level utils.js isNoCredit / repairData.
+// template key) outside the top-level utils.js isNoCredit / repairData /
+// withNoCredit (the one writer).
 function noCreditUses(src, file) {
   const out = [];
   walkStack(src, (n, stack) => {
     const hit = ((n.type === "Identifier" || n.type === "JSXIdentifier") && n.name === "noCredit") || litValue(n) === "noCredit";
-    if (hit && !inTopFn(stack, file, ["isNoCredit", "repairData"])) out.push(n.loc.start.line);
+    if (hit && !inTopFn(stack, file, ["isNoCredit", "repairData", "withNoCredit"])) out.push(n.loc.start.line);
   });
   return out;
 }
@@ -263,6 +266,35 @@ function zeroRVUWrites(src) {
     if (n.type === "ObjectProperty" && parent && parent.type === "ObjectExpression" && isKey(n.key) && isZero(n.value)) out.push(n.loc.start.line);
     if (n.type === "AssignmentExpression" && n.operator === "=" && n.left.type === "MemberExpression" &&
         (n.left.computed ? litValue(n.left.property) === "adjustedRVU" : n.left.property.name === "adjustedRVU") && isZero(n.right)) out.push(n.loc.start.line);
+  });
+  return out;
+}
+const keyIs = (k, name) => !!k && ((k.type === "Identifier" && k.name === name) || litValue(k) === name);
+const memberIs = (m, name) => !!m && m.type === "MemberExpression" && (m.computed ? litValue(m.property) === name : !!m.property && m.property.name === name);
+// G7 (7b): withNoCredit, the one noCredit writer, appears only in its own
+// declaration and inside the top-level utils.js entryWithCall.
+function writerUses(src, file) {
+  const out = [];
+  walkStack(src, (n, stack) => { if (n.type === "Identifier" && n.name === "withNoCredit" && !inTopFn(stack, file, ["withNoCredit", "entryWithCall"])) out.push(n.loc.start.line); });
+  return out;
+}
+// G9 (7b): a site's casesEarnRVU changes only through utils.js
+// paySiteWithCredit (repairData's shape repair and the DEFAULT_PAY_SITES
+// preset aside). Anywhere else the key may appear only as a literal true in
+// a FRESH site literal (no spread, not an Object.assign source); assigning
+// or deleting it is refused.
+function casesEarnWrites(src, file) {
+  const out = [];
+  walkStack(src, (n, stack) => {
+    if (inTopFn(stack, file, ["paySiteWithCredit", "repairData"])) return;
+    if (file === "utils.js" && stack[1] && stack[1].type === "VariableDeclaration" && stack[1].declarations.some(d => d.id && d.id.name === "DEFAULT_PAY_SITES")) return;
+    const p = stack[stack.length - 1], gp = stack[stack.length - 2];
+    if (n.type === "ObjectProperty" && p && p.type === "ObjectExpression" && (n.computed ? litValue(n.key) === "casesEarnRVU" : keyIs(n.key, "casesEarnRVU"))) {
+      const fresh = n.value.type === "BooleanLiteral" && n.value.value === true && !p.properties.some(q => q.type === "SpreadElement") &&
+        !(gp && gp.type === "CallExpression" && memberIs(gp.callee, "assign"));
+      if (!fresh) out.push(n.loc.start.line);
+    }
+    if ((n.type === "AssignmentExpression" && memberIs(n.left, "casesEarnRVU")) || (n.type === "UnaryExpression" && n.operator === "delete" && memberIs(n.argument, "casesEarnRVU"))) out.push(n.loc.start.line);
   });
   return out;
 }
@@ -299,6 +331,10 @@ const ncSelfTest = [ // [src, file, must be flagged]
   ["function repairData(d) { d.entries.forEach(function(e) { if (e.noCredit !== true) delete e.noCredit; }); }", "utils.js", false],
   ["function helper(e) { return e.noCredit ? 1 : 0; }", "utils.js", true],
   ["function outer() { function isNoCredit(e) { return e.noCredit; } }", "utils.js", true],
+  ["function withNoCredit(e, on) { var o = { ...e }; if (on === true) o.noCredit = true; else delete o.noCredit; return o; }", "utils.js", false],
+  ["function withNoCredit(e, on) { var o = { ...e }; if (on === true) o.noCredit = true; return o; }", "history.js", true],
+  ["function outer() { function withNoCredit(e) { e.noCredit = true; } }", "utils.js", true],
+  ["var o = withNoCredit(e, editX);", "history.js", false],
 ];
 const badNcSelf = ncSelfTest.filter(t => (noCreditUses(t[0], t[1]).length > 0) !== t[2]);
 check("noCredit gate self-test (" + ncSelfTest.length + " snippets)", badNcSelf.length === 0, badNcSelf.map(t => t[0]).join(" | "));
@@ -308,12 +344,42 @@ const helperSelfTest = [ // [src, file, must be flagged]
   ["var isNoCredit = function(e) { return false; };", "utils.js", true], ["function outer() { function creditedRVU(e) { return 0; } }", "utils.js", true],
   ["var a = list.filter(isNoCredit); var b = creditedRVU(e) + noCreditRVU(e);", "history.js", false],
   ["function creditedRVU(e) { return 0; }", "utils.js", false],
+  ["var f = withNoCredit;", "history.js", true], ["function withNoCredit(e) { return e; }", "log.js", true],
 ];
 const badHelperSelf = helperSelfTest.filter(t => (helperNameUses(t[0], t[1]).bad.length > 0) !== t[2]);
 check("credit-helper name gate self-test (" + helperSelfTest.length + " snippets)", badHelperSelf.length === 0, badHelperSelf.map(t => t[0]).join(" | "));
 check("zero-write gate self-test", zeroRVUWrites("var o = { ...e, adjustedRVU: 0 }; e.adjustedRVU = 0;").length === 2 &&
   zeroRVUWrites("var o = { ...e, adjustedRVU: adj }; e.adjustedRVU = calcAdj(b, m);").length === 0);
-const rawCounts = {}, rawArith = [], ncMentions = [], helperBad = [], helperDecls = {}, zeroWrites = [];
+const writerSelfTest = [ // [src, file, must be flagged]
+  ["var o = withNoCredit(e, true);", "log.js", true],
+  ["function entryWithCall(e) { return withNoCredit(e, false); }", "utils.js", false],
+  ["function helper(e) { return withNoCredit(e, true); }", "utils.js", true],
+  ["function outer() { function entryWithCall(e) { return withNoCredit(e, true); } }", "utils.js", true],
+  ["function withNoCredit(e, on) { return e; }", "utils.js", false],
+];
+const badWriterSelf = writerSelfTest.filter(t => (writerUses(t[0], t[1]).length > 0) !== t[2]);
+check("G7 noCredit-writer gate self-test (" + writerSelfTest.length + " snippets)", badWriterSelf.length === 0, badWriterSelf.map(t => t[0]).join(" | "));
+const earnSelfTest = [ // [src, file, must be flagged]
+  ["var s = { id: i, name: n, weekendDays: [0, 6], casesEarnRVU: true, rates: [] };", "callpay.js", false],
+  ["var s = { ...x, casesEarnRVU: false };", "callpay.js", true],
+  ["var s = { ...x, casesEarnRVU: true };", "callpay.js", true],
+  ["var s = { ...x, casesEarnRVU: on };", "callpay.js", true],
+  ["var s = { \"casesEarnRVU\": false };", "callpay.js", true],
+  ["Object.assign(x, { casesEarnRVU: true });", "callpay.js", true],
+  ["x.casesEarnRVU = false;", "callpay.js", true],
+  ["x[\"casesEarnRVU\"] = true;", "callpay.js", true],
+  ["delete x.casesEarnRVU;", "callpay.js", true],
+  ["var v = x.casesEarnRVU === false; var w = paySiteWithCredit(x, false);", "callpay.js", false],
+  ["function paySiteWithCredit(site, earns) { return { ...site, casesEarnRVU: earns === true }; }", "utils.js", false],
+  ["function paySiteWithCredit(site, earns) { return { ...site, casesEarnRVU: earns === true }; }", "callpay.js", true],
+  ["function helper(s) { return { ...s, casesEarnRVU: false }; }", "utils.js", true],
+  ["function repairData(d) { d.paySites.forEach(function(s) { var cs = { ...s }; cs.casesEarnRVU = s.casesEarnRVU !== false; }); }", "utils.js", false],
+  ["var DEFAULT_PAY_SITES = [{ id: \"a\", name: \"A\", weekendDays: [], casesEarnRVU: false, rates: [] }];", "utils.js", false],
+  ["var OTHER = [{ id: \"a\", name: \"A\", weekendDays: [], casesEarnRVU: false, rates: [] }];", "utils.js", true],
+];
+const badEarnSelf = earnSelfTest.filter(t => (casesEarnWrites(t[0], t[1]).length > 0) !== t[2]);
+check("G9 casesEarnRVU-write gate self-test (" + earnSelfTest.length + " snippets)", badEarnSelf.length === 0, badEarnSelf.map(t => t[0]).join(" | "));
+const rawCounts = {}, rawArith = [], ncMentions = [], helperBad = [], helperDecls = {}, zeroWrites = [], writerBad = [], earnWrites = [];
 jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
   let src = "", reads = [];
   try { src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); reads = rawRVUReads(src, f); } catch (e) { return; } // parse failure is reported in step 1
@@ -324,15 +390,19 @@ jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
   h.bad.forEach(b => helperBad.push(f + ":" + b));
   Object.keys(h.decls).forEach(k => { helperDecls[k] = (helperDecls[k] || 0) + h.decls[k]; });
   zeroRVUWrites(src).forEach(l => zeroWrites.push(f + ":" + l));
+  writerUses(src, f).forEach(l => writerBad.push(f + ":" + l));
+  casesEarnWrites(src, f).forEach(l => earnWrites.push(f + ":" + l));
 });
 check("wRVU/comp sums go through creditedRVU/noCreditRVU (no raw adjustedRVU arithmetic, destructuring or \"adjustedRVU\" strings)", rawArith.length === 0, rawArith.join(", "));
 const pinDiff = Object.keys(Object.assign({}, RAW_RVU_PIN, rawCounts)).filter(f => (RAW_RVU_PIN[f] || 0) !== (rawCounts[f] || 0));
 check("raw adjustedRVU reads match the pinned sort/display counts", pinDiff.length === 0,
   pinDiff.map(f => f + " has " + (rawCounts[f] || 0) + ", pinned " + (RAW_RVU_PIN[f] || 0)).join("; "));
-check("noCredit is mentioned only in utils.js isNoCredit / repairData", ncMentions.length === 0, ncMentions.join(", "));
+check("noCredit is mentioned only in utils.js isNoCredit / repairData / withNoCredit", ncMentions.length === 0, ncMentions.join(", "));
 check("credit helpers: declared once each at the top of utils.js; elsewhere only called or passed",
   helperBad.length === 0 && CREDIT_HELPERS.every(k => helperDecls[k] === 1), helperBad.join(", ") + " decls " + JSON.stringify(helperDecls));
 check("adjustedRVU is never written as a literal 0", zeroWrites.length === 0, zeroWrites.join(", "));
+check("withNoCredit (the one noCredit writer) is used only inside utils.js entryWithCall", writerBad.length === 0, writerBad.join(", "));
+check("casesEarnRVU changes only through utils.js paySiteWithCredit (repairData, the preset and a fresh site's literal true aside)", earnWrites.length === 0, earnWrites.join(", "));
 
 // 5e. Hooks before any conditional return (CLAUDE.md; this crashed analytics
 // once). For every top-level component (capitalized function declaration)
@@ -1192,6 +1262,213 @@ if (sb) {
       writes.length === w3start && banners2.length === b3start && warns.length === warn3start,
       JSON.stringify({ w1: w1, b1: b1, warn1: warn1, w2: w2, b2: b2, warn2: warn2, w3: writes.length - w3start }));
   } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realAlert2; }
+
+  // ---- 7b: call cases and wRVU credit (made-up site names; built-in names
+  // come from DEFAULT_PAY_SITES at run time) ----
+  const N7 = { id: "st-n", name: "North", weekendDays: [0, 6], casesEarnRVU: false, rates: [] };
+  const C7 = { id: "st-c", name: "South", weekendDays: [0, 6], casesEarnRVU: true, rates: [] };
+  const S7 = [N7, C7];
+  const lit7 = d => ({ id: "w-" + d, date: d, cptCode: "47562", description: "x", category: "General", baseRVU: 10.21, modifiers: ["-22"], adjustedRVU: 12.7625, notes: "AB", encounterId: "AB", isCall: true, imported: false });
+  const BNC = BI.filter(d => d.casesEarnRVU === false)[0], BCR = BI.filter(d => d.casesEarnRVU !== false)[0];
+  const hasK7 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const ascii7 = s => typeof s === "string" && !/[^\x00-\x7f]/.test(s);
+  // repairData fixed point for a store, with the loss banner captured.
+  const fixedPoint7 = st => {
+    const real = sb.showDataAlert, seen = [];
+    try { sb.showDataAlert = m => seen.push(m); const j = JSON.stringify(st), fx = sb.repairData(st); return fx.length === 0 && seen.length === 0 && JSON.stringify(st) === j && sb.validateData(st) === true; }
+    finally { sb.showDataAlert = real; }
+  };
+  const entStore7 = ents => seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, entries: ents, paySites: [N7, C7] });
+
+  check("7b constants: CALL_NO_CREDIT_FROM is the no-credit built-in's first rate date; CALL_SITE_OTHER is no built-in id",
+    sb.CALL_NO_CREDIT_FROM === "2026-10-01" && sb.isYMD(sb.CALL_NO_CREDIT_FROM) && !!BNC && !!BCR && BNC.rates[0].effective === sb.CALL_NO_CREDIT_FROM &&
+    typeof sb.CALL_SITE_OTHER === "string" && sb.CALL_SITE_OTHER.length > 0 && BI.every(d => d.id !== sb.CALL_SITE_OTHER));
+
+  const handNC = sb.payApplyNoCredit([hand("h", BNC.name)], ["h"])[0];
+  const PCN = [ // [isCall, site, date, want]
+    [true, N7, "2026-10-01", true], [true, N7, "2027-03-01", true],
+    [true, N7, "2026-09-30", false], [true, N7, "", false], [true, N7, "2026-10-1", false], [true, N7, "2026-11-31", false], [true, N7, null, false],
+    [true, C7, "2026-10-01", false], [true, C7, "2027-03-01", false],
+    [false, N7, "2026-10-05", false], ["true", N7, "2026-10-05", false], [1, N7, "2026-10-05", false],
+    [true, Object.assign({}, N7, { casesEarnRVU: undefined }), "2026-10-05", false], [true, Object.assign({}, N7, { casesEarnRVU: "false" }), "2026-10-05", false],
+    [true, Object.assign({}, N7, { deleted: true }), "2026-10-05", false], [true, null, "2026-10-05", false], [true, "st-n", "2026-10-05", false],
+    [true, hand("h", BNC.name), "2026-10-05", false], [true, handNC, "2026-10-05", true],
+  ];
+  const badPcn = PCN.filter(t => sb.payCaseNoCredit(t[0], t[1], t[2]) !== t[3]);
+  check("payCaseNoCredit: only Call + a current no-credit site + a valid date on/after the start (" + PCN.length + " cases; a hand-made built-in name stays credited until applied)",
+    badPcn.length === 0 && sb.callNoCreditDate("2026-10-01") === true && sb.callNoCreditDate("2026-09-30") === false && sb.callNoCreditDate(undefined) === false,
+    badPcn.map(t => JSON.stringify([t[0], t[1] && t[1].name, t[2]])).join("; "));
+
+  // CONTRACT: the one noCredit writer.
+  {
+    const base = Object.assign(lit7("2026-10-05"), { siteId: "st-n", siteName: "North" });
+    const srcs = [base, Object.assign({}, base, { id: "w2", noCredit: true }), Object.assign({}, base, { id: "w3", noCredit: false }), Object.assign({}, base, { id: "w4", noCredit: "true" })];
+    const srcJson = JSON.stringify(srcs), outs = [], bad = [];
+    srcs.forEach(s => [true, false, undefined, "true", 1].forEach(on => {
+      const o = sb.withNoCredit(s, on), want = on === true;
+      outs.push(o);
+      if (o === s || (want ? o.noCredit !== true : hasK7(o, "noCredit")) || o.adjustedRVU !== s.adjustedRVU || sb.isNoCredit(o) !== want ||
+        Object.keys(s).filter(k => k !== "noCredit").some(k => JSON.stringify(o[k]) !== JSON.stringify(s[k]))) bad.push(s.id + "/" + String(on));
+    }));
+    check("CONTRACT: withNoCredit writes true or deletes the key (never false), copies, keeps every other field, passes repairData unchanged",
+      bad.length === 0 && JSON.stringify(srcs) === srcJson && fixedPoint7(entStore7(JSON.parse(JSON.stringify(outs)))), JSON.stringify(bad));
+  }
+
+  // entryWithCall, Log path (src null, rederive true).
+  const CALLK = ["isCall", "siteId", "siteName", "noCredit"];
+  const otherSame7 = (o, i) => Object.keys(i).concat(Object.keys(o)).every(k => CALLK.indexOf(k) !== -1 || JSON.stringify(o[k]) === JSON.stringify(i[k]));
+  const shape7 = o => (!hasK7(o, "siteId") || (typeof o.siteId === "string" && o.siteId !== "")) && (!hasK7(o, "siteName") || (typeof o.siteName === "string" && o.siteName !== "")) &&
+    (!hasK7(o, "noCredit") || o.noCredit === true) && typeof o.isCall === "boolean";
+  const LOGR = [ // [date, isCall, picker key, sites, extra input fields, want]
+    ["2026-10-01", true, "st-n", S7, null, { site: "st-n", name: "North", nc: true }],
+    ["2026-09-30", true, "st-n", S7, null, { site: "st-n", name: "North", nc: false }],
+    ["2026-10-05", true, "st-c", S7, null, { site: "st-c", name: "South", nc: false }],
+    ["2026-10-05", true, sb.CALL_SITE_OTHER, S7, null, { site: "", nc: false }],
+    ["2026-10-05", true, "", S7, null, { site: "", nc: false }],
+    ["2026-10-05", true, "zz", S7, null, { site: "", nc: false }],
+    ["2026-11-31", true, "st-n", S7, null, { site: "st-n", name: "North", nc: false }],
+    ["2026-10-05", true, "st-n", [Object.assign({}, N7, { deleted: true })], null, { site: "", nc: false }],
+    ["2026-10-05", false, "st-n", S7, { siteId: "st-n", siteName: "North", noCredit: true }, { site: "", nc: false }],
+  ];
+  const badLog7 = [], logOuts7 = [];
+  LOGR.forEach((r, i) => {
+    const inp = Object.assign(lit7(r[0]), r[4] || {}), inJ = JSON.stringify(inp);
+    const o = sb.entryWithCall(inp, null, r[1], r[2], r[3], true), w = r[5];
+    logOuts7.push(o);
+    const ok = JSON.stringify(inp) === inJ && o !== inp && o.isCall === r[1] && sb.isNoCredit(o) === w.nc && sb.entrySiteId(o) === w.site &&
+      (w.site ? o.siteName === w.name : !hasK7(o, "siteName")) && otherSame7(o, inp) && shape7(o);
+    if (!ok) badLog7.push(i + ":" + JSON.stringify(o));
+  });
+  const reg7 = lit7("2026-10-05");
+  check("entryWithCall (Log path): a site only for a CURRENT site, credit by the rule, Private clears site + mark, input untouched; a siteless Call case writes exactly its input",
+    badLog7.length === 0 && JSON.stringify(sb.entryWithCall(reg7, null, true, "", [], true)) === JSON.stringify(reg7) &&
+    JSON.stringify(sb.entryWithCall(reg7, null, true, sb.CALL_SITE_OTHER, S7, true)) === JSON.stringify(reg7), badLog7.join(" | "));
+
+  // entryWithCall, History path: the snapshot is kept unless the date crosses
+  // the start, Call/Private or the site changes, or the rule is re-applied.
+  {
+    const F = sb.entryWithCall(lit7("2026-10-05"), null, true, "st-n", S7, true);
+    const G = sb.entryWithCall(lit7("2026-09-28"), null, true, "st-n", S7, true);
+    const Nearn = [sb.paySiteWithCredit(N7, true), C7];
+    const Cc = sb.entryWithCall(lit7("2026-10-05"), null, true, "st-n", Nearn, true); // credited: N earned credit when it was written
+    const FX = Object.assign({}, F); delete FX.siteName;
+    const P = lit7("2026-10-05");
+    const ed = (e, o) => Object.assign({}, e, o);
+    const ROWS = [ // [label, src, next, isCall, key, sites, rederive, check(out)]
+      ["notes edit, same rule: identical but notes", F, ed(F, { notes: "x2" }), true, "st-n", S7, false, o => JSON.stringify(o) === JSON.stringify(ed(F, { notes: "x2" }))],
+      ["notes edit after the site switched to credit: mark kept", F, ed(F, { notes: "x2" }), true, "st-n", Nearn, false, o => sb.isNoCredit(o) && o.siteId === "st-n"],
+      ["same, re-applied: credited, site kept", F, ed(F, { notes: "x2" }), true, "st-n", Nearn, true, o => !sb.isNoCredit(o) && o.siteName === "North"],
+      ["date moved within the window after the switch: mark kept", F, ed(F, { date: "2026-10-07" }), true, "st-n", Nearn, false, o => sb.isNoCredit(o)],
+      ["date moved before the start: credited, site kept", F, ed(F, { date: "2026-09-28" }), true, "st-n", S7, false, o => !sb.isNoCredit(o) && o.siteId === "st-n"],
+      ["credited 09-28 case moved to 10-02: marked", G, ed(G, { date: "2026-10-02" }), true, "st-n", S7, false, o => sb.isNoCredit(o) && !sb.isNoCredit(G)],
+      ["Private: everything cleared", F, ed(F, {}), false, "", S7, false, o => o.isCall === false && !hasK7(o, "siteId") && !hasK7(o, "siteName") && !hasK7(o, "noCredit")],
+      ["pick the credited site: credited, its name", F, ed(F, {}), true, "st-c", S7, false, o => !sb.isNoCredit(o) && o.siteId === "st-c" && o.siteName === "South"],
+      ["site renamed: mark kept, name refreshed in place", F, ed(F, {}), true, "st-n", [ed(N7, { name: "North 2" }), C7], false, o => sb.isNoCredit(o) && o.siteName === "North 2" && Object.keys(o).join() === Object.keys(F).join()],
+      ["deleted site, notes edit: mark + label kept", F, ed(F, { notes: "x3" }), true, "st-n", [], false, o => sb.isNoCredit(o) && o.siteId === "st-n" && o.siteName === "North"],
+      ["deleted site, date 10-07: mark kept", F, ed(F, { date: "2026-10-07" }), true, "st-n", [], false, o => sb.isNoCredit(o)],
+      ["deleted site, date 09-20: credited, label kept", F, ed(F, { date: "2026-09-20" }), true, "st-n", [], false, o => !sb.isNoCredit(o) && o.siteName === "North"],
+      ["deleted site, re-applied on 10-05: mark kept (it can only be lost)", F, ed(F, {}), true, "st-n", [], true, o => sb.isNoCredit(o)],
+      ["deleted site, credited case never gains the mark", G, ed(G, { date: "2026-10-03" }), true, "st-n", [], false, o => !sb.isNoCredit(o)],
+      ["deleted site, credited in-window case re-applied: stays credited", Cc, ed(Cc, {}), true, "st-n", [], true, o => !sb.isNoCredit(o) && o.siteId === "st-n" && o.siteName === "North"],
+      ["Add from a case on its deleted site: label copied from the source", F, ed(lit7("2026-10-05"), { id: "new2" }), true, "st-n", [], false, o => o.siteName === "North" && sb.entrySiteLabel(o, []) === "North (deleted)" && sb.isNoCredit(o) && o.siteId === "st-n"],
+      ["credited case, notes edit after the site switched to no credit: stays credited", Cc, ed(Cc, { notes: "m1" }), true, "st-n", S7, false, o => !sb.isNoCredit(o) && o.siteId === "st-n"],
+      ["credited case, date 10-07 after the switch: stays credited", Cc, ed(Cc, { date: "2026-10-07" }), true, "st-n", S7, false, o => !sb.isNoCredit(o)],
+      ["Add from a credited case after the switch: credited", Cc, ed(lit7("2026-10-05"), { id: "new3", cptCode: "49650" }), true, "st-n", S7, false, o => !sb.isNoCredit(o) && o.siteId === "st-n"],
+      ["credited case, re-applied after the switch: marked", Cc, ed(Cc, { notes: "m1" }), true, "st-n", S7, true, o => sb.isNoCredit(o)],
+      ["deleted site, Private: cleared", F, ed(F, {}), false, "", [], false, o => o.isCall === false && !hasK7(o, "siteId") && !hasK7(o, "noCredit")],
+      ["deleted site with no stored name: no siteName key", FX, ed(FX, { notes: "x4" }), true, "st-n", [], false, o => o.siteId === "st-n" && !hasK7(o, "siteName") && sb.isNoCredit(o)],
+      ["Add from the case, same date + picks: copies site + mark", F, ed(lit7("2026-10-05"), { id: "new1", cptCode: "49650" }), true, "st-n", Nearn, false, o => sb.isNoCredit(o) && o.siteId === "st-n" && o.cptCode === "49650"],
+      ["pre-7b Call case, Other site, notes edit: exactly today's spread", P, ed(P, { notes: "y" }), true, sb.CALL_SITE_OTHER, S7, false, o => JSON.stringify(o) === JSON.stringify(ed(P, { notes: "y" }))],
+      ["pre-7b Call case gets the no-credit site: marked", P, ed(P, {}), true, "st-n", S7, false, o => sb.isNoCredit(o) && o.siteName === "North"],
+      ["no src: derived", null, ed(P, {}), true, "st-n", S7, false, o => sb.isNoCredit(o)],
+    ];
+    const bad = [], outs = [];
+    ROWS.forEach(r => {
+      const srcJ = JSON.stringify(r[1]), nextJ = JSON.stringify(r[2]);
+      const o = sb.entryWithCall(r[2], r[1], r[3], r[4], r[5], r[6]);
+      outs.push(o);
+      if (!r[7](o) || !shape7(o) || !otherSame7(o, r[2]) || JSON.stringify(r[1]) !== srcJ || JSON.stringify(r[2]) !== nextJ) bad.push(r[0] + " -> " + JSON.stringify(o));
+    });
+    check("entryWithCall (History path): snapshot kept within the window, re-derived on a crossing/pick change/re-apply, deleted site can only lose the mark, inputs untouched (" + ROWS.length + " rows)",
+      bad.length === 0, bad.join(" | "));
+    check("entryWithCall outputs (Log + History) pass repairData unchanged (no rewrite on load)",
+      fixedPoint7(entStore7(JSON.parse(JSON.stringify(logOuts7.concat(outs))))));
+
+    // "No rewrite on reload" for a 7b store: written entries + a site
+    // switched to no credit load with no write, banner or warning.
+    const realLS7 = sb.localStorage, realConsole7 = sb.console, realAlert7 = sb.showDataAlert;
+    try {
+      const mem = {}, writes = [], warns = [], seen = [];
+      sb.localStorage = { getItem: k => (hasK7(mem, k) ? mem[k] : null), setItem: (k, v) => { writes.push(k); mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+      sb.console = { log: () => {}, warn: m => warns.push(String(m)), error: () => {} };
+      sb.showDataAlert = m => seen.push(m);
+      mem[vm.runInContext("SK", sb)] = JSON.stringify(seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, entries: logOuts7.concat(outs), paySites: [N7, C7, handNC] }));
+      sb.loadData();
+      check("loadData: a store with 7b call cases and a switched site loads with no write, banner or warning", writes.length === 0 && seen.length === 0 && warns.length === 0,
+        JSON.stringify({ writes: writes, seen: seen, warns: warns }));
+    } finally { sb.localStorage = realLS7; sb.console = realConsole7; sb.showDataAlert = realAlert7; }
+  }
+
+  {
+    const m0 = { id: "m0", date: "2026-10-05", encounterId: "AB" }, m1 = { id: "m1", date: "2026-10-05", encounterId: "AB" };
+    const m2 = { id: "m2", date: "2026-10-06", encounterId: "AB" }, m3 = { id: "m3", date: "2026-10-05", encounterId: "ab" };
+    const m4 = { id: "m4", date: "2026-10-05", encounterId: "" }, m5 = { id: "m5", date: "2026-10-05" }, m6 = { id: "m6", date: "2026-10-05", encounterId: "AB" };
+    const got = sb.entryEncounterMates([m0, m1, m2, m3, m4, m5, null, 42, m6], m0).map(x => x.id).join(",");
+    check("entryEncounterMates: same date + exact non-empty encounterId, self excluded", got === "m1,m6" &&
+      sb.entryEncounterMates([m0, m4], m4).length === 0 && sb.entryEncounterMates([m0, m5], m5).length === 0 &&
+      sb.entryEncounterMates(null, m0).length === 0 && sb.entryEncounterMates([m0], null).length === 0, got);
+  }
+
+  {
+    const F = sb.entryWithCall(lit7("2026-10-05"), null, true, "st-n", S7, true);
+    const LAB = [
+      [Object.assign(lit7("2026-10-05"), { siteId: "st-n", siteName: "Old" }), [Object.assign({}, N7, { name: "North 2" })], "North 2"],
+      [F, [], "North (deleted)"], [Object.assign(lit7("2026-10-05"), { siteId: "st-n" }), [], "Deleted site"],
+      [lit7("2026-10-05"), S7, ""], [Object.assign(lit7("2026-10-05"), { siteId: 5, siteName: {} }), S7, ""],
+    ];
+    const badLab = LAB.filter(t => sb.entrySiteLabel(t[0], t[1]) !== t[2]);
+    const JUNK = [Object.assign(lit7("2026-10-05"), { siteId: 5, siteName: {} }), null, {}, undefined, 42, "x"];
+    const strs = JUNK.every(j => typeof sb.entrySiteId(j) === "string" && typeof sb.entrySiteKey(j) === "string" && typeof sb.entryCallKey(j) === "string" && typeof sb.entrySiteLabel(j, S7) === "string");
+    check("call-site readers: current name after a rename, stored name + (deleted), junk-safe strings; picker keys",
+      badLab.length === 0 && strs && sb.entrySiteKey(lit7("2026-10-05")) === sb.CALL_SITE_OTHER && sb.entrySiteKey(Object.assign(lit7("2026-10-05"), { isCall: false })) === "" &&
+      sb.entrySiteKey(F) === "st-n" && sb.entryCallKey(F) === "call|st-n|nc" && sb.entryCallKey(Object.assign(lit7("2026-10-05"), { isCall: false })) === "private||",
+      badLab.map(t => sb.entrySiteLabel(t[0], t[1])).join(", "));
+    check("a garbled siteId/siteName passes repairData unchanged (no repair rule; readers ignore it)",
+      fixedPoint7(entStore7([Object.assign(lit7("2026-10-05"), { siteId: 5, siteName: {} }), Object.assign(lit7("2026-10-06"), { siteId: "", siteName: null })])));
+  }
+
+  {
+    const off = s => sb.payCreditOffers(s).map(o => o.site.id + ":" + o.by).join(",");
+    const seeded = sb.defaultPaySites();
+    const flippedSeed = seeded.map(s => s.id === BNC.id ? sb.paySiteWithCredit(s, true) : s);
+    const offersOK = off([hand("h2", BNC.name)]) === "h2:name" && off([hand("h3", BNC.name + " East")]) === "h3:alias" &&
+      off([hand("h4", BNC.name + " East"), hand("h5", BNC.name + " West")]) === "" && off(seeded) === "" && off(flippedSeed) === "" &&
+      off([Object.assign(hand("h6", BNC.name), { casesEarnRVU: false })]) === "" && off([hand("h7", BCR.name)]) === "" &&
+      off([hand("h8", "  " + BNC.name.toLowerCase() + "  ")]) === "h8:name" && off([]) === "" && off(null) === "";
+    const L = [hand("h2", BNC.name), hand("h9", "Other")], Lj = JSON.stringify(L);
+    const A1 = sb.payApplyNoCredit(L, ["h2", "h9"]);
+    const A2 = sb.payApplyNoCredit(A1, ["h2"]);
+    const applyOK = A1[0].casesEarnRVU === false && A1[0] !== L[0] && A1[1] === L[1] && JSON.stringify(L) === Lj && Object.keys(A1[0]).join() === Object.keys(L[0]).join() &&
+      JSON.stringify(A2) === JSON.stringify(A1) && JSON.stringify(sb.payApplyNoCredit(L, [])) === Lj && sb.payApplyNoCredit("junk", ["h2"]) === "junk" && sb.payApplyNoCredit(null, ["h2"]) === null &&
+      fixedPoint7(seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: JSON.parse(JSON.stringify(A1)) }));
+    const ct = sb.payCreditConfirm(sb.payCreditOffers([hand("h3", BNC.name + " East")]));
+    check("payCreditOffers / payApplyNoCredit: one name or alias match still crediting (never by built-in id, ambiguous or already set); confirmed apply flips only offered ids, re-planned, a fixed point",
+      offersOK && applyOK && ascii7(ct) && ct.indexOf("Oct 1, 2026") !== -1 && ct.indexOf("(built-in " + BNC.name + ")") !== -1,
+      JSON.stringify({ offersOK: offersOK, applyOK: applyOK, ct: ct }));
+  }
+
+  {
+    const PS = [sb.defaultPaySites()[0], sb.defaultPaySites()[1], hand("hx", "X")];
+    const ok = PS.every(s => { const j = JSON.stringify(s); return [true, false].every(e => { const o = sb.paySiteWithCredit(s, e); return o !== s && o.casesEarnRVU === e && Object.keys(o).join() === Object.keys(s).join() && JSON.stringify(s) === j; }); });
+    check("paySiteWithCredit: new object, strict boolean, key order kept, a repairData fixed point",
+      ok && sb.paySiteWithCredit(hand("hx", "X"), "yes").casesEarnRVU === false &&
+      fixedPoint7(seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: JSON.parse(JSON.stringify(PS.map(s => sb.paySiteWithCredit(s, false)))) })) &&
+      fixedPoint7(seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: JSON.parse(JSON.stringify(PS.map(s => sb.paySiteWithCredit(s, true)))) })));
+    const notes = [sb.paySiteCreditNote(C7, "2026-10-05"), sb.paySiteCreditNote(N7, "2026-10-01"), sb.paySiteCreditNote(N7, "2026-09-30"), sb.paySiteCreditNote(N7, ""), sb.paySiteCreditNote(null, "2026-10-05")];
+    check("paySiteCreditNote: \"\" for a crediting site; no credit / credited before / from the start; ASCII",
+      notes[0] === "" && notes[1] === "no wRVU credit" && notes[2].indexOf("credited before ") === 0 && notes[3].indexOf("no wRVU credit from ") === 0 && notes[4] === "" && notes.every(ascii7),
+      JSON.stringify(notes));
+  }
 }
 
 console.log("");
