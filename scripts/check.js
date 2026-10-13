@@ -819,6 +819,180 @@ if (sb) {
     rcl("2026-10-02", { date: "2026-10-03", time: "01:00", cls: "we" }) === null && rcl("2026-10-08", { date: "2026-10-08", time: "21:00", cls: "wn" }) === null &&
     rcl("2026-09-25", { date: "2026-09-25", time: "21:00", cls: "wn" }) === null &&
     sb.payReclassShift(fri, NEW, NEW, FROM) === null && sb.payReclassShift(null, OLD, NEW, FROM) === null);
+  // ---- R2: the simple shift form's draft rules (pay math unchanged) ----
+  const rif = (site, date) => sb.rateInForce(site, date);
+  const keptD = { id: "k1", siteId: SIL.id, date: "2026-10-13", callHours: "24", events: [] };
+  const keptO = Object.assign({}, keptD, { rates: Object.assign({}, rif(SIL, "2026-10-13"), { stipend: 1 }) });
+  check("payDraftRate: kept copy while site+date unchanged; reprice / new date / no site = in force or none",
+    sb.payDraftRate(keptD, SIL, keptO).from === "kept" && sb.payDraftRate(keptD, SIL, keptO).rates.stipend === 1 &&
+    sb.payDraftRate(Object.assign({}, keptD, { reprice: true }), SIL, keptO).from === "inForce" &&
+    sb.payDraftRate(Object.assign({}, keptD, { date: "2026-10-14" }), SIL, keptO).from === "inForce" &&
+    sb.payDraftRate(keptD, null, null).from === "" && sb.payDraftRate(Object.assign({}, keptD, { date: "" }), SIL, null).rates === null &&
+    sb.payDraftRate(keptD, SIL, keptO).rates !== keptO.rates);
+  check("payAsksDayNight: only a non-holiday weekday where daytime hourly is unpaid",
+    sb.payAsksDayNight("2026-10-14", DAV, rif(DAV, "2026-10-14")) === true && sb.payAsksDayNight("2026-10-17", DAV, rif(DAV, "2026-10-17")) === false &&
+    sb.payAsksDayNight("2026-12-25", DAV, rif(DAV, "2026-12-25")) === false && sb.payAsksDayNight("2026-10-13", SIL, rif(SIL, "2026-10-13")) === false &&
+    sb.payAsksDayNight("2026-10-16", SIL, rif(SIL, "2026-10-16")) === false && sb.payAsksDayNight("", DAV, rif(DAV, "2026-10-14")) === false);
+  const MID = [
+    [SIL, "2026-10-08", true], [SIL, "2026-10-11", true], [SIL, "2026-11-25", true], [SIL, "2026-12-23", true], [SIL, "2026-12-30", true], [SIL, "2027-05-31", true],
+    [SIL, "2026-10-06", false], [SIL, "2026-10-09", false], [SIL, "2026-11-26", false], [SIL, "2026-12-25", false], [DAV, "2026-10-08", false], [DAV, "2026-10-09", false],
+  ];
+  const badMid = MID.filter(m => sb.payMidnightAsks(m[1], m[0], rif(m[0], m[1])) !== m[2]);
+  check("payMidnightAsks: only where the next day's call-in fee differs (14 cases)",
+    badMid.length === 0 && sb.payMidnightAsks("", SIL, rif(SIL, "2026-10-08")) === false && sb.payMidnightAsks("2026-10-08", SIL, null) === false,
+    badMid.map(m => m[0].name + " " + m[1]).join(", "));
+  // A full simple-form flow: pick site + day, then each trip = new trip +
+  // the answers the form would collect (hours, before/after midnight, Day/Night).
+  const sflow = (site, date, trips) => {
+    let d = { id: "f-" + date, siteId: site.id, date: date, callHours: "", hoursSet: false, events: [], note: "" };
+    const rate = sb.payDraftRate(d, site, null).rates;
+    d = sb.payDraftRefresh(d, site, "", "", rate);
+    (trips || []).forEach(t => {
+      let e = sb.payDraftTrip(d.date, site, rate);
+      e = Object.assign({}, e, { hours: t.hours }, t.rel ? { rel: t.rel, relSet: true } : {}, t.dn ? { dn: t.dn } : {});
+      d.events.push(sb.payDraftEvent(e, d.date, site, "", "", rate));
+    });
+    const b = sb.payShiftFromDraft(d, site, null);
+    return b.shift ? sb.computeShiftPay(b.shift).total.toFixed(2) : "blocked:" + b.problems.filter(p => p.block).map(p => p.code).sort().join("+");
+  };
+  const FLOWS = [
+    ["Silvis Tue, went in 2.5h (no question)", sflow(SIL, "2026-10-13", [{ hours: "2.5" }]), "2103.50"],
+    ["Davenport Thu, Day, 2h", sflow(DAV, "2026-10-15", [{ hours: "2", dn: "wd" }]), "3480.78"],
+    ["Davenport Wed, Night, 1h (3h minimum)", sflow(DAV, "2026-10-14", [{ hours: "1", dn: "wn" }]), "4208.85"],
+    ["Silvis, did not go in", sflow(SIL, "2026-10-13", []), "1500.00"],
+    ["Davenport, did not go in", sflow(DAV, "2026-10-14", []), "3189.65"],
+    ["Silvis Thu, midnight unanswered", sflow(SIL, "2026-10-15", [{ hours: "1.5" }]), "blocked:evCls+evDate"],
+    ["Silvis Thu, after midnight, 1.5h", sflow(SIL, "2026-10-15", [{ hours: "1.5", rel: "next" }]), "2269.50"],
+    ["Silvis Thu, before midnight, 1.5h", sflow(SIL, "2026-10-15", [{ hours: "1.5", rel: "same" }]), "1978.50"],
+    ["Silvis Thanksgiving, 3h", sflow(SIL, "2026-11-26", [{ hours: "3" }]), "2457.00"],
+    ["Davenport Sat, 4h", sflow(DAV, "2026-10-17", [{ hours: "4" }]), "4451.54"],
+    ["Davenport Christmas, 2h", sflow(DAV, "2026-12-25", [{ hours: "2" }]), "4208.85"],
+    ["Davenport weekday, Day/Night unanswered", sflow(DAV, "2026-10-14", [{ hours: "1" }]), "blocked:evCls"],
+    ["Davenport two 1h trips at night", sflow(DAV, "2026-10-14", [{ hours: "1", dn: "wn" }, { hours: "1", dn: "wn" }]), "5228.05"],
+  ];
+  const badFlows = FLOWS.filter(f => f[1] !== f[2]);
+  check("simple form flows on the built-in sites (" + FLOWS.length + ": the owner's examples, no call-in, questions blocking until answered)",
+    badFlows.length === 0, badFlows.map(f => f[0] + " -> " + f[1] + " want " + f[2]).join("; "));
+  const rr = (site, from, to, e) => { const rt = rif(site, to); return sb.payDraftRefresh({ id: "x", siteId: site.id, date: to, callHours: "12", hoursSet: true, events: [e] }, site, "", "", rt).events[0]; };
+  const dnWed = sb.payDraftEvent(Object.assign(sb.payDraftTrip("2026-10-14", DAV, rif(DAV, "2026-10-14")), { dn: "wd" }), "2026-10-14", DAV, "", "", rif(DAV, "2026-10-14"));
+  const toSat = rr(DAV, "2026-10-14", "2026-10-17", dnWed), backWed = rr(DAV, "2026-10-17", "2026-10-14", toSat);
+  const triTue = sb.payDraftTrip("2026-10-13", SIL, rif(SIL, "2026-10-13"));
+  const triThu = sb.payDraftRefresh({ id: "x", siteId: SIL.id, date: "2026-10-15", callHours: "24", hoursSet: true, events: [triTue] }, SIL, "", "", rif(SIL, "2026-10-15")).events[0];
+  check("draft rules: a weekend date beats a Day/Night answer (and it returns on a weekday); an unanswered trip re-asks on a fee boundary",
+    dnWed.cls === "wd" && toSat.cls === "we" && backWed.cls === "wd" && triTue.rel === "same" && triTue.date === "2026-10-13" && triTue.cls === "wn" &&
+    triThu.rel === "" && triThu.date === "" && triThu.cls === "" && triTue.time === "" && triTue.timeAuto === false,
+    JSON.stringify([dnWed.cls, toSat.cls, backWed.cls, triTue.rel, triThu.rel]));
+  // Edit round trip: payDraftFromShift -> payShiftFromDraft rebuilds every
+  // saved shift byte-identically (old-form shifts with times, timeless
+  // Day/Night picks, overrides, fee off, unknown fields), also after every
+  // call-in is re-run through payDraftEvent with the rate.
+  const svd = (site, id, date, hrs, evs, extra) => Object.assign(sb.payShiftFromDraft({ id: id, siteId: site.id, date: date, callHours: hrs, note: "n", events: evs }, site, null).shift, extra || {});
+  const RT = [
+    svd(SIL, "rt1", "2026-10-13", "24", [{ date: "2026-10-13", time: "21:00", cls: "wn", fee: true, hours: "2" }, { date: "2026-10-14", time: "", cls: "wd", fee: false, hours: "1" }], { extra: "keep" }),
+    svd(SIL, "rt2", "2026-10-13", "24", [{ date: "2026-10-13", time: "", cls: "we", fee: true, hours: "0" }, { date: "2026-10-20", time: "", cls: "hol", fee: true, hours: "1" }]),
+    svd(DAV, "rt3", "2026-10-14", "12", [{ date: "2026-10-14", time: "", cls: "wn", fee: true, hours: "1" }, { date: "2026-10-15", time: "10:00", cls: "wd", fee: true, hours: "2" }]),
+    svd(DAV, "rt4", "2026-10-14", "6", [{ date: "2026-10-17", time: "", cls: "we", fee: true, hours: "1" }]),
+  ];
+  const rtBad = [];
+  RT.forEach(s => {
+    const site = s.siteId === SIL.id ? SIL : DAV, json = JSON.stringify(s);
+    const d = sb.payDraftFromShift(s, site);
+    const b1 = sb.payShiftFromDraft(d, site, s).shift;
+    const rate = sb.payDraftRate(d, site, s).rates;
+    const d2 = Object.assign({}, d, { events: d.events.map(e => sb.payDraftEvent(e, d.date, site, "", "", rate)) });
+    const b2 = sb.payShiftFromDraft(d2, site, s).shift;
+    const store = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [SIL, DAV], payShifts: [JSON.parse(JSON.stringify(b2))] });
+    const sj = JSON.stringify(store), fx = sb.repairData(store);
+    if (JSON.stringify(b1) !== json || JSON.stringify(b2) !== json || fx.length || JSON.stringify(store) !== sj) rtBad.push(s.id + " " + JSON.stringify({ b1: JSON.stringify(b1) === json, b2: JSON.stringify(b2) === json, fx: fx }));
+  });
+  check("payDraftFromShift round trip: saved shifts rebuild byte-identically (also re-run through the rules) and pass repairData", rtBad.length === 0, rtBad.join(" | "));
+  const full12 = sb.payDraftFromShift(RT[2], DAV), part6 = sb.payDraftFromShift(RT[3], DAV);
+  const toSil = d => { const nd = Object.assign({}, d, { siteId: SIL.id }); return sb.payDraftRefresh(nd, SIL, "", "", sb.payDraftRate(nd, SIL, null).rates); };
+  check("site switch in the editor: a full-length shift takes the new site's length; a partial one keeps its hours",
+    full12.hoursSet === false && toSil(full12).callHours === "24" && part6.hoursSet === true && toSil(part6).callHours === "6");
+  // A saved timeless Day/Night pick re-opens as the ANSWER (dn), not an
+  // override - so moving the shift onto a weekend re-classifies it.
+  const ev0 = sb.payDraftFromShift(RT[2], DAV).events[0];
+  const movedSat = sb.payDraftRefresh(Object.assign({}, sb.payDraftFromShift(RT[2], DAV), { date: "2026-10-17" }), DAV, "", "", rif(DAV, "2026-10-17")).events[0];
+  check("payDraftFromShift: a timeless Day/Night pick re-opens as the answer and still yields to a weekend date",
+    ev0.dn === "wn" && ev0.clsSet === false && movedSat.cls === "we", JSON.stringify({ dn: ev0.dn, clsSet: ev0.clsSet, moved: movedSat.cls }));
+  // Re-applying the SAME day to an edited full-length shift keeps the length
+  // of the rates it is priced at (its kept copy), not the current version's.
+  const DAVlen = Object.assign({}, DAV, { rates: [Object.assign({}, DAV.rates[0], { id: "dav-len", stipendHours: 24, stipend: 6000 })] });
+  const keptLen = svd(DAVlen, "kl", "2026-10-14", "24", []);
+  const DAVnow = Object.assign({}, DAV, { rates: [Object.assign({}, DAVlen.rates[0], { id: "dav-now", stipendHours: 12, stipend: 3000 })] });
+  const kd = sb.payDraftFromShift(keptLen, DAVnow);
+  const kr = sb.payDraftRefresh(kd, DAVnow, "", "", sb.payDraftRate(kd, DAVnow, keptLen).rates);
+  check("payDraftRefresh: an edited full shift keeps its kept rate's length when the same day is re-applied",
+    kd.hoursSet === false && kr.callHours === "24" && sb.payShiftFromDraft(kr, DAVnow, keptLen).shift.callHours === 24, kr.callHours);
+  // R2 review: editing must never turn a DEFAULT into an answer. A shift
+  // saved where no question applied re-asks after a day/site change that
+  // makes the answer matter - exactly like the New shift form.
+  const saveNew = (site, date, hours, dn) => {
+    let d = { id: "sn-" + date, siteId: site.id, date: date, callHours: "", hoursSet: false, events: [], note: "" };
+    const rate = sb.payDraftRate(d, site, null).rates;
+    d = sb.payDraftRefresh(d, site, "", "", rate);
+    d.events.push(sb.payDraftEvent(Object.assign(sb.payDraftTrip(date, site, rate), { hours: hours }, dn ? { dn: dn } : {}), date, site, "", "", rate));
+    return sb.payShiftFromDraft(d, site, null).shift;
+  };
+  const editTo = (s, site0, site1, date1) => {
+    const d = Object.assign(sb.payDraftFromShift(s, site0), { siteId: site1.id, date: date1 });
+    const b = sb.payShiftFromDraft(sb.payDraftRefresh(d, site1, "", "", sb.payDraftRate(d, site1, s).rates), site1, s);
+    return b.shift ? sb.computeShiftPay(b.shift).total.toFixed(2) : "blocked:" + b.problems.filter(p => p.block).map(p => p.code).sort().join("+");
+  };
+  const silTue = saveNew(SIL, "2026-10-13", "2"), silFri = saveNew(SIL, "2026-10-16", "2"), davThu = saveNew(DAV, "2026-10-15", "1", "wn");
+  const silTueEv = sb.payDraftFromShift(silTue, SIL).events[0];
+  check("edit: a quiet Silvis Night or an un-asked 'Before midnight' is NOT an answer - a site/day change re-asks (blocks)",
+    silTue.events[0].cls === "wn" && silTueEv.dn === "" && silTueEv.relSet === false &&
+    editTo(silTue, SIL, DAV, "2026-10-13") === "blocked:evCls" && editTo(silTue, SIL, SIL, "2026-10-15") === "blocked:evCls+evDate" &&
+    editTo(silFri, SIL, SIL, "2026-10-15") === "blocked:evCls+evDate" && !!davThu && editTo(davThu, DAV, SIL, "2026-10-15") === "blocked:evCls+evDate" &&
+    editTo(silTue, SIL, SIL, "2026-10-13") === "2041.00",
+    [editTo(silTue, SIL, DAV, "2026-10-13"), editTo(silTue, SIL, SIL, "2026-10-15"), editTo(silFri, SIL, SIL, "2026-10-15"), davThu ? editTo(davThu, DAV, SIL, "2026-10-15") : "no davThu"].join(" | "));
+  // "Use current rates" re-derives every call-in under the new rate: a trip
+  // added under a kept $0 copy (equal fees, no question) re-asks after it.
+  const zSil = hand("zs", B0.name, [ver(RZ, "z0", "2026-09-01")], B0.weekendDays.slice());
+  const zThu = mkShift("zt", zSil, "2026-10-15", []);
+  const zSilNow = Object.assign({}, zSil, { rates: zSil.rates.concat([JSON.parse(JSON.stringify(B0.rates[0]))]) });
+  const zd = sb.payDraftFromShift(zThu, zSilNow);
+  const zKept = sb.payDraftRate(zd, zSilNow, zThu).rates;
+  zd.events.push(sb.payDraftEvent(Object.assign(sb.payDraftTrip(zd.date, zSilNow, zKept), { hours: "2" }), zd.date, zSilNow, "", "", zKept));
+  const zRe = Object.assign({}, zd, { reprice: true });
+  const zReB = sb.payShiftFromDraft(sb.payDraftRefresh(zRe, zSilNow, "", "", sb.payDraftRate(zRe, zSilNow, zThu).rates), zSilNow, zThu);
+  check("Use current rates + refresh: a call-in added under the kept rate re-asks the midnight question under the new one",
+    zd.events[0].rel === "same" && !zReB.shift && zReB.problems.some(p => p.code === "evDate" && p.block), JSON.stringify(zReB.problems));
+  // Deleted site: weekend days unknown - saved classes are kept as-is, no
+  // question is guessed, and a new call-in needs a picked rate type (a
+  // holiday is still recognised).
+  const satShift = svd(SIL, "ds", "2026-10-17", "24", [{ date: "2026-10-17", time: "", cls: "we", fee: true, hours: "2" }]);
+  const STAND = { id: satShift.siteId, name: satShift.siteName, weekendDays: [], rates: [], deleted: true }; // as callpay.js siteFor builds it
+  const dsd = sb.payDraftFromShift(satShift, STAND);
+  const dsRate = sb.payDraftRate(dsd, STAND, satShift).rates;
+  const dsTrip = sb.payDraftEvent(Object.assign(sb.payDraftTrip(dsd.date, STAND, dsRate), { hours: "1" }), dsd.date, STAND, "", "", dsRate);
+  const xmasTrip = sb.payDraftTrip("2026-12-25", STAND, dsRate);
+  const dsBlocked = sb.payShiftFromDraft(Object.assign({}, dsd, { events: dsd.events.concat([dsTrip]) }), STAND, satShift);
+  // A quiet weekday Night saved at a site later deleted survives editing
+  // (every call-in re-run through the rules) unchanged.
+  const tueStand = { id: silTue.siteId, name: silTue.siteName, weekendDays: [], rates: [], deleted: true };
+  const td = sb.payDraftFromShift(silTue, tueStand), tRate = sb.payDraftRate(td, tueStand, silTue).rates;
+  const tdRe = Object.assign({}, td, { events: td.events.map(e => sb.payDraftEvent(e, td.date, tueStand, "", "", tRate)) });
+  const tueKept = JSON.stringify(sb.payShiftFromDraft(tdRe, tueStand, silTue).shift) === JSON.stringify(silTue);
+  check("deleted site: saved classes kept (round trip identical), no guessed class or question; holidays still recognised",
+    JSON.stringify(sb.payShiftFromDraft(dsd, STAND, satShift).shift) === JSON.stringify(satShift) && dsd.events[0].clsSet === true &&
+    dsTrip.cls === "" && !dsBlocked.shift && dsBlocked.problems.some(p => p.code === "evCls") && xmasTrip.cls === "hol" && tueKept &&
+    sb.payAsksDayNight("2026-10-14", STAND, rif(DAV, "2026-10-14")) === false && sb.payMidnightAsks("2026-10-15", STAND, dsRate) === false,
+    JSON.stringify({ trip: dsTrip.cls, xmas: xmasTrip.cls }));
+  // Moving a deleted site's shift to a LIVE site re-applies the normal rules
+  // (the kept class is only a deleted-site memo, never an answer).
+  const standOf = s => ({ id: s.siteId, name: s.siteName, weekendDays: [], rates: [], deleted: true });
+  const mine = hand("hm", B0.name + " (mine)", [JSON.parse(JSON.stringify(B0.rates[0]))], [0, 6]);
+  const myFri = svd(mine, "hf", "2026-10-16", "24", [{ date: "2026-10-16", time: "21:00", cls: "wn", fee: true, hours: "2" }]);
+  const timeEdit = (() => { const d = sb.payDraftFromShift(myFri, standOf(myFri)), r = sb.payDraftRate(d, standOf(myFri), myFri).rates;
+    return sb.payDraftEvent(Object.assign({}, d.events[0], { time: "10:00" }), d.date, standOf(myFri), "", "", r).cls; })();
+  check("deleted site -> live site: weekend day wins, quiet Night and un-asked midnight re-ask; a changed time on a deleted site asks the rate type",
+    sb.computeShiftPay(myFri).total === 2041 && editTo(myFri, standOf(myFri), SIL, "2026-10-16") === "2332.00" &&
+    editTo(silTue, standOf(silTue), DAV, "2026-10-13") === "blocked:evCls" && editTo(davThu, standOf(davThu), SIL, "2026-10-15") === "blocked:evCls+evDate" &&
+    timeEdit === "",
+    [editTo(myFri, standOf(myFri), SIL, "2026-10-16"), editTo(silTue, standOf(silTue), DAV, "2026-10-13"), editTo(davThu, standOf(davThu), SIL, "2026-10-15"), timeEdit].join(" | "));
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);

@@ -1296,6 +1296,36 @@ function payStartBack(ymd, hhmm, hours) {
   var m = mins - days * 1440;
   return { date: addDaysYMD(ymd, days), time: String(Math.floor(m / 60)).padStart(2, "0") + ":" + String(m % 60).padStart(2, "0") };
 }
+// The ONE rate choice for a draft (payShiftFromDraft, the form's questions
+// and its displays): the edited shift's own copy while its site and date are
+// unchanged ("kept"; draft.reprice - the editor's "Use current rates" -
+// skips it), else a COPY of the version in force on the draft date.
+function payDraftRate(draft, site, orig) {
+  var siteOk = !!site && typeof site.id === "string" && site.id !== "" && typeof site.name === "string";
+  if (!draft || typeof draft !== "object") return { rates: null, from: "" };
+  if (orig && !draft.reprice && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) return { rates: { ...orig.rates }, from: "kept" };
+  if (siteOk && isYMD(draft.date)) { var rif = rateInForce(site, draft.date); if (rif) return { rates: { ...rif }, from: "inForce" }; }
+  return { rates: null, from: "" };
+}
+// Is a date a weekend or holiday for this site? (decides the call-in fee)
+function payWeOrHol(ymd, site) {
+  return isYMD(ymd) && (!!payHolidayName(ymd) || (!!site && Array.isArray(site.weekendDays) && site.weekendDays.indexOf(ymdWeekday(ymd)) !== -1));
+}
+// Ask "Day or Night?" for a call-in only where the answer changes pay: a
+// non-holiday weekday when the rate pays no hourly on weekday daytime.
+// Never for a deleted site's stand-in: its weekend days are unknown, so the
+// form asks for the rate type itself instead.
+function payAsksDayNight(ymd, site, rate) {
+  if (site && site.deleted) return false;
+  return isYMD(ymd) && !payWeOrHol(ymd, site) && !(rate && rate.hourlyWeekdayDay === true);
+}
+// Ask "before or after midnight?" only where it changes the call-in fee:
+// the weekday and weekend/holiday fees differ AND the shift day and the
+// next day fall on different sides of that line (never for a deleted site).
+function payMidnightAsks(shiftDate, site, rate) {
+  if (!rate || !isYMD(shiftDate) || rate.callInWeekday === rate.callInWeekendHoliday || (site && site.deleted)) return false;
+  return payWeOrHol(shiftDate, site) !== payWeOrHol(addDaysYMD(shiftDate, 1), site);
+}
 // Builds the shift the call-pay form saves - the ONLY writer of payShifts.
 // Output passes repairData UNCHANGED (check.js contract test): numbers are
 // numbers, events/siteId/siteName always present, time/note only when set,
@@ -1316,15 +1346,8 @@ function payShiftFromDraft(draft, site, orig, ctx) {
   if (!siteOk) add("site", -1, true);
   var dateOk = isYMD(draft.date);
   if (!dateOk) add("date", -1, true);
-  var rates = null, ratesFrom = "";
-  // draft.reprice (the editor's "Use current rates") skips the kept copy.
-  if (orig && !draft.reprice && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) {
-    rates = { ...orig.rates };
-    ratesFrom = "kept";
-  } else if (siteOk && dateOk) {
-    var rif = rateInForce(site, draft.date);
-    if (rif) { rates = { ...rif }; ratesFrom = "inForce"; }
-  }
+  var dr = payDraftRate(draft, site, orig);
+  var rates = dr.rates, ratesFrom = dr.from;
   if (siteOk && dateOk && !rates) add("rates", -1, true);
   var callHours = payNum(draft.callHours);
   if (callHours === null) add("hours", -1, true);
@@ -1358,35 +1381,98 @@ function payShiftFromDraft(draft, site, orig, ctx) {
   return { shift: shift, problems: problems, ratesFrom: ratesFrom };
 }
 // ---- Shift-form draft logic (pure; callpay.js only holds the state) ----
-// A draft call-in is { date, rel: "same"|"next"|"other", time, timeAuto, cls,
-// clsSet, fee, hours } with text as typed. The clock (today, nowHM) is passed
+// A draft call-in is { date, rel: "same"|"next"|"other" (or "" while the
+// midnight question is open), relSet?, time, timeAuto, cls, clsSet, dn?,
+// fee, hours } with text as typed. The clock (today, nowHM) is passed
 // in so check.js can pin it. One rule, re-applied on EVERY change so the
 // result never depends on tap order: Shift day / Next day follow the shift
 // date; an auto start time (now minus the hours it lasted) applies only while
 // logging on the shift day or the day after - otherwise it is cleared and the
 // class must come from the user; the class follows the date/time unless the
 // user overrode it (clsSet).
-function payDraftEvent(e, shiftDate, site, today, nowHM) {
+// The simple form (R2) adds two UI-only fields, switched on by passing
+// `rate` (the draft's rate choice, payDraftRate): relSet === false = the
+// before/after-midnight question is not answered yet (rel "" and no date
+// while payMidnightAsks; otherwise the shift day), and dn = the "Day or
+// Night?" answer ("wd"/"wn"), used only where the date gives no class (a
+// weekday with no time). With no answer, a rate that pays hourly on weekday
+// daytime takes "wn" quietly (day and night pay the same there); otherwise
+// the class stays "" and the form asks. A weekend/holiday date always wins
+// over a Day/Night answer. Callers without `rate` behave exactly as before.
+function payDraftEvent(e, shiftDate, site, today, nowHM, rate) {
   var ne = { ...e };
   var nextDay = addDaysYMD(shiftDate, 1);
   if (ne.timeAuto && !(isYMD(shiftDate) && (today === shiftDate || today === nextDay))) { ne.timeAuto = false; ne.time = ""; }
-  if (ne.rel === "same") ne.date = shiftDate; else if (ne.rel === "next") ne.date = nextDay;
+  if (ne.relSet === false) ne.rel = payMidnightAsks(shiftDate, site, rate) ? "" : "same";
+  if (ne.rel === "same") ne.date = shiftDate; else if (ne.rel === "next") ne.date = nextDay; else if (ne.rel === "") ne.date = "";
   if (ne.timeAuto) {
     var sb = payStartBack(today, nowHM, ne.hours === "" ? 0 : ne.hours);
     if (sb && (sb.date === shiftDate || sb.date === nextDay)) { ne.date = sb.date; ne.time = sb.time; ne.rel = sb.date === shiftDate ? "same" : "next"; }
     else ne.time = "";
   }
-  if (!ne.clsSet) ne.cls = classifyPayEvent(ne.date, ne.time, site && Array.isArray(site.weekendDays) ? site.weekendDays : []);
+  if (!ne.clsSet) {
+    if (rate && site && site.deleted) {
+      // A deleted site's weekend days are unknown: a saved call-in keeps its
+      // saved class while its date and time are unchanged (keptCls, set by
+      // payDraftFromShift); otherwise only a holiday is certain and the rest
+      // waits for the user's rate type (the form asks).
+      ne.cls = ne.keptCls && ne.date === ne.keptDate && ne.time === ne.keptTime ? ne.keptCls : payHolidayName(ne.date) ? "hol" : "";
+    } else {
+      ne.cls = classifyPayEvent(ne.date, ne.time, site && Array.isArray(site.weekendDays) ? site.weekendDays : []);
+      if (ne.cls === "" && rate && isYMD(ne.date)) {
+        if (ne.dn === "wd" || ne.dn === "wn") ne.cls = ne.dn;
+        else if (rate.hourlyWeekdayDay === true) ne.cls = "wn";
+      }
+    }
+  }
   return ne;
 }
 function payDraftNewEvent(shiftDate, site, today, nowHM) {
   return payDraftEvent({ date: shiftDate, rel: "same", time: "", timeAuto: true, cls: "", clsSet: false, fee: true, hours: "" }, shiftDate, site, today, nowHM);
 }
+// A new call-in for the simple form: no time guessed from the clock, the
+// midnight question open where it matters, fee on.
+function payDraftTrip(shiftDate, site, rate) {
+  return payDraftEvent({ date: shiftDate, rel: "same", relSet: false, time: "", timeAuto: false, cls: "", clsSet: false, dn: "", fee: true, hours: "" }, shiftDate, site, "", "", rate);
+}
+// The edit draft for a saved shift (simple form). hoursSet is false for a
+// full-length shift so a site/date change takes the new length (the
+// payRepriceShift rule). Each call-in keeps its saved class - as the
+// automatic class, a Day/Night answer (dn) or an override (clsSet) - so
+// payShiftFromDraft rebuilds it unchanged. Only questions the saved rates
+// actually ASKED come back answered: a shift-day call-in where no midnight
+// question applied stays relSet false, and a quiet "wn" (a rate paying
+// hourly on weekday daytime never asks Day/Night) leaves dn "" - so a later
+// day or site change that makes the answer matter asks again. On a deleted
+// site's stand-in (weekend days unknown) the saved class rides along in the
+// UI-only keptCls/keptDate/keptTime - used only while the site is deleted and
+// the call-in's date/time are unchanged - and the flags follow the same
+// rules as above, so moving the shift to a live site re-applies the normal
+// rules (a weekend day wins, the quiet rule, an unanswered question re-asks).
+function payDraftFromShift(s, site) {
+  var wdays = site && Array.isArray(site.weekendDays) ? site.weekendDays : [];
+  var nextDay = addDaysYMD(s.date, 1);
+  var gone = !!(site && site.deleted);
+  var quiet = !!(s.rates && s.rates.hourlyWeekdayDay === true);
+  var askedMid = payMidnightAsks(s.date, site, s.rates);
+  return { id: s.id, siteId: s.siteId, date: s.date, callHours: String(s.callHours), hoursSet: !(s.rates && s.callHours === s.rates.stipendHours), note: s.note || "",
+    events: (s.events || []).map(function(e) {
+      var rel = e.date === s.date ? "same" : e.date === nextDay ? "next" : "other";
+      var ne = { date: e.date, rel: rel, relSet: rel !== "same" || askedMid, time: e.time || "", timeAuto: false, cls: e.cls, clsSet: false, dn: "", fee: e.fee, hours: String(e.hours) };
+      if (gone) { ne.keptCls = e.cls; ne.keptDate = ne.date; ne.keptTime = ne.time; }
+      var auto = classifyPayEvent(ne.date, ne.time, wdays);
+      if (auto === "") {
+        if (e.cls === "wd" || (e.cls === "wn" && !quiet)) ne.dn = e.cls;
+        else if (e.cls !== "wn") ne.clsSet = true;
+      } else if (auto !== e.cls) ne.clsSet = true;
+      return ne;
+    }) };
+}
 // Undo for call-pay shifts (app.js doUndo type "pay"): drop the ids in
 // action.remove (undoes a save), then put each action.restore copy back IN
 // PLACE - swapped in where its id still is (undoes an edit) or re-inserted at
-// action.at (undoes a delete). Order matters: the last shift in the list sets
-// the shift form's "last-used site". Returns a new array.
+// action.at (undoes a delete), so the list order (newest-added last, the
+// Recent tie-break) is kept. Returns a new array.
 function payUndoApply(list, action) {
   var back = (action && action.restore) || [], rm = (action && action.remove) || [];
   var at = action ? action.at : undefined;
@@ -1523,11 +1609,13 @@ function payMonthTotals(shifts, year, sites) {
   return { total: cents / 100, shifts: count, callIns: callIns, unpriced: unpriced, months: out };
 }
 // Re-derive everything that follows the site/date: default hours on call
-// (until the user edits them) and every call-in via payDraftEvent.
-function payDraftRefresh(d, site, today, nowHM) {
+// (until the user edits them) and every call-in via payDraftEvent. `rate`
+// (optional, the draft's payDraftRate choice) sets the full length and
+// switches on the simple-form rules; without it the version in force does.
+function payDraftRefresh(d, site, today, nowHM, rate) {
   var nd = { ...d };
-  if (!nd.hoursSet) { var rif = site ? rateInForce(site, nd.date) : null; if (rif) nd.callHours = String(rif.stipendHours); }
-  nd.events = (nd.events || []).map(function(e) { return payDraftEvent(e, nd.date, site, today, nowHM); });
+  if (!nd.hoursSet) { var rif = rate || (site ? rateInForce(site, nd.date) : null); if (rif) nd.callHours = String(rif.stipendHours); }
+  nd.events = (nd.events || []).map(function(e) { return payDraftEvent(e, nd.date, site, today, nowHM, rate); });
   return nd;
 }
 

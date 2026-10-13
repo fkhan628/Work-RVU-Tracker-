@@ -77,7 +77,12 @@ the per-file gates below. Run it after EVERY file change.
 - Call-pay math has ONE implementation in utils.js (payHolidayName,
   classifyPayEvent, computeShiftPay, rateInForce, plus the entry helpers
   addDaysYMD/payDefaultShiftDate/payStartBack, the shift-form draft rules
-  payDraftEvent/payDraftNewEvent/payDraftRefresh, payUndoApply, the
+  payDraftEvent/payDraftNewEvent/payDraftRefresh plus the simple form's
+  payDraftRate (the ONE rate choice: kept copy or version in force),
+  payAsksDayNight/payMidnightAsks (ask only where the answer changes pay),
+  payDraftTrip/payDraftFromShift (dn and relSet are UI-only draft fields;
+  passing `rate` to payDraftEvent/payDraftRefresh switches their rules on),
+  payWeOrHol, payReclassShift, payUndoApply, the
   whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, the
   Dashboard's payTotalInRange (a separate line, never added to Comp),
   re-pricing payRatesDiffer/payShiftStale/payRepriceShift, and the built-in
