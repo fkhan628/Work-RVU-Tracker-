@@ -56,10 +56,20 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     return entries.filter(function(e) { return inSelectedYear(e.date); });
   }, [entries, selectedYear, yearStart]);
 
+  // Credited vs no-credit split (isNoCredit). Counts, averages, shares and
+  // the per-month / per-code / weekday breakdowns use CREDITED cases only;
+  // no-credit cases appear once, on a quiet "Logged, no credit" line.
+  var creditSplit = useMemo(function() {
+    var cr = [], nc = [];
+    filteredEntries.forEach(function(e) { if (isNoCredit(e)) nc.push(e); else cr.push(e); });
+    return { credited: cr, nc: nc, ncEnc: countEncounters(nc), ncRVU: nc.reduce(function(s, e) { return s + noCreditRVU(e); }, 0) };
+  }, [filteredEntries]);
+  var noneText = creditSplit.nc.length > 0 ? "No credited procedures in " + year + "." : "No procedures logged in " + year + ".";
+
   // Monthly breakdown
   var monthlyData = useMemo(function() {
     var months = {};
-    filteredEntries.forEach(function(e) {
+    creditSplit.credited.forEach(function(e) {
       var key = e.date.slice(0, 7);
       if (!months[key]) months[key] = { key: key, rvu: 0, comp: 0, count: 0, entries: [] };
       months[key].rvu += creditedRVU(e);
@@ -68,7 +78,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       months[key].entries.push(e);
     });
     return Object.values(months).sort(function(a, b) { return a.key.localeCompare(b.key); });
-  }, [filteredEntries, rate]);
+  }, [creditSplit, rate]);
   var selTotal = filteredEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
   var selComp = selTotal * rate;
 
@@ -104,6 +114,9 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     // For each encounter, build a sorted code combination
     var combos = {};
     Object.values(encounters).forEach(function(encEntries) {
+      // An encounter with no credited case is not a credited encounter; one
+      // with any keeps its full code combination (credited wRVU only).
+      if (encEntries.every(isNoCredit)) return;
       // Sort by RVU descending so primary procedure comes first
       var sorted = encEntries.slice().sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });
       var codes = sorted.map(function(e) { return e.cptCode; });
@@ -132,7 +145,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
   var caseMix = useMemo(function() {
     var cats = {};
     var totalProcs = 0, totalRVU = 0;
-    filteredEntries.forEach(function(e) {
+    creditSplit.credited.forEach(function(e) {
       var cat = e.category || "Other";
       if (!cats[cat]) cats[cat] = { name: cat, rvu: 0, count: 0 };
       cats[cat].rvu += creditedRVU(e);
@@ -141,25 +154,25 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       totalRVU += creditedRVU(e);
     });
     return { list: Object.values(cats).sort(function(a, b) { return b.rvu - a.rvu; }), totalProcs: totalProcs, totalRVU: totalRVU };
-  }, [filteredEntries]);
+  }, [creditSplit]);
 
   // 2. TOP CODES by total snapshotted wRVU (individual CPTs, unlike the
   // combo-based Top Encounters card).
   var topCodes = useMemo(function() {
     var m = {};
-    filteredEntries.forEach(function(e) {
+    creditSplit.credited.forEach(function(e) {
       if (!m[e.cptCode]) m[e.cptCode] = { code: e.cptCode, desc: e.description, count: 0, rvu: 0 };
       m[e.cptCode].count++;
       m[e.cptCode].rvu += creditedRVU(e);
     });
     return Object.values(m).sort(function(a, b) { return b.rvu - a.rvu; }).slice(0, 10);
-  }, [filteredEntries]);
+  }, [creditSplit]);
 
   // 3. WRVU PER ENCOUNTER TREND - months with zero encounters are skipped,
   // not plotted as zero: an empty month has no average.
   var encTrend = useMemo(function() {
     var byMonth = {};
-    filteredEntries.forEach(function(e) {
+    creditSplit.credited.forEach(function(e) {
       var mk = e.date.slice(0, 7);
       if (!byMonth[mk]) byMonth[mk] = [];
       byMonth[mk].push(e);
@@ -170,7 +183,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       var rvu = arr.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
       return { key: mk, encs: encs, avg: encs > 0 ? rvu / encs : 0 };
     }).filter(function(p) { return p.encs > 0; });
-  }, [filteredEntries]);
+  }, [creditSplit]);
 
   // 6. DAY OF WEEK - weekday from LOCAL date parts of "YYYY-MM-DD". Never
   // new Date(dateString): date-only strings parse as UTC midnight and shift
@@ -178,7 +191,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
   var dayOfWeek = useMemo(function() {
     var counts = [0, 0, 0, 0, 0, 0, 0];
     var rvus = [0, 0, 0, 0, 0, 0, 0];
-    filteredEntries.forEach(function(e) {
+    creditSplit.credited.forEach(function(e) {
       var p = e.date.split("-");
       var wd = new Date(parseInt(p[0], 10), parseInt(p[1], 10) - 1, parseInt(p[2], 10)).getDay();
       counts[wd]++;
@@ -187,7 +200,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     var order = [1, 2, 3, 4, 5, 6, 0];
     var names = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
     return order.map(function(i) { return { name: names[i], count: counts[i], rvu: rvus[i] }; });
-  }, [filteredEntries]);
+  }, [creditSplit]);
 
   // 4. VALUE PER SHIFT - all acute months, spans years by design.
   // computeAcuteSplit only; a month with pool but no shifts shows a dash.
@@ -242,7 +255,10 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
   // hook below a conditional return renders fewer hooks on detail views and
   // crashes React (rules of hooks).
   var summaryData = useMemo(function() {
-    var mEntries = entries.filter(function(e) { return e.date.slice(0, 7) === summaryMonth; });
+    var mAll = entries.filter(function(e) { return e.date.slice(0, 7) === summaryMonth; });
+    // Every report figure counts credited cases; no-credit cases get one line.
+    var mEntries = mAll.filter(function(e) { return !isNoCredit(e); });
+    var mNC = mAll.filter(isNoCredit);
     var totalRVU = mEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     var totalComp = totalRVU * rate;
     var caseCount = countEncounters(mEntries);
@@ -254,13 +270,14 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     // Group by encounter for top procedure combinations (shared identity:
     // utils.js encounterKey)
     var mEncounters = {};
-    mEntries.forEach(function(e) {
+    mAll.forEach(function(e) {
       var key = encounterKey(e) || ("solo|" + e.id);
       if (!mEncounters[key]) mEncounters[key] = [];
       mEncounters[key].push(e);
     });
     var mCombos = {};
     Object.values(mEncounters).forEach(function(encEntries) {
+      if (encEntries.every(isNoCredit)) return; // same rule as Top Encounters
       var sorted = encEntries.slice().sort(function(a, b) { return b.adjustedRVU - a.adjustedRVU; });
       var codes = sorted.map(function(e) { return e.cptCode; });
       var comboKey = codes.join("+");
@@ -276,7 +293,8 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     mEntries.forEach(function(e) { if (e.encounterId) patients[e.encounterId] = true; });
     var days = {};
     mEntries.forEach(function(e) { days[e.date] = true; });
-    return { totalRVU: totalRVU, totalComp: totalComp, caseCount: caseCount, avgRVU: avgRVU, privateRVU: privateRVU, callRVU: callRVU, privateCases: countEncounters(privateEntries), callCases: countEncounters(callEntries), topProcs: topProcsM, uniquePatients: Object.keys(patients).length, workDays: Object.keys(days).length, totalProcs: mEntries.length };
+    return { totalRVU: totalRVU, totalComp: totalComp, caseCount: caseCount, avgRVU: avgRVU, privateRVU: privateRVU, callRVU: callRVU, privateCases: countEncounters(privateEntries), callCases: countEncounters(callEntries), topProcs: topProcsM, uniquePatients: Object.keys(patients).length, workDays: Object.keys(days).length, totalProcs: mEntries.length,
+      ncProcs: mNC.length, ncEnc: countEncounters(mNC), ncRVU: mNC.reduce(function(s, e) { return s + noCreditRVU(e); }, 0) };
   }, [entries, summaryMonth, rate]);
 
   // Detail view for a specific month
@@ -290,6 +308,8 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
       monthProcs[e.cptCode].totalRVU += creditedRVU(e);
     });
     var monthProcList = Object.values(monthProcs).sort(function(a, b) { return b.totalRVU - a.totalRVU; });
+    var dmNC = creditSplit.nc.filter(function(e) { return e.date.slice(0, 7) === detailMonth; });
+    var dmNCRVU = dmNC.reduce(function(s, e) { return s + noCreditRVU(e); }, 0);
 
     return (<div style={S.page}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={function() { setDetailMonth(null); }} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{monthLabel(detailMonth)}</h1></div>
@@ -298,6 +318,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
         <div style={S.statCard}><div style={S.statValue}>{dm.count}</div><div style={S.statLabel}>Procedures</div></div>
         <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(dm.comp, showComp)}</div><div style={S.statLabel}>Compensation</div></div>
       </div>
+      {dmNC.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12 }}>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{dmNCRVU.toFixed(1)}</span>{" wRVU across " + dmNC.length + " procedure" + (dmNC.length === 1 ? "" : "s")}</div>}
       <div style={S.card}><div style={S.cardLabel}>Procedures</div><div style={{ marginTop: 8 }}>{monthProcList.map(function(p) {
         return (<div key={p.code} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}>
           <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 11, color: "#64748b", marginLeft: 6 }}>x{p.count}</span><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{p.desc}</div></div>
@@ -314,7 +335,9 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
 
   var generateSummaryText = function() {
     var s = summaryData;
-    var lines = ["MONTHLY RVU SUMMARY - " + summaryMonthName(summaryMonth).toUpperCase(), "=".repeat(44), "", "Total wRVUs:        " + s.totalRVU.toFixed(2), "Total Compensation: $" + s.totalComp.toLocaleString(undefined, { maximumFractionDigits: 0 }), "Encounters:         " + s.caseCount, "Procedures:         " + s.totalProcs, "Avg wRVU/Encounter: " + s.avgRVU.toFixed(2), "Working Days:       " + s.workDays, "", "Private: " + s.privateCases + " enc, " + s.privateRVU.toFixed(1) + " wRVUs", "Call:    " + s.callCases + " enc, " + s.callRVU.toFixed(1) + " wRVUs", ""];
+    var lines = ["MONTHLY RVU SUMMARY - " + summaryMonthName(summaryMonth).toUpperCase(), "=".repeat(44), "", "Total wRVUs:        " + s.totalRVU.toFixed(2), "Total Compensation: $" + s.totalComp.toLocaleString(undefined, { maximumFractionDigits: 0 }), "Encounters:         " + s.caseCount, "Procedures:         " + s.totalProcs, "Avg wRVU/Encounter: " + s.avgRVU.toFixed(2), "Working Days:       " + s.workDays, "", "Private: " + s.privateCases + " enc, " + s.privateRVU.toFixed(1) + " wRVUs", "Call:    " + s.callCases + " enc, " + s.callRVU.toFixed(1) + " wRVUs"];
+    if (s.ncProcs > 0) lines.push("No credit: " + s.ncEnc + " enc, " + s.ncRVU.toFixed(1) + " wRVUs (not in totals)");
+    lines.push("");
     if (goal > 0) { lines.push("Monthly Goal Pace: " + ((s.totalRVU / (goal / 12)) * 100).toFixed(0) + "% of " + (goal / 12).toFixed(0) + " wRVU target"); lines.push(""); }
     if (s.topProcs.length > 0) { lines.push("TOP ENCOUNTERS:"); lines.push("-".repeat(44)); s.topProcs.forEach(function(p) { var codes = p.addons.length > 0 ? p.code + " + " + p.addons.join(", ") : p.code; lines.push("  " + codes + "  x" + p.count + "  " + p.rvu.toFixed(1) + " wRVU  " + p.desc.slice(0, 30)); }); }
     return lines.join("\n");
@@ -394,6 +417,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
         : <div style={S.statCard}><div style={S.statValue}>{monthlyData.length}</div><div style={S.statLabel}>Months</div></div>}
       <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(selComp, showComp)}</div><div style={S.statLabel}>Total Comp</div></div>
     </div>
+    {creditSplit.nc.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12 }}>{"Logged, no credit (" + (isCurrent ? "YTD" : year) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{creditSplit.ncRVU.toFixed(1)}</span>{" wRVU across " + creditSplit.ncEnc + " encounter" + (creditSplit.ncEnc === 1 ? "" : "s")}</div>}
 
     {/* Monthly bar chart */}
     <div style={S.card}>
@@ -414,7 +438,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
           </div>);
         })}
         {goal > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}><div style={{ width: 12, height: 2, background: "rgba(251,191,36,0.5)" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Monthly goal ({(goal/12).toFixed(0)})</span></div>}
-        {monthlyData.length === 0 && <div style={emptyHint}>No procedures logged in {year}.</div>}
+        {monthlyData.length === 0 && <div style={emptyHint}>{noneText}</div>}
       </div>
     </div>
 
@@ -422,7 +446,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: "1px solid #334155", padding: 16 }}>
       <div style={{ fontSize: 14, fontWeight: 700, color: "#f8fafc", marginBottom: 4 }}>Case Mix</div>
       <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>Share of procedures (grey) vs share of wRVUs (color) - what fills time vs what pays</div>
-      {caseMix.list.length === 0 ? <div style={emptyHint}>No procedures logged in {year}.</div> : caseMix.list.map(function(c, i) {
+      {caseMix.list.length === 0 ? <div style={emptyHint}>{noneText}</div> : caseMix.list.map(function(c, i) {
         var catColors = ["#0ea5e9","#10b981","#8b5cf6","#f59e0b","#ef4444","#ec4899","#06b6d4","#f97316"];
         var color = catColors[i % catColors.length];
         var caseShare = caseMix.totalProcs > 0 ? (c.count / caseMix.totalProcs * 100) : 0;
@@ -456,7 +480,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     <div style={S.card}>
       <div style={S.cardLabel}>Top Codes by wRVU</div>
       <div style={{ marginTop: 8 }}>
-        {topCodes.length === 0 ? <div style={emptyHint}>No procedures logged in {year}.</div> : topCodes.map(function(c, i) {
+        {topCodes.length === 0 ? <div style={emptyHint}>{noneText}</div> : topCodes.map(function(c, i) {
           var f = cptMapLocal[c.code];
           var label = (f && f.friendly) || c.desc || ("CPT " + c.code);
           return (<div key={c.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < topCodes.length - 1 ? "1px solid rgba(51,65,85,0.3)" : "none" }}>
@@ -494,8 +518,8 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     {/* 3. WRVU PER ENCOUNTER TREND - inline SVG polyline, no chart library */}
     <div style={S.card}>
       <div style={S.cardLabel}>wRVU per Encounter</div>
-      <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>Monthly average, {year}. Months with no encounters are skipped.</div>
-      {encTrend.length === 0 ? <div style={emptyHint}>No encounters logged in {year}.</div> : (function() {
+      <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>{"Monthly average, " + year + ". Months with no " + (creditSplit.nc.length > 0 ? "credited " : "") + "encounters are skipped."}</div>
+      {encTrend.length === 0 ? <div style={emptyHint}>{creditSplit.nc.length > 0 ? "No credited encounters in " + year + "." : "No encounters logged in " + year + "."}</div> : (function() {
         var W = 320, H = 90, PX = 12, PY = 14;
         var vals = encTrend.map(function(p) { return p.avg; });
         var min = Math.min.apply(null, vals);
@@ -527,7 +551,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     <div style={S.card}>
       <div style={S.cardLabel}>Day of Week</div>
       <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>Cases and wRVUs by weekday, {year}.</div>
-      {filteredEntries.length === 0 ? <div style={emptyHint}>No procedures logged in {year}.</div> : (function() {
+      {creditSplit.credited.length === 0 ? <div style={emptyHint}>{noneText}</div> : (function() {
         var maxDow = dayOfWeek.reduce(function(m, d) { return Math.max(m, d.rvu); }, 0);
         return dayOfWeek.map(function(d) {
           return (<div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.2)" }}>
@@ -611,6 +635,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
         <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)" }}><div style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Private</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{summaryData.privateRVU.toFixed(1)} wRVU | {summaryData.privateCases} enc</div></div>
         <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}><div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600 }}>Call</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{summaryData.callRVU.toFixed(1)} wRVU | {summaryData.callCases} enc</div></div>
       </div>}
+      {summaryData.ncProcs > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -4, marginBottom: 12 }}>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{summaryData.ncRVU.toFixed(1)}</span>{" wRVU | " + summaryData.ncEnc + " enc"}</div>}
       {goal > 0 && <div style={{ padding: "8px 10px", borderRadius: 6, background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div><span style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Monthly Goal Pace</span><div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>Target: {(goal / 12).toFixed(0)} wRVU/month</div></div>
         <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 700 }}>{((summaryData.totalRVU / (goal / 12)) * 100).toFixed(0)}%</span>

@@ -334,6 +334,53 @@ check("credit helpers: declared once each at the top of utils.js; elsewhere only
   helperBad.length === 0 && CREDIT_HELPERS.every(k => helperDecls[k] === 1), helperBad.join(", ") + " decls " + JSON.stringify(helperDecls));
 check("adjustedRVU is never written as a literal 0", zeroWrites.length === 0, zeroWrites.join(", "));
 
+// 5e. Hooks before any conditional return (CLAUDE.md; this crashed analytics
+// once). For every top-level component (capitalized function declaration)
+// in the Babel files: from the first statement that contains a return of
+// the component itself (an early return, or the final render), no
+// use[A-Z]... call may follow - nested functions (callbacks) are ignored.
+const NESTED_FN = { FunctionExpression: 1, ArrowFunctionExpression: 1, FunctionDeclaration: 1, ObjectMethod: 1, ClassMethod: 1 };
+function ownNodes(node, cb) {
+  (function visit(n) {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(visit); return; }
+    if (NESTED_FN[n.type]) return;
+    cb(n);
+    for (const k in n) { if (!WALK_SKIP[k] && n[k] && typeof n[k] === "object") visit(n[k]); }
+  })(node);
+}
+function hooksAfterReturn(src) {
+  const bad = [];
+  parser.parse(src, AST_OPTS).program.body.forEach(fn => {
+    if (fn.type !== "FunctionDeclaration" || !fn.id || !/^[A-Z]/.test(fn.id.name)) return;
+    const stmts = fn.body.body;
+    let first = -1;
+    for (let i = 0; i < stmts.length && first === -1; i++) { let has = false; ownNodes(stmts[i], n => { if (n.type === "ReturnStatement") has = true; }); if (has) first = i; }
+    if (first === -1) return;
+    for (let i = first; i < stmts.length; i++) {
+      ownNodes(stmts[i], n => {
+        if (n.type !== "CallExpression") return;
+        const c = n.callee, name = c.type === "Identifier" ? c.name : (c.type === "MemberExpression" && !c.computed ? c.property.name : "");
+        if (/^use[A-Z]/.test(name)) bad.push(fn.id.name + ":" + n.loc.start.line + " " + name);
+      });
+    }
+  });
+  return bad;
+}
+const hookSelf = [
+  ["function A() { const [a] = useState(0); if (a) return null; const b = useMemo(f, []); return a; }", 1],
+  ["function B() { if (x) { y(); return null; } var c = useRef(0); return c; }", 1],
+  ["function C() { const a = useState(0); if (a) return null; var cb = function() { useFoo(); }; return cb; }", 0],
+  ["function D() { const a = useState(0); const b = useMemo(f, []); return a + b; }", 0],
+];
+const badHookSelf = hookSelf.filter(t => hooksAfterReturn(t[0]).length !== t[1]);
+check("hooks-order gate self-test (" + hookSelf.length + " snippets)", badHookSelf.length === 0, badHookSelf.map(t => t[0]).join(" | "));
+const hookBad = [];
+jsFiles.filter(f => ["crypto.js", "cpt-data.js", "utils.js", "styles.js"].indexOf(f) === -1).forEach(f => {
+  try { hooksAfterReturn(fs.readFileSync(path.join(JS_DIR, f), "utf8")).forEach(b => hookBad.push(f + " " + b)); } catch (e) { /* parse failure is reported in step 1 */ }
+});
+check("hooks before any conditional return (every component in the Babel files)", hookBad.length === 0, hookBad.join(", "));
+
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");
 let rows = null, evalErr = null;
@@ -508,6 +555,41 @@ if (sb) {
   const stylesSrc = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8");
   check("global chip color tokens defined for dark AND light mode (each exactly twice in styles.js)",
     ["--global-90:", "--global-10:", "--global-0:"].every(t => stylesSrc.split(t).length - 1 === 2));
+  // CSV import never reads the exports' Credit column back into a mark - it
+  // warns FIRST instead (the preview shows only the first messages).
+  const impMap = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", sb);
+  // Row 2 (no valid CPT) errors BEFORE the note is added, so errors[0] tells
+  // unshift from push; the RVU Wallet fixture does the same for its branch.
+  const setCsv = "Date,CPT,Description,Category,Base wRVU,Modifiers,Adjusted wRVU,Compensation,Notes,Credit\n" +
+    "2026-10-04,xx,Acute,Acute,0,,0,0.00,,Credited\n" +
+    "2026-10-05,47562,Lap chole,General,10.21,,10.21,0.00,AB,No credit\n2026-10-06,49650,Lap hernia,Hernia,6.36,,6.36,350.00,CD,Credited\n";
+  const histCsv = "Date,CPT,Description,Category,Type,Base wRVU,Modifiers,Adjusted wRVU,Compensation,Patient,Notes,Credit\n" +
+    "2026-10-06,49650,Lap hernia,Hernia,Private,6.36,,6.36,350.00,CD,x,Credited\n";
+  const walCsv = "Date,Codes,Total Work RVUs,Credit\n2026-10-05,99999,1,Credited\n2026-10-06,47562,10.21,No credit\n";
+  const impA = sb.parseImport(setCsv, impMap), impB = sb.parseImport(histCsv, impMap), impW = sb.parseImport(walCsv, impMap);
+  const noFlag = r => r.entries.every(e => !Object.prototype.hasOwnProperty.call(e, "noCredit"));
+  check("CSV import: a Credit column warns first and never sets a no-credit mark",
+    impA.entries.length === 2 && /^1 row is marked No credit and will import as CREDITED/.test(impA.errors[0] || "") &&
+    impA.errors[1] === "Row 2: No valid CPT code" && noFlag(impA) &&
+    impB.entries.length === 1 && impB.errors.every(m => !/No credit/.test(m)) && noFlag(impB) &&
+    impW.entries.length === 2 && /^1 row is marked No credit/.test(impW.errors[0] || "") && /not in database/.test(impW.errors[1] || "") && noFlag(impW) &&
+    JSON.stringify(sb.detectCols(["Credit"])) === JSON.stringify({ date: -1, cpt: -1, desc: -1, rvu: -1, modifier: -1, notes: -1 }),
+    JSON.stringify({ a: impA.errors, b: impB.errors, w: impW.errors }));
+  // A quoted note with a line break spans physical lines (CRLF too); an Excel
+  // tab paste shifts cells when a description or modifier list holds a comma.
+  const nlCsv = "Date,CPT,Description,Category,Base wRVU,Modifiers,Adjusted wRVU,Compensation,Notes,Credit\r\n" +
+    "2026-10-05,47562,Lap chole,General,10.21,,10.21,0.00," + sb.csvField("AB \"x\"\nhard, case") + ",No credit\r\n" +
+    "2026-10-07,49650,Lap hernia,Hernia,6.36,,6.36,0.00,EF,No credit\r\n2026-10-08,49650,Lap hernia,Hernia,6.36,,6.36,350.00," + sb.csvField("no\ncredit") + ",Credited\r\n";
+  const tabCsv = ["Date", "CPT Code", "Description", "Category", "Type", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes", "Credit"].join("\t") + "\n" +
+    ["2026-10-05", "11042", "Debridement, subcutaneous tissue, first 20 sq cm", "Wound", "Call", "1.01", "-22, -51", "1.4", "0", "AB", "x", "No credit"].join("\t") + "\n";
+  // A bare '"' (Excel leaves it unquoted in a tab paste) never closes a record;
+  // the per-line count keeps the warning from collapsing to 1.
+  const quoteCsv = "Date\tCPT\tNotes\tCredit\n2026-10-05\t49650\t2\" incision\tCredited\n2026-10-06\t47562\tAB\tNo credit\n2026-10-07\t47562\tCD\tNo credit\n";
+  const impC = sb.parseImport(nlCsv, impMap), impD = sb.parseImport(tabCsv, impMap), impQ = sb.parseImport(quoteCsv, impMap);
+  check("CSV import: the credit warning counts whole records (multi-line notes), comma-shifted and bare-quote tab pastes",
+    /^2 rows are marked No credit/.test(impC.errors[0] || "") && noFlag(impC) && /^1 row is marked No credit/.test(impD.errors[0] || "") && noFlag(impD) &&
+    /^2 rows are marked No credit/.test(impQ.errors[0] || "") && noFlag(impQ),
+    JSON.stringify({ c: impC.errors, d: impD.errors, q: impQ.errors }));
 
   // Shift-entry helpers (call pay form). Local-parts date math only.
   const ADD = [["2026-01-31", 1, "2026-02-01"], ["2026-12-31", 1, "2027-01-01"], ["2028-02-28", 1, "2028-02-29"],

@@ -160,6 +160,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
   const tF = filtered.reduce((s, e) => s + creditedRVU(e), 0);
   const filteredCount = filtered.length;
+  const ncF = filtered.filter(isNoCredit).length; // no-credit rows: counted as procedures, out of the wRVU/$ totals
   const [swipedId, setSwipedId] = useState(null);
   var touchStart = useRef({ x: 0, id: null });
 
@@ -192,7 +193,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
       if (o.type === "enc") {
         var ents = encMap[o.key];
         if (ents.length === 1) return { type: "single", entry: ents[0] };
-        return { type: "encounter", patient: o.key, entries: ents, totalRVU: ents.reduce(function(s, x) { return s + creditedRVU(x); }, 0) };
+        return { type: "encounter", patient: o.key, entries: ents, totalRVU: ents.reduce(function(s, x) { return s + creditedRVU(x); }, 0), ncCount: ents.filter(isNoCredit).length };
       }
       return o;
     });
@@ -211,7 +212,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
             <span style={S.histCode}>{e.cptCode}</span>
             {e.modifiers.map(function(m) { return <span key={m} style={S.histMod}>{m}</span>; })}
             {e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
-            {e.imported && <span style={{ fontSize: 9, color: "var(--text-dim)", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}
+            {isNoCredit(e) && <span style={S.ncTag}>no credit</span>}
+            {e.imported &&<span style={{ fontSize: 9, color: "var(--text-dim)", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}
             {getGlobalDays(e.cptCode) && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.15)", color: getGlobalColor(e.cptCode), fontFamily: "JetBrains Mono", fontWeight: 600 }}>{getGlobalDays(e.cptCode)}</span>}
             {!compact && e.encounterId && <span style={{ fontSize: 9, color: "var(--text-muted)", background: "rgba(148,163,184,0.1)", padding: "1px 5px", borderRadius: 3 }}>{e.encounterId}</span>}
           </div>
@@ -221,7 +223,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
           {e.notes && !compact && <div style={S.histNotes}>{e.notes}</div>}
         </div>
         <div style={{ textAlign: "right", flexShrink: 0 }}>
-          <div style={S.histRVU}>{e.adjustedRVU.toFixed(2)}</div>
+          <div style={isNoCredit(e) ? { ...S.histRVU, color: "var(--text-dim)" } : S.histRVU}>{e.adjustedRVU.toFixed(2)}</div>
           <div style={{ fontSize: 11, color: "#10b981", fontFamily: "JetBrains Mono" }}>${(creditedRVU(e) * settings.ratePerRVU).toFixed(0)}</div>
           {!isSwiped && <button onClick={function(ev) { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button>}
         </div>
@@ -233,9 +235,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   };
 
   var exportFiltered = function() {
-    var h = ["Date","CPT","Description","Category","Type","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Patient","Notes"];
+    var h = ["Date","CPT","Description","Category","Type","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Patient","Notes","Credit"];
     var rows = filtered.map(function(e) {
-      return [e.date, e.cptCode, e.description || "", e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.encounterId || "", e.notes || ""];
+      return [e.date, e.cptCode, e.description || "", e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.encounterId || "", e.notes || "", isNoCredit(e) ? "No credit" : "Credited"];
     });
     var csv = [h.join(",")].concat(rows.map(function(r) { return r.map(csvField).join(","); })).join("\n");
     var b = new Blob([csv], { type: "text/csv" });
@@ -434,7 +436,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   }
 
   return (<div style={S.page}>
-    <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>History</h1><p style={S.subtitle}>{filteredCount === entries.length ? entries.length + " procedures" : filteredCount + " of " + entries.length + " procedures"}  {tF.toFixed(1)} wRVUs{filteredCount < entries.length ? " (filtered)" : ""}</p></div>{filtered.length > 0 && <button onClick={exportFiltered} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.05)", color: "#10b981", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", marginTop: 4 }}>Export CSV</button>}</div></div>
+    <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>History</h1><p style={S.subtitle}>{filteredCount === entries.length ? entries.length + " procedures" : filteredCount + " of " + entries.length + " procedures"}{ncF > 0 ? " (" + ncF + " no credit)" : ""}  {tF.toFixed(1)} wRVUs{filteredCount < entries.length ? " (filtered)" : ""}</p></div>{filtered.length > 0 && <button onClick={exportFiltered} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.05)", color: "#10b981", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", marginTop: 4 }}>Export CSV</button>}</div></div>
     <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search procedures, codes, notes..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={S.searchInput} />
 
     {/* Date range filter */}
@@ -460,7 +462,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
 
     {/* Filtered summary bar */}
     {dateRange !== "all" && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-      <span style={{ fontSize: 11, color: "#0ea5e9" }}>{filteredCount} procedures | {tF.toFixed(1)} wRVUs | ${(tF * settings.ratePerRVU).toFixed(0)}</span>
+      <span style={{ fontSize: 11, color: "#0ea5e9" }}>{filteredCount} procedures{ncF > 0 ? " (" + ncF + " no credit)" : ""} | {tF.toFixed(1)} wRVUs | ${(tF * settings.ratePerRVU).toFixed(0)}</span>
       <button onClick={function() { setDateRange("all"); setShowCallFilter("all"); }} style={{ fontSize: 10, color: "var(--text-dim)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear filters</button>
     </div>}
 
@@ -470,8 +472,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
         var items = allItems.filter(function(e) { return visibleIds[e.id]; });
         if (items.length === 0) return null;
         var encounters = groupBy === "date" ? buildEncounters(items) : null;
+        var gNC = allItems.filter(isNoCredit).length;
         return (<div key={group} style={{ marginBottom: 16 }}>
-          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {allItems.reduce((s, e) => s + creditedRVU(e), 0).toFixed(1)} wRVU  ({allItems.length}){items.length < allItems.length ? " - showing " + items.length : ""}</span></div>
+          <div style={S.groupHeader}>{groupBy === "date" ? fmt(group) : group}<span style={{ color: "var(--text-dim)", fontWeight: 400 }}>  {allItems.reduce((s, e) => s + creditedRVU(e), 0).toFixed(1)} wRVU  ({allItems.length}{gNC > 0 ? ", " + gNC + " no credit" : ""}){items.length < allItems.length ? " - showing " + items.length : ""}</span></div>
           {encounters ? encounters.map(function(enc, ei) {
             if (enc.type === "single") return renderProcRow(enc.entry, false);
             return (<div key={enc.patient + "-" + ei} style={{ background: "rgba(14,165,233,0.03)", border: "1px solid rgba(14,165,233,0.12)", borderRadius: 10, marginBottom: 6, overflow: "hidden" }}>
@@ -479,6 +482,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
                 <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                   <span style={{ fontSize: 12, fontWeight: 700, color: "#0ea5e9" }}>{enc.patient}</span>
                   <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{enc.entries.length} procedures</span>
+                  {enc.ncCount > 0 && <span style={S.ncTag}>{enc.ncCount === enc.entries.length ? "no credit" : "mixed"}</span>}
                   {enc.entries[0].isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
                 </div>
                 <div style={{ textAlign: "right", display: "flex", alignItems: "center", gap: 8 }}>

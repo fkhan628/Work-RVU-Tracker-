@@ -45,6 +45,14 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Tracked data for selected year
   const ye = entries.filter(function(e) { var d = new Date(e.date + "T12:00:00"); return d >= ys && d < yearBounds.end; });
   const trackedRVU = ye.reduce((s, e) => s + creditedRVU(e), 0);
+  // No-credit cases (isNoCredit - e.g. acute-care pool call cases) are logged
+  // for the record but are out of every total: they show once, on a quiet
+  // line. Counts beside or dividing a credited figure count credited cases.
+  const yeNC = ye.filter(isNoCredit);
+  const yeCredited = ye.filter(function(e) { return !isNoCredit(e); });
+  const ncRVU = yeNC.reduce(function(s, e) { return s + noCreditRVU(e); }, 0);
+  const ncEnc = countEncounters(yeNC);
+  const credEnc = countEncounters(yeCredited);
 
   // Use institution if available, otherwise tracked
   const tRVU = hasInst ? instTotal : trackedRVU;
@@ -232,8 +240,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>
     </div>
     {/* Quiet derived lines - no goals, no cards */}
-    {(reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
-      {callPay.shifts > 0 && <div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
+    {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+      {yeNC.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>{"Logged, no credit (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncEnc + " encounter" + (ncEnc === 1 ? "" : "s")}</div>}
+      {callPay.shifts > 0 &&<div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
         <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
         <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
@@ -254,8 +263,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
         <div style={S.statCard}><div style={S.statValue}>{todayRVU.toFixed(1)}</div><div style={S.statLabel}>Today</div></div>
         <div style={S.statCard}><div style={S.statValue}>{wRVU.toFixed(1)}</div><div style={S.statLabel}>This Week</div></div>
       </> : <>
-        <div style={S.statCard}><div style={S.statValue}>{countEncounters(ye)}</div><div style={S.statLabel}>Encounters</div></div>
-        <div style={S.statCard}><div style={S.statValue}>{countEncounters(ye) > 0 ? (tRVU / countEncounters(ye)).toFixed(1) : "0"}</div><div style={S.statLabel}>Avg/Enc</div></div>
+        <div style={S.statCard}><div style={S.statValue}>{credEnc}</div><div style={S.statLabel}>Encounters</div></div>
+        <div style={S.statCard}><div style={S.statValue}>{credEnc > 0 ? (tRVU / credEnc).toFixed(1) : "0"}</div><div style={S.statLabel}>Avg/Enc</div></div>
       </>}
       <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(tComp, showComp)}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
     </div>
@@ -343,7 +352,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>);
     })}</div></div>
 
-    {entries.length > 0 && <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Recent Procedures</div><button onClick={() => setView("history")} style={S.linkBtn}>View All </button></div><div style={{ marginTop: 8 }}>{entries.slice(-3).reverse().map((e, i) => (<div key={i} style={S.recentItem}><div><div style={S.recentCode}>{e.cptCode}</div><div style={S.recentDesc}>{e.description}</div></div><div style={{ textAlign: "right" }}><div style={S.recentRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={S.recentDate}>{fmtShort(e.date)}</div></div></div>))}</div></div>}
+    {entries.length > 0 && <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Recent Procedures</div><button onClick={() => setView("history")} style={S.linkBtn}>View All </button></div><div style={{ marginTop: 8 }}>{entries.slice(-3).reverse().map((e, i) => (<div key={i} style={S.recentItem}><div><div style={S.recentCode}>{e.cptCode}{isNoCredit(e) && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div><div style={S.recentDesc}>{e.description}</div></div><div style={{ textAlign: "right" }}><div style={isNoCredit(e) ? { ...S.recentRVU, color: "var(--text-dim)" } : S.recentRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={S.recentDate}>{fmtShort(e.date)}</div></div></div>))}</div></div>}
 
     {!hasInst && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.03)" }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>

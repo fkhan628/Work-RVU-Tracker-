@@ -1690,6 +1690,30 @@ function parseImport(text, cptMap) {
   if (lines.length < 2) return { entries: [], errors: ['Not enough data rows'], mapping: null, headers: [] };
   const headers = parseLine(lines[0]);
   const hNorm = headers.map(h => normH(h));
+  // The app's own exports carry a Credit column. CSV import never turns it
+  // back into a no-credit mark (import is not a writer of the flag); it warns
+  // instead, so a re-import cannot silently credit no-credit cases. The note
+  // goes FIRST: the Import preview shows only the first few messages.
+  // Counted over whole records AND physical lines, keeping the larger (an
+  // undercount is the silent case): csvField keeps a line break inside a
+  // quoted note, splitting one record across lines (a record is open while
+  // its '"' count is odd - inner quotes are doubled), while a bare '"' in a
+  // tab paste never closes a record. Credit is LAST in every app export, so
+  // the last cell counts too: an Excel tab paste shifts cells when a
+  // description holds a comma.
+  var creditCol = hNorm.indexOf("credit"), ncRows = 0;
+  if (creditCol >= 0) {
+    var isNC = function(c) { return normH(c[creditCol] || "") === "nocredit" || normH(c[c.length - 1]) === "nocredit"; };
+    var rec = null, byLine = 0, byRec = 0;
+    lines.slice(1).forEach(function(l) {
+      if (isNC(parseLine(l))) byLine++;
+      rec = rec === null ? l : rec + "\n" + l;
+      if (rec.split('"').length % 2 === 1) { if (isNC(parseLine(rec))) byRec++; rec = null; }
+    });
+    if (rec !== null && isNC(parseLine(rec))) byRec++;
+    ncRows = Math.max(byLine, byRec);
+  }
+  var creditNote = ncRows > 0 ? ncRows + " row" + (ncRows === 1 ? " is" : "s are") + " marked No credit and will import as CREDITED - to keep the marks, restore the JSON export or the encrypted backup in Settings instead." : "";
 
   // Detect RVU Wallet format: Date, Encounter ID, Reference ID, Location, Codes, Total Work RVUs, Total Adjusted Work RVUs
   let isRVUWallet = false;
@@ -1780,6 +1804,7 @@ function parseImport(text, cptMap) {
     }
 
     if (unmatched > 0) errors.push(unmatched + ' CPT code(s) not in database');
+    if (creditNote) errors.unshift(creditNote);
     return { entries: entries, errors: errors, mapping: { date: dateCol, cpt: codesCol, desc: -1, rvu: rvuCol, modifier: -1, notes: -1 }, headers: headers };
   }
 
@@ -1800,6 +1825,7 @@ function parseImport(text, cptMap) {
     entries.push({ id: Date.now().toString() + '-' + i, date: date, cptCode: code, description: desc, category: info ? info.category : 'Imported', baseRVU: base, modifiers: mods, adjustedRVU: calcAdj(base, mods), notes: notes, imported: true });
   }
   if (unmatched2 > 0) errors.push(unmatched2 + ' CPT code(s) not in database');
+  if (creditNote) errors.unshift(creditNote);
   return { entries: entries, errors: errors, mapping: mapping, headers: headers };
 }
 

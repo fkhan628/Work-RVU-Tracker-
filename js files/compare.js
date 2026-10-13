@@ -217,12 +217,14 @@ function Compare({ data, upd, setView, showComp }) {
     setTimeout(function() { setXlError(""); }, 4000);
   };
 
-  // Get measured RVUs per month from user entries
+  // Get measured RVUs per month from user entries. Credited cases only - a
+  // no-credit case (isNoCredit) is counted separately (nc), never compared.
   var measuredByMonth = useMemo(function() {
     var m = {};
     entries.forEach(function(e) {
       var key = e.date.slice(0, 7); // YYYY-MM
-      if (!m[key]) m[key] = { rvu: 0, cases: 0 };
+      if (!m[key]) m[key] = { rvu: 0, cases: 0, nc: 0 };
+      if (isNoCredit(e)) { m[key].nc += 1; return; }
       m[key].rvu += creditedRVU(e);
       m[key].cases += 1;
     });
@@ -247,7 +249,7 @@ function Compare({ data, upd, setView, showComp }) {
 
   // Totals
   var totals = useMemo(function() {
-    var instWork = 0, instSplit = 0, instTotal = 0, instCases = 0, measRVU = 0, measCases = 0;
+    var instWork = 0, instSplit = 0, instTotal = 0, instCases = 0, measRVU = 0, measCases = 0, measNC = 0;
     displayData.forEach(function(d) {
       instWork += d.workRVU || 0;
       instSplit += d.splitRVU || 0;
@@ -255,9 +257,9 @@ function Compare({ data, upd, setView, showComp }) {
       instCases += d.cases || 0;
       var mKey = d.month;
       var m = measuredByMonth[mKey];
-      if (m) { measRVU += m.rvu; measCases += m.cases; }
+      if (m) { measRVU += m.rvu; measCases += m.cases; measNC += m.nc; }
     });
-    return { instWork: instWork, instSplit: instSplit, instTotal: instTotal, instCases: instCases, measRVU: measRVU, measCases: measCases };
+    return { instWork: instWork, instSplit: instSplit, instTotal: instTotal, instCases: instCases, measRVU: measRVU, measCases: measCases, measNC: measNC };
   }, [displayData, measuredByMonth]);
 
   var diff = totals.measRVU - totals.instTotal;
@@ -361,7 +363,7 @@ function Compare({ data, upd, setView, showComp }) {
         <div style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
           <div style={{ fontSize: 10, color: "#0ea5e9", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Your Tracked</div>
           <div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 700, marginTop: 4 }}>{totals.measRVU.toFixed(1)}</div>
-          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{totals.measCases} cases logged</div>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{totals.measNC > 0 ? totals.measCases + " credited cases, " + totals.measNC + " no credit" : totals.measCases + " cases logged"}</div>
         </div>
       </div>
       <div style={{ ...S.card, border: diff >= 0 ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)", marginBottom: 12 }}>
@@ -632,7 +634,7 @@ function Compare({ data, upd, setView, showComp }) {
                   <div>
                     <div style={{ fontSize: 9, color: "#0ea5e9", textTransform: "uppercase", letterSpacing: 0.5 }}>Tracked</div>
                     <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{measT.toFixed(1)}</div>
-                    <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{m ? m.cases + " cases" : "No data"}</div>
+                    <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{m ? m.cases + " cases" + (m.nc > 0 ? " + " + m.nc + " no credit" : "") : "No data"}</div>
                   </div>
                   <div>
                     <div style={{ fontSize: 9, color: mDiff >= 0 ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5 }}>Diff</div>

@@ -482,8 +482,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   }, [db, editCat, editSearch]);
 
   const expCSV = () => {
-    const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes"];
-    const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, e.modifiers.join(';'), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.notes || '']);
+    // Credit is appended LAST so older spreadsheets keep their column layout;
+    // every row is kept (a no-credit case shows Compensation 0.00).
+    const h = ["Date","CPT","Description","Category","Base wRVU","Modifiers","Adjusted wRVU","Compensation","Notes","Credit"];
+    const rows = data.entries.map(e => [e.date, e.cptCode, e.description || '', e.category, e.baseRVU, (e.modifiers || []).join(';'), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.notes || '', isNoCredit(e) ? "No credit" : "Credited"]);
     var csv = [h.join(','), ...rows.map(r => r.map(csvField).join(','))].join('\n');
     // Acute block appended as a second long-form table. Round-trip safety: under
     // the entries header the CPT column is index 1; every acute row (incl. its
@@ -535,14 +537,14 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       var monthMap = {};
       data.entries.forEach(function(e) {
         var key = e.date.slice(0, 7);
-        if (!monthMap[key]) monthMap[key] = { rvu: 0, comp: 0, cases: 0 };
+        if (!monthMap[key]) monthMap[key] = { rvu: 0, comp: 0, cases: 0, ncCases: 0, ncRVU: 0 };
         monthMap[key].rvu += creditedRVU(e);
         monthMap[key].comp += creditedRVU(e) * settings.ratePerRVU;
-        monthMap[key].cases += 1;
+        if (isNoCredit(e)) { monthMap[key].ncCases += 1; monthMap[key].ncRVU += noCreditRVU(e); } else monthMap[key].cases += 1;
       });
       var instData = data.institutionData || [];
       if (instData.length > 0) {
-        var compHeaders = ["Month", "Work RVU (Private)", "Split RVU (Call)", "Institution Total", "Tracked RVUs", "Difference", "Diff %", "Inst Cases", "Tracked Cases"];
+        var compHeaders = ["Month", "Work RVU (Private)", "Split RVU (Call)", "Institution Total", "Tracked RVUs", "Difference", "Diff %", "Inst Cases", "Tracked Cases", "Logged, no credit (cases)"];
         var compSorted = instData.slice().sort(function(a, b) { return a.month.localeCompare(b.month); });
         var compRows = compSorted.map(function(d) {
           var instT = (d.workRVU || 0) + (d.splitRVU || 0);
@@ -551,7 +553,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           var measCases = meas ? meas.cases : 0;
           var diff = measT - instT;
           var diffPct = instT > 0 ? ((diff / instT) * 100) : 0;
-          return [d.month, parseFloat((d.workRVU || 0).toFixed(2)), parseFloat((d.splitRVU || 0).toFixed(2)), parseFloat(instT.toFixed(2)), parseFloat(measT.toFixed(2)), parseFloat(diff.toFixed(2)), parseFloat(diffPct.toFixed(1)), d.cases || 0, measCases];
+          return [d.month, parseFloat((d.workRVU || 0).toFixed(2)), parseFloat((d.splitRVU || 0).toFixed(2)), parseFloat(instT.toFixed(2)), parseFloat(measT.toFixed(2)), parseFloat(diff.toFixed(2)), parseFloat(diffPct.toFixed(1)), d.cases || 0, measCases, meas ? meas.ncCases : 0];
         });
         var cTotWork = compRows.reduce(function(s, r) { return s + r[1]; }, 0);
         var cTotSplit = compRows.reduce(function(s, r) { return s + r[2]; }, 0);
@@ -561,48 +563,54 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         var cTotPct = cTotInst > 0 ? ((cTotDiff / cTotInst) * 100) : 0;
         var cTotICases = compRows.reduce(function(s, r) { return s + r[7]; }, 0);
         var cTotTCases = compRows.reduce(function(s, r) { return s + r[8]; }, 0);
-        compRows.push(["TOTAL", parseFloat(cTotWork.toFixed(2)), parseFloat(cTotSplit.toFixed(2)), parseFloat(cTotInst.toFixed(2)), parseFloat(cTotMeas.toFixed(2)), parseFloat(cTotDiff.toFixed(2)), parseFloat(cTotPct.toFixed(1)), cTotICases, cTotTCases]);
+        var cTotNC = compRows.reduce(function(s, r) { return s + r[9]; }, 0);
+        compRows.push(["TOTAL", parseFloat(cTotWork.toFixed(2)), parseFloat(cTotSplit.toFixed(2)), parseFloat(cTotInst.toFixed(2)), parseFloat(cTotMeas.toFixed(2)), parseFloat(cTotDiff.toFixed(2)), parseFloat(cTotPct.toFixed(1)), cTotICases, cTotTCases, cTotNC]);
         var compData = [compHeaders].concat(compRows);
         var ws3 = XLSX.utils.aoa_to_sheet(compData);
-        ws3["!cols"] = [{ wch: 10 }, { wch: 17 }, { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 11 }, { wch: 13 }];
+        ws3["!cols"] = [{ wch: 10 }, { wch: 17 }, { wch: 15 }, { wch: 16 }, { wch: 14 }, { wch: 12 }, { wch: 8 }, { wch: 11 }, { wch: 13 }, { wch: 22 }];
         XLSX.utils.book_append_sheet(wb, ws3, "Institution Comparison");
       }
-      var procHeaders = ["Date", "CPT Code", "Description", "Category", "Type", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes"];
+      var procHeaders = ["Date", "CPT Code", "Description", "Category", "Type", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes", "Credit"];
       var procRows = data.entries.slice().sort(function(a, b) { return a.date.localeCompare(b.date); }).map(function(e) {
-        return [e.date, e.cptCode, e.description, e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((creditedRVU(e) * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || ""];
+        return [e.date, e.cptCode, e.description, e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(", "), parseFloat(e.adjustedRVU.toFixed(2)), parseFloat((creditedRVU(e) * settings.ratePerRVU).toFixed(2)), e.encounterId || "", e.notes || "", isNoCredit(e) ? "No credit" : "Credited"];
       });
       var procData = [procHeaders].concat(procRows);
       var ws1 = XLSX.utils.aoa_to_sheet(procData);
-      ws1["!cols"] = [{ wch: 11 }, { wch: 8 }, { wch: 40 }, { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 30 }];
+      ws1["!cols"] = [{ wch: 11 }, { wch: 8 }, { wch: 40 }, { wch: 22 }, { wch: 8 }, { wch: 10 }, { wch: 12 }, { wch: 12 }, { wch: 13 }, { wch: 8 }, { wch: 30 }, { wch: 10 }];
       XLSX.utils.book_append_sheet(wb, ws1, "Procedures");
       var monthKeys = Object.keys(monthMap).sort();
-      var sumHeaders = ["Month", "Tracked wRVUs", "Cases", "Avg wRVU/Case", "Compensation"];
+      var sumHeaders = ["Month", "Tracked wRVUs", "Cases", "Avg wRVU/Case", "Compensation", "Logged, no credit (cases)", "Logged, no credit (wRVU)"];
       var sumRows = monthKeys.map(function(k) {
         var m = monthMap[k];
-        return [k, parseFloat(m.rvu.toFixed(2)), m.cases, parseFloat((m.rvu / Math.max(m.cases, 1)).toFixed(2)), parseFloat(m.comp.toFixed(2))];
+        return [k, parseFloat(m.rvu.toFixed(2)), m.cases, parseFloat((m.rvu / Math.max(m.cases, 1)).toFixed(2)), parseFloat(m.comp.toFixed(2)), m.ncCases, parseFloat(m.ncRVU.toFixed(2))];
       });
       var sumTotRVU = sumRows.reduce(function(s, r) { return s + r[1]; }, 0);
       var sumTotCases = sumRows.reduce(function(s, r) { return s + r[2]; }, 0);
       var sumTotComp = sumRows.reduce(function(s, r) { return s + r[4]; }, 0);
-      sumRows.push(["TOTAL", parseFloat(sumTotRVU.toFixed(2)), sumTotCases, parseFloat((sumTotRVU / Math.max(sumTotCases, 1)).toFixed(2)), parseFloat(sumTotComp.toFixed(2))]);
+      var sumTotNC = sumRows.reduce(function(s, r) { return s + r[5]; }, 0);
+      var sumTotNCRVU = sumRows.reduce(function(s, r) { return s + r[6]; }, 0);
+      sumRows.push(["TOTAL", parseFloat(sumTotRVU.toFixed(2)), sumTotCases, parseFloat((sumTotRVU / Math.max(sumTotCases, 1)).toFixed(2)), parseFloat(sumTotComp.toFixed(2)), sumTotNC, parseFloat(sumTotNCRVU.toFixed(2))]);
       var sumData = [sumHeaders].concat(sumRows);
       var ws2 = XLSX.utils.aoa_to_sheet(sumData);
-      ws2["!cols"] = [{ wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 14 }];
+      ws2["!cols"] = [{ wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 14 }, { wch: 14 }, { wch: 22 }, { wch: 22 }];
       XLSX.utils.book_append_sheet(wb, ws2, "Monthly Summary");
       var codeMap = {};
       data.entries.forEach(function(e) {
-        if (!codeMap[e.cptCode]) codeMap[e.cptCode] = { code: e.cptCode, desc: e.description, cat: e.category, count: 0, totalRVU: 0 };
+        if (!codeMap[e.cptCode]) codeMap[e.cptCode] = { code: e.cptCode, desc: e.description, cat: e.category, count: 0, totalRVU: 0, ncCount: 0 };
         codeMap[e.cptCode].count += 1;
         codeMap[e.cptCode].totalRVU += creditedRVU(e);
+        if (isNoCredit(e)) codeMap[e.cptCode].ncCount += 1;
       });
       var topList = Object.values(codeMap).sort(function(a, b) { return b.totalRVU - a.totalRVU; });
-      var topHeaders = ["CPT Code", "Description", "Category", "Times Logged", "Total wRVUs", "Avg wRVU", "Total Compensation"];
+      // Times Logged counts every logged case; Avg wRVU is over credited cases.
+      var topHeaders = ["CPT Code", "Description", "Category", "Times Logged", "Total wRVUs", "Avg wRVU", "Total Compensation", "Logged, no credit"];
       var topRows = topList.map(function(t) {
-        return [t.code, t.desc, t.cat, t.count, parseFloat(t.totalRVU.toFixed(2)), parseFloat((t.totalRVU / t.count).toFixed(2)), parseFloat((t.totalRVU * settings.ratePerRVU).toFixed(2))];
+        var cred = t.count - t.ncCount;
+        return [t.code, t.desc, t.cat, t.count, parseFloat(t.totalRVU.toFixed(2)), cred > 0 ? parseFloat((t.totalRVU / cred).toFixed(2)) : "", parseFloat((t.totalRVU * settings.ratePerRVU).toFixed(2)), t.ncCount];
       });
       var topData = [topHeaders].concat(topRows);
       var ws4 = XLSX.utils.aoa_to_sheet(topData);
-      ws4["!cols"] = [{ wch: 10 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 }];
+      ws4["!cols"] = [{ wch: 10 }, { wch: 40 }, { wch: 22 }, { wch: 12 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }];
       XLSX.utils.book_append_sheet(wb, ws4, "Top Procedures");
       XLSX.writeFile(wb, "RVU-Export-" + todayLocal() + ".xlsx");
     } catch (e) {
@@ -626,11 +634,17 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     // The confirm PREVIEWS exactly what will be removed, and the removal is
     // undoable via the standard toast. (.slice() before .sort(): the old
     // code sorted each entry's own modifiers array in place.)
+    // Credit is part of the key: a credited case and a no-credit copy of it
+    // are never merged - they are reported for the user to check instead.
     var seen = {};
     var unique = [];
     var removed = [];
+    var credSeen = {};
     data.entries.forEach(function(e) {
-      var key = e.date + "|" + e.cptCode + "|" + (e.modifiers || []).slice().sort().join(",") + "|" + (e.encounterId || "") + "|" + (e.notes || "");
+      var base = e.date + "|" + e.cptCode + "|" + (e.modifiers || []).slice().sort().join(",") + "|" + (e.encounterId || "") + "|" + (e.notes || "");
+      var nc = isNoCredit(e);
+      credSeen[base] = credSeen[base] === undefined ? nc : (credSeen[base] === nc ? nc : "both");
+      var key = base + "|" + (nc ? "nc" : "");
       if (!seen[key]) {
         seen[key] = true;
         unique.push(e);
@@ -638,22 +652,28 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         removed.push(e);
       }
     });
+    var both = Object.keys(credSeen).filter(function(k) { return credSeen[k] === "both"; }).length;
+    var bothNote = both > 0 ? "\n\n" + both + " case" + (both === 1 ? " is" : "s are") + " logged both with and without credit - not removed. Check " + (both === 1 ? "it" : "them") + " in History." : "";
     if (removed.length === 0) {
-      alert("No duplicates found. (Same-day repeats with different patient initials or notes are not counted as duplicates.)");
+      alert("No duplicates found. (Same-day repeats with different patient initials, notes, or credit are not counted as duplicates.)" + bothNote);
       return;
     }
     var preview = removed.slice(0, 8).map(function(e) {
-      return "  " + e.date + "  " + e.cptCode + "  " + (e.adjustedRVU || 0).toFixed(2) + " wRVU" + (e.encounterId ? "  " + e.encounterId : "");
+      return "  " + e.date + "  " + e.cptCode + "  " + (e.adjustedRVU || 0).toFixed(2) + " wRVU" + (e.encounterId ? "  " + e.encounterId : "") + (isNoCredit(e) ? "  no credit" : "");
     }).join("\n");
     if (removed.length > 8) preview += "\n  ...and " + (removed.length - 8) + " more";
-    if (confirm("Remove " + removed.length + " duplicate(s)? Exact copies only - same date, code, modifiers, patient, and notes.\n\n" + preview)) {
+    if (confirm("Remove " + removed.length + " duplicate(s)? Exact copies only - same date, code, modifiers, patient, notes, and credit.\n\n" + preview + bothNote)) {
       upd(function(prev) { return { ...prev, entries: unique }; });
       if (showUndo) showUndo({ type: "delete", entries: removed, message: "Removed " + removed.length + " duplicate(s)" });
     }
   };
 
   const tRVU = data.entries.reduce((s, e) => s + creditedRVU(e), 0);
-  const avg = data.entries.length > 0 ? tRVU / data.entries.length : 0;
+  // Summary Stats count credited cases; no-credit cases get one quiet line.
+  const ncCount = data.entries.filter(isNoCredit).length;
+  const ncRVU = data.entries.reduce((s, e) => s + noCreditRVU(e), 0);
+  const credCount = data.entries.length - ncCount;
+  const avg = credCount > 0 ? tRVU / credCount : 0;
   const overrideCount = Object.keys(data.rvuOverrides).length;
 
   return (<div style={S.page}>
@@ -983,7 +1003,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       </>}
     </div>
 
-    <div style={S.card}><div style={S.cardLabel}>Summary Stats</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", data.entries.length, "var(--text-primary)"], ["Total wRVUs", tRVU.toFixed(1), "var(--text-primary)"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", fmtDollar(tRVU * settings.ratePerRVU, showComp), "#10b981"]].map(function(item) { return (<div key={item[0]}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>{item[0]}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: item[2], fontWeight: 600 }}>{item[1]}</div></div>); })}</div></div>
+    <div style={S.card}><div style={S.cardLabel}>Summary Stats</div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", credCount, "var(--text-primary)"], ["Total wRVUs", tRVU.toFixed(1), "var(--text-primary)"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", fmtDollar(tRVU * settings.ratePerRVU, showComp), "#10b981"]].map(function(item) { return (<div key={item[0]}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>{item[0]}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: item[2], fontWeight: 600 }}>{item[1]}</div></div>); })}</div>
+      {ncCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncCount + " case" + (ncCount === 1 ? "" : "s")}</div>}</div>
     <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} disabled={excelBusy} style={{ ...S.secondaryBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.3)", opacity: excelBusy ? 0.6 : 1 }}>{excelBusy ? "Loading..." : "Export Excel"}</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
 
     {/* Backup & Restore */}

@@ -120,6 +120,19 @@ the per-file gates below. Run it after EVERY file change.
   other than calling them or passing them as a call argument; RAW_RVU_PIN
   pins the remaining raw reads (utils.js 2) - bump it only for a new
   sort/display.
+- No-credit readers (7a): counts and averages shown next to, or dividing,
+  a credited wRVU or $ figure count CREDITED cases only; no-credit cases
+  appear once, on a quiet "Logged, no credit" line (Home, Trends, month
+  detail, Monthly Report + its copied text, Settings Summary Stats).
+  Counts that label visible rows or records count every entry (History
+  lists, encounter cards, backup/restore, usage ranking, companions, Excel
+  "Times Logged"). Top Encounters lists encounters with at least one
+  credited case, under their full code combination. A no-credit row gets
+  the grey S.ncTag "no credit" tag and a dimmed wRVU; a partly flagged
+  encounter card is "mixed". Exports keep every row and append a Credit
+  column (Credited / No credit) LAST; CSV import never reads it back - it
+  warns first instead. Remove Duplicates keys on credit and reports
+  same-case pairs that differ only in credit.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).
