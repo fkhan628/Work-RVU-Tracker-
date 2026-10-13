@@ -16,6 +16,10 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   // Favorites show when the ACTIVE procedure is empty (as after addProc).
   const [showFavs, setShowFavs] = useState(function() { var ap = dr ? (dr.procs[dr.activeProc] || dr.procs[0]) : null; return !(ap && (ap.code || ap.search)); });
   const [isCall, setIsCall] = useState(function() { return dr ? dr.call : false; });
+  // Call site pick (7b): "" (none yet), a site id, or CALL_SITE_OTHER. Only the
+  // id is kept; the site is looked up again on every render and in save().
+  const [callSite, setCallSite] = useState(function() { return dr && dr.call && typeof dr.callSite === "string" ? dr.callSite : ""; });
+  const [creditOfferHidden, setCreditOfferHidden] = useState(false); // "Keep credit" (this Log visit)
   // Procedure templates: PRE-FILL only. applyTemplate composes the exact
   // state manual entry writes (selectCode / companion addSuggestion draft
   // shapes) and then STOPS - it never saves, never touches the save
@@ -137,8 +141,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   useEffect(function() {
     if (!logDraft || savingRef.current) return;
     var empty = !procs.some(function(p) { return p.code || p.search; }) && !notes && !patientId && !isCall;
-    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, call: isCall, nextId: nextId.current };
-  }, [date, patientId, procs, notes, activeProc, isCall]);
+    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, call: isCall, callSite: callSite, nextId: nextId.current };
+  }, [date, patientId, procs, notes, activeProc, isCall, callSite]);
 
   var favorites = data.favorites || [];
   var favCodes = useMemo(function() {
@@ -312,8 +316,25 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   };
 
   var totalRVU = procs.reduce(function(sum, p) { return sum + calcProcRVU(p); }, 0);
-  var totalComp = totalRVU * data.settings.ratePerRVU;
   var canSave = procs.some(function(p) { return p.code; });
+  // Call site + credit (7b). Credit comes from the SAME writer save() uses
+  // (utils.js entryWithCall), run on a preview: every procedure of the
+  // encounter shares its date and site, so one preview decides them all.
+  var callSites = data.paySites || [];
+  var pickedSite = isCall ? paySiteById(callSites, callSite) : null;
+  var siteGone = isCall && callSite !== "" && callSite !== CALL_SITE_OTHER && !pickedSite;
+  var needSite = isCall && callSites.length > 0 && !pickedSite && callSite !== CALL_SITE_OTHER;
+  var encPreview = function(v) { return entryWithCall({ date: date, adjustedRVU: v }, null, isCall, callSite, callSites, true); };
+  var pvAll = encPreview(totalRVU);
+  var ncNow = isNoCredit(pvAll), credRVU = creditedRVU(pvAll), ncRVUNow = noCreditRVU(pvAll);
+  var totalComp = credRVU * data.settings.ratePerRVU;
+  var saveReady = isYMD(date) && !needSite;
+  var creditOffer = pickedSite && callNoCreditDate(date) ? (payCreditOffers(callSites).filter(function(o) { return o.site.id === pickedSite.id; })[0] || null) : null;
+  var applySiteRule = function() {
+    if (!creditOffer || !confirm(payCreditConfirm([creditOffer]))) return;
+    var id = creditOffer.site.id;
+    upd(function(prev) { return { ...prev, paySites: payApplyNoCredit(prev.paySites || [], [id]) }; });
+  };
 
   // --- Robust JSON extraction from AI responses ---
   var extractJSON = function(raw) {
@@ -550,7 +571,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
 
   var save = function() {
-    if (!canSave || !isYMD(date) || saved || savingRef.current) return;
+    if (!canSave || !saveReady || saved || savingRef.current) return;
     savingRef.current = true;
     if (logDraft) logDraft.current = null; // the saved encounter is no longer a draft
     var newEntries = [];
@@ -559,8 +580,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       var info = cptMap[p.code];
       if (!info) return;
       var adj = calcAdj(info.wRVU, p.mods);
-      // Call fields go through utils.js entryWithCall (check.js G8). No site
-      // yet: a Call case here is siteless and credited, exactly as before.
+      // Call fields (site + credit) go through utils.js entryWithCall
+      // (check.js G8); a new case always derives its credit.
       newEntries.push(entryWithCall({
         id: Date.now().toString() + "-" + p.id + "-" + Math.random().toString(36).slice(2, 8),
         date: date,
@@ -574,11 +595,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         encounterId: patientId || undefined,
         isCall: isCall,
         imported: false
-      }, null, isCall, "", [], true));
+      }, null, isCall, callSite, callSites, true));
     });
     upd(function(prev) { return { ...prev, entries: prev.entries.concat(newEntries) }; });
     var loggedRVU = newEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
-    showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc (" + loggedRVU.toFixed(1) + " wRVUs)" });
+    var loggedNC = newEntries.reduce(function(s, e) { return s + noCreditRVU(e); }, 0);
+    var allNC = newEntries.length > 0 && newEntries.every(isNoCredit);
+    showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc" + (pickedSite ? " at " + pickedSite.name : "") +
+      (allNC ? " - no credit (" + loggedNC.toFixed(1) + " wRVU)" : " (" + loggedRVU.toFixed(1) + " wRVUs)") });
     setSaved(true);
     resetTimer.current = setTimeout(function() {
       resetTimer.current = null;
@@ -589,6 +613,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       setNotes("");
       setPatientId("");
       setIsCall(false);
+      setCallSite("");
       showFavList();
       // Next case starts at the top of the screen (the scroll container is
       // App's .rvu-content).
@@ -602,7 +627,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       <h1 style={S.title}>Log Encounter</h1>
       {openCallPay && <button onClick={function() { openCallPay("log"); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Call pay</button>}
     </div>
-    {saved && <div style={S.successBanner}>Logged {procs.filter(function(p){return p.code;}).length} procedure(s) - {totalRVU.toFixed(2)} wRVUs</div>}
+    {saved && <div style={S.successBanner}>Logged {procs.filter(function(p){return p.code;}).length} procedure(s) - {ncNow ? "no credit (" + ncRVUNow.toFixed(2) + " wRVU)" : credRVU.toFixed(2) + " wRVUs"}</div>}
 
     {/* Scan Buttons (feature-flagged: hidden entirely when SCAN_ENABLED is false) */}
     {SCAN_ENABLED && (function() { var hasKey = hasApiKey(data.settings); return (<div style={{ marginBottom: 12 }}>
@@ -679,7 +704,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
     {/* Call/Private toggle */}
     <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-      <button onClick={function() { setIsCall(false); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !isCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !isCall ? "#0ea5e9" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <button onClick={function() { setIsCall(false); setCallSite(""); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !isCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !isCall ? "#0ea5e9" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
         <span style={{ width: 16, height: 16, borderRadius: 8, border: !isCall ? "2px solid #0ea5e9" : "2px solid #475569", display: "flex", alignItems: "center", justifyContent: "center" }}>{!isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "#0ea5e9" }}></span>}</span>
         Private
       </button>
@@ -688,6 +713,24 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         Call
       </button>
     </div>
+    {isCall && callSites.length > 0 && <div style={{ marginBottom: 10 }}>
+      <div style={{ fontSize: 11, color: needSite ? "#f59e0b" : "var(--text-muted)", marginBottom: 6 }}>{needSite ? "Pick the call site" : "Call site"}</div>
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+        {callSites.map(function(s) { return { key: s.id, on: !!pickedSite && pickedSite.id === s.id, label: s.name, note: paySiteCreditNote(s, date), pick: s.id }; })
+          .concat([{ key: "other", on: callSite === CALL_SITE_OTHER, label: "Other site", note: "", pick: CALL_SITE_OTHER }])
+          .map(function(c) {
+            return (<button key={c.key} onClick={function() { setCallSite(c.pick); }} style={{ flex: "1 1 120px", minHeight: 44, padding: "6px 10px", borderRadius: 10, border: c.on ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: c.on ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: c.on ? "#a78bfa" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{c.label}{c.note ? <span style={{ fontWeight: 400, fontSize: 11 }}>{" - " + c.note}</span> : null}</button>);
+          })}
+      </div>
+      {siteGone && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6 }}>That site was removed - pick again.</div>}
+      {creditOffer && !creditOfferHidden && <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.06)" }}>
+        <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{"The built-in " + creditOffer.def.name + " rule gives call cases from " + fmt(CALL_NO_CREDIT_FROM) + " no wRVU credit; " + pickedSite.name + " still credits them."}</div>
+        <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+          <button onClick={applySiteRule} style={{ flex: 1, minHeight: 44, borderRadius: 8, border: "none", background: "#f59e0b", color: "#0f172a", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>{"No credit for " + pickedSite.name}</button>
+          <button onClick={function() { setCreditOfferHidden(true); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Keep credit</button>
+        </div>
+      </div>}
+    </div>}
 
     {/* Template chips - one-tap pre-fill of the selection below. 44pt min
         touch height; green lane (favorites own amber, companions blue/violet). */}
@@ -837,7 +880,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       </div>
     </button>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}{filtered.length > 20 && <div style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, color: "var(--text-dim)" }}>{"Showing 20 of " + filtered.length + " matches - type more to narrow"}</div>}</div>}
 
-    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "#fbbf24" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(calcProcRVU(cur) * data.settings.ratePerRVU).toFixed(0)}</div></div></div></div>
+    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "#fbbf24" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(creditedRVU(encPreview(calcProcRVU(cur))) * data.settings.ratePerRVU).toFixed(0)}{ncNow && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div></div></div></div>
     {(function() {
       var alreadyCodes = procs.map(function(p) { return p.code; }).filter(Boolean);
       var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes);
@@ -888,7 +931,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         <div style={S.cardLabel}>Encounter Summary</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
           {!tplSaving && <button onClick={openTplForm} style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid rgba(16,185,129,0.3)", background: "transparent", color: "#34d399", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Save as template</button>}
-          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "#a78bfa" : "#0ea5e9", fontWeight: 600 }}>{isCall ? "Call" : "Private"}</span>
+          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "#a78bfa" : "#0ea5e9", fontWeight: 600 }}>{isCall ? "Call" + (pickedSite ? " - " + pickedSite.name : "") : "Private"}</span>
+          {ncNow && <span style={S.ncTag}>no credit</span>}
         </div>
       </div>
       {tplSaving && <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid rgba(16,185,129,0.25)" }}>
@@ -907,13 +951,13 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         var adj = calcProcRVU(p);
         return (<div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < procs.filter(function(x){return x.code;}).length - 1 ? "1px solid rgba(51,65,85,0.5)" : "none" }}>
           <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span>{p.mods.map(function(m) { return <span key={m} style={{ fontSize: 10, color: "#fbbf24", marginLeft: 4 }}>{m}</span>; })}<div style={{ fontSize: 11, color: "var(--text-muted)" }}>{info ? (info.friendly || info.desc) : ""}</div></div>
-          <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{adj.toFixed(2)}</div>
+          <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: ncNow ? "var(--text-dim)" : "var(--text-primary)", fontWeight: 600 }}>{adj.toFixed(2)}</div>
         </div>);
       })}</div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-default)" }}>
         <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 600 }}>Total</span>
         <div style={{ textAlign: "right" }}>
-          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 700 }}>{totalRVU.toFixed(2)} wRVU</div>
+          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 700 }}>{ncNow ? <span style={{ color: "var(--text-dim)" }}>{ncRVUNow.toFixed(2) + " wRVU "}<span style={S.ncTag}>no credit</span></span> : credRVU.toFixed(2) + " wRVU"}</div>
           <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#10b981" }}>${totalComp.toFixed(0)}</div>
         </div>
       </div>
@@ -921,7 +965,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
     {canSave && !isYMD(date) && <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>Pick a valid date to save this encounter.</div>}
-    {canSave && <button onClick={save} disabled={saved || !isYMD(date)} style={{ ...S.saveBtn, opacity: saved || !isYMD(date) ? 0.5 : 1, pointerEvents: saved || !isYMD(date) ? "none" : "auto", background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {totalRVU.toFixed(2)} wRVUs</button>}
+    {canSave && isYMD(date) && needSite && <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>Pick the call site above to save this encounter.</div>}
+    {canSave && <button onClick={save} disabled={saved || !saveReady} style={{ ...S.saveBtn, opacity: saved || !saveReady ? 0.5 : 1, pointerEvents: saved || !saveReady ? "none" : "auto", background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {ncNow ? "no credit (" + ncRVUNow.toFixed(2) + " wRVU)" : credRVU.toFixed(2) + " wRVUs"}</button>}
   </div>);
 }
 

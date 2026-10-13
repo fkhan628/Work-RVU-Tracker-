@@ -163,7 +163,10 @@ the per-file gates below. Run it after EVERY file change.
   Private clears site and credit; + Add inherits from its source; the rest
   of the encounter (checkbox, entryEncounterCallPlan) gets only the call
   fields, credit from each case's own date; a case's own deleted site can
-  only lose the mark.
+  only lose the mark. Log asks for the call site when the user has any
+  (an "Other site" chip saves Call with no site; Save waits for a pick);
+  its totals, toast, banner, Save button and selected-code Compensation
+  come from an entryWithCall preview of the encounter.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).
