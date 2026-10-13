@@ -9,6 +9,8 @@
 //     --input    "..\CMS 2027\PPRRVU2027_Jan_nonQPP.csv"   (csv or xlsx)
 //     --baseline "..\CMS 2026\PPRRVU2026_Jan_nonQPP.csv"   (the CURRENT year's file)
 //     [--year 2027]
+//   --input must be the nonQPP file (the QPP file is a subset and lacks
+//   some of the app's codes).
 //   Outputs land NEXT TO the --input file (outside the repo):
 //     cpt-data.<year>.js  and  cpt-update-REPORT.<year>.md
 //
@@ -20,6 +22,11 @@
 //   2. Replace "js files/cpt-data.js" with the approved candidate.
 //   3. Update CMS_ROW_BASELINE in scripts/check.js to the new row count -
 //      DELIBERATELY, in the SAME commit (the report states the count).
+//   3b. Update GLOB_BASELINE in scripts/check.js from the report's global
+//      period distribution, in the same commit as CMS_ROW_BASELINE.
+//   3c. Read "Global period changes": each one relabels the global chip on
+//      past History rows of that code. Update any check.js global spot
+//      check that CMS changed.
 //   4. Bump ASSET_V in index.html (deploy cache contract).
 //   5. Update DATA_VERSION / DATA_YEAR in utils.js.
 //   6. Work the report's "needs manual category" worklist and descriptor
@@ -41,7 +48,10 @@
 //                  guess plus a manual-review worklist entry
 //   keywords    -> 5th row element, carried through UNTOUCHED for surviving
 //                  codes (curated layer, same protection as descriptors);
-//                  new codes emit 4-tuples
+//                  new codes get "" keywords
+//   global days -> 6th row element: the CMS base-row GLOB DAYS, always
+//                  (like wRVU), never curated. Every row has 6 elements:
+//                  [code, desc, wRVU, category, keywords or "", GLOB DAYS]
 //
 // INCLUSION RULE (inferred from the CY2026 set, reproduces 7305/7305):
 //   base row (blank modifier) work RVU > 0 AND status in {A, R, B, T},
@@ -124,7 +134,7 @@ function parsePPRRVU(p) {
     work: col("WORK RVU"),
     glob: col("GLOB DAYS")
   };
-  for (const k of ["code", "desc", "status", "work"]) {
+  for (const k of ["code", "mod", "desc", "status", "work", "glob"]) {
     if (cols[k] === -1) throw new Error(p + ": required column not found by name (" + k + "). Header layout changed - inspect the file and update the column mapping deliberately. Combined header row: " + combined.slice(0, 20).join(" | "));
   }
   const byCode = new Map();
@@ -143,10 +153,14 @@ function parsePPRRVU(p) {
     if (!byCode.has(code)) byCode.set(code, []);
     byCode.get(code).push(row);
   }
-  // base row = blank modifier (TC/26/53 variants ignored, matching the app's data)
+  // base row = blank modifier (TC/26/53 variants ignored, matching the app's
+  // data). blankRows / globs feed the selection-time integrity checks.
   const base = new Map();
   for (const [code, variants] of byCode) {
-    base.set(code, variants.find(v => !v.mod) || variants[0]);
+    const b = Object.assign({}, variants.find(v => !v.mod) || variants[0]);
+    b.blankRows = variants.filter(v => !v.mod).length;
+    b.globs = [...new Set(variants.map(v => v.glob))];
+    base.set(code, b);
   }
   return base;
 }
@@ -161,7 +175,7 @@ const cptSrc = fs.readFileSync(CPT_DATA, "utf8");
 const currentRows = new Function(cptSrc + "; return CMS_RAW;")();
 const current = new Map(currentRows.map(r => [r[0], r]));
 
-console.log("current cpt-data.js: " + currentRows.length + " rows (" + currentRows.filter(r => r.length === 5).length + " with inline keywords)");
+console.log("current cpt-data.js: " + currentRows.length + " rows (" + currentRows.filter(r => !!r[4]).length + " with inline keywords)");
 
 const cmsOld = parsePPRRVU(path.resolve(baselinePath));
 const cmsNew = parsePPRRVU(path.resolve(inputPath));
@@ -172,7 +186,7 @@ const candidate = [];
 const report = {
   kept: 0, added: [], removed: [], rvuChanged: [],
   descTookCms: [], descKeptOurs: 0, descConflicts: [],
-  newCategoryWorklist: [], keywordRows: 0
+  newCategoryWorklist: [], keywordRows: 0, globChanged: [], modGlobDiffers: []
 };
 
 // surviving + new set from the input year
@@ -181,6 +195,12 @@ for (const [code, row] of cmsNew) {
   if (includable(row)) selected.push(code);
 }
 selected.sort();
+// Each selected code must have exactly ONE blank-modifier (base) row - its
+// wRVU and global come from it. Modifier rows with a different global are
+// listed for information (the app uses the base row only).
+const badBase = selected.filter(c => cmsNew.get(c).blankRows !== 1);
+if (badBase.length) throw new Error("codes without exactly one blank-modifier row (decide each: add to EXCLUDE like 86153, or handle deliberately): " + badBase.slice(0, 20).join(", "));
+selected.forEach(c => { const g = cmsNew.get(c).globs; if (g.length > 1) report.modGlobDiffers.push({ code: c, globs: g }); });
 
 // nearest-neighbor category guess for new numeric codes
 const numericCurrent = currentRows.filter(r => /^\d{5}$/.test(r[0])).map(r => ({ n: parseInt(r[0], 10), cat: r[3] })).sort((a, b) => a.n - b.n);
@@ -223,14 +243,17 @@ for (const code of selected) {
       }
     }
     if (Math.abs(nu.work - ours[2]) >= 0.005) report.rvuChanged.push({ code, from: ours[2], to: nu.work, desc: desc });
-    const row = [code, desc, nu.work, ours[3]];
-    if (ours.length === 5) { row.push(ours[4]); report.keywordRows++; } // curated keywords: untouched
+    // curated keywords untouched ("" when none); global always from CMS
+    const row = [code, desc, nu.work, ours[3], ours[4] || "", nu.glob];
+    if (ours[4]) report.keywordRows++;
+    const prevGlob = ours[5] !== undefined ? ours[5] : (old ? old.glob : nu.glob);
+    if (prevGlob !== nu.glob) report.globChanged.push({ code, from: prevGlob, to: nu.glob, desc: desc });
     candidate.push(row);
     report.kept++;
   } else {
     // new code
     const g = guessCategory(code);
-    candidate.push([code, nu.desc, nu.work, g.cat]);
+    candidate.push([code, nu.desc, nu.work, g.cat, "", nu.glob]);
     report.added.push({ code, desc: nu.desc, work: nu.work, cat: g.cat, confidence: g.confidence });
     report.newCategoryWorklist.push({ code, desc: nu.desc, guess: g.cat, confidence: g.confidence });
   }
@@ -259,8 +282,7 @@ function sectionCodes(src, startMarker, endMarker, regex) {
 const utilsSrc = fs.readFileSync(UTILS, "utf8");
 const refSections = {
   KEYWORD_SUPPLEMENT: sectionCodes(utilsSrc, "var KEYWORD_SUPPLEMENT", "var FRIENDLY_DESC", /"([0-9A-Z]{5})"\s*:/g),
-  FRIENDLY_DESC: sectionCodes(utilsSrc, "var FRIENDLY_DESC", "var GLOBAL_DAYS", /"([0-9A-Z]{5})"\s*:/g),
-  GLOBAL_DAYS: sectionCodes(utilsSrc, "var GLOBAL_DAYS", "var COMPANION_CODES", /([0-9A-Z]{5})/g),
+  FRIENDLY_DESC: sectionCodes(utilsSrc, "var FRIENDLY_DESC", "var COMPANION_CODES", /"([0-9A-Z]{5})"\s*:/g),
   COMPANION_CODES_keys: sectionCodes(utilsSrc, "var COMPANION_CODES", "\nfunction", /"([0-9A-Z]{5})"\s*:/g),
   COMPANION_CODES_targets: sectionCodes(utilsSrc, "var COMPANION_CODES", "\nfunction", /code:\s*"([0-9A-Z]{5})"/g)
 };
@@ -286,10 +308,10 @@ function jsStr(s) {
   }
   return '"' + out + '"';
 }
+// wRVU keeps the shipped file's format: whole numbers as "4.0", not "4".
+function emitNum(n) { return Number.isInteger(n) ? n.toFixed(1) : String(n); }
 function emitRow(r) {
-  let s = "[" + jsStr(r[0]) + "," + jsStr(r[1]) + "," + r[2] + "," + jsStr(r[3]);
-  if (r.length === 5) s += "," + jsStr(r[4]);
-  return s + "]";
+  return "[" + jsStr(r[0]) + "," + jsStr(r[1]) + "," + emitNum(r[2]) + "," + jsStr(r[3]) + "," + jsStr(r[4] || "") + "," + jsStr(r[5]) + "]";
 }
 const body = "const CMS_RAW=[" + candidate.map(emitRow).join(",") + "];\n";
 
@@ -300,6 +322,17 @@ if (nonAscii !== -1) throw new Error("candidate contains non-ASCII at index " + 
 if (/[<>]/.test(body)) throw new Error("candidate contains raw < or > - escaping bug");
 const roundTrip = new Function(body + "; return CMS_RAW;")();
 if (roundTrip.length !== candidate.length) throw new Error("round-trip row count mismatch");
+// Asserts on the EMITTED rows: 6 elements, a known CMS global equal to the
+// input file's base row, and every curated keyword row carried.
+const GLOB_VALUES = /^(000|010|090|XXX|ZZZ|YYY|MMM)$/;
+const globDist = {};
+roundTrip.forEach(r => {
+  if (r.length !== 6) throw new Error(r[0] + ": emitted row does not have 6 elements");
+  if (!GLOB_VALUES.test(r[5])) throw new Error(r[0] + ": unknown CMS GLOB DAYS value " + JSON.stringify(r[5]) + " - add it deliberately (generator, utils.js getGlobalDays, check.js)");
+  if (r[5] !== cmsNew.get(r[0]).glob) throw new Error(r[0] + ": emitted global differs from the input file");
+  globDist[r[5]] = (globDist[r[5]] || 0) + 1;
+});
+if (roundTrip.filter(r => !!r[4]).length !== report.keywordRows) throw new Error("keyword rows lost in emit");
 
 fs.writeFileSync(outCandidate, body, "utf8");
 
@@ -326,6 +359,21 @@ md.push("| Descriptors: kept our curation | " + report.descKeptOurs + " |");
 md.push("| Descriptors: CONFLICTS to review | **" + report.descConflicts.length + "** |");
 md.push("| Inline keyword rows carried | " + report.keywordRows + " |");
 md.push("| Dangling curated references | **" + dangling.length + "** |");
+md.push("| Global period distribution (the new GLOB_BASELINE for check.js) | `" + JSON.stringify(globDist) + "` |");
+md.push("| Global period changes | **" + report.globChanged.length + "** |");
+md.push("| Modifier rows with a different global (info) | " + report.modGlobDiffers.length + " |");
+md.push("");
+md.push("## Global period changes (" + report.globChanged.length + ")");
+md.push("");
+md.push("Each relabels the global chip on past History rows of that code.");
+md.push("");
+if (report.globChanged.length === 0) md.push("None.");
+report.globChanged.forEach(c => md.push("- " + c.code + ": " + c.from + " -> " + c.to + " (" + c.desc.replace(/\|/g, "/") + ")"));
+md.push("");
+md.push("## Modifier rows with a different global (" + report.modGlobDiffers.length + ")");
+md.push("");
+if (report.modGlobDiffers.length === 0) md.push("None.");
+report.modGlobDiffers.forEach(c => md.push("- " + c.code + ": " + c.globs.join(", ")));
 md.push("");
 md.push("## Top " + topRvu.length + " wRVU changes");
 md.push("");
@@ -360,7 +408,7 @@ report.newCategoryWorklist.forEach(w => md.push("- " + w.code + " -> \"" + w.gue
 md.push("");
 md.push("## Swap checklist");
 md.push("");
-md.push("See the header comment in scripts/build-cpt-data.js. Key points: log prior-year stragglers BEFORE the swap (entries snapshot wRVU at log time); update check.js CMS_ROW_BASELINE to " + candidate.length + " in the same commit; bump ASSET_V; update DATA_VERSION/DATA_YEAR; deploy atomically.");
+md.push("See the header comment in scripts/build-cpt-data.js. Key points: log prior-year stragglers BEFORE the swap (entries snapshot wRVU at log time); update check.js CMS_ROW_BASELINE to " + candidate.length + " and GLOB_BASELINE to the distribution above in the same commit; bump ASSET_V; update DATA_VERSION/DATA_YEAR; deploy atomically.");
 md.push("");
 fs.writeFileSync(outReport, md.join("\n"), "utf8");
 

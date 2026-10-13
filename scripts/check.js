@@ -18,6 +18,10 @@ const JS_DIR = path.join(APP, "js files");
 // Baseline: the CPT database must hold exactly this many rows.
 // If you intentionally add/remove codes, update this number consciously.
 const CMS_ROW_BASELINE = 7305;
+// CMS global-period distribution of CMS_RAW[5] (from the build-cpt-data.js
+// report). Changes only together with CMS_ROW_BASELINE, in the yearly swap
+// commit - a hand edit of any single row's global fails this.
+const GLOB_BASELINE = { "000": 1194, "010": 464, "090": 3751, "XXX": 1390, "ZZZ": 488, "YYY": 1, "MMM": 17 };
 
 const failures = [];
 function check(name, ok, detail) {
@@ -339,8 +343,24 @@ if (rows) {
   check("CMS_RAW row count == " + CMS_ROW_BASELINE, rows.length === CMS_ROW_BASELINE, "got " + rows.length);
   const badShape = rows.filter(r => !(Array.isArray(r) && typeof r[0] === "string" && r[0].length === 5 && typeof r[1] === "string" && typeof r[2] === "number" && typeof r[3] === "string"));
   check("all CMS_RAW rows well-formed", badShape.length === 0, badShape.length + " malformed row(s)");
+  // Row contract [code, desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS]
+  const badGlobRows = rows.filter(r => !(r.length === 6 && typeof r[4] === "string" && /^(000|010|090|XXX|ZZZ|YYY|MMM)$/.test(r[5])));
+  check("CMS_RAW rows: 6 elements, keywords string, CMS global", badGlobRows.length === 0, badGlobRows.slice(0, 5).map(r => r[0]).join(", "));
+  const globDist = {};
+  rows.forEach(r => { globDist[r[5]] = (globDist[r[5]] || 0) + 1; });
+  const globKeys = Object.keys(Object.assign({}, GLOB_BASELINE, globDist));
+  check("CMS global distribution == GLOB_BASELINE", globKeys.every(k => (GLOB_BASELINE[k] || 0) === (globDist[k] || 0)), JSON.stringify(globDist));
 }
 check("cpt-data.js has no raw < or > characters", !/[<>]/.test(cpt), "descriptors must escape angle brackets as unicode escapes");
+// 6a. Global periods have ONE source (CMS_RAW[5]): no CPT code may be typed
+// into utils.js between "var GLOBAL_DAYS" and "var COMPANION_CODES" again
+// (a hand list there drifted from CMS on 399 codes). Self-tested so the gate
+// can never silently become a no-op.
+const CODE_TOKEN = /(^|[^0-9A-Za-z_])(\d{5}|\d{4}[A-Z]|[A-Z]\d{4})(?![0-9A-Za-z_])/;
+const gdStart = utils.indexOf("var GLOBAL_DAYS"), gdEnd = utils.indexOf("var COMPANION_CODES");
+check("global-days gate self-test (catches a hand list)", CODE_TOKEN.test("15734,15733") && CODE_TOKEN.test("\"49591\": 90") && CODE_TOKEN.test("G2211") && !CODE_TOKEN.test("\"000\" \"ZZZ\" CMS_RAW[5]"));
+check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_RAW)", gdStart !== -1 && gdEnd > gdStart && !CODE_TOKEN.test(utils.slice(gdStart, gdEnd)),
+  gdStart === -1 || gdEnd <= gdStart ? "markers missing or out of order" : (utils.slice(gdStart, gdEnd).match(CODE_TOKEN) || [""])[0]);
 
 // 6b. CPT search ranking (rankCPTMatches) on the REAL CPT database: same
 // match set as matchesCPTQuery, reordered - exact code, prefix, usage,
@@ -467,6 +487,27 @@ if (sb) {
     order("49505", { "10021": 50 }) + " | " + order("4950", { "10021": 50 }));
   const plain = sb.rankCPTMatches(herniaHits, "hernia", {}, []);
   check("rankCPTMatches: no usage/favorites = CPT order (stable)", plain.every((c, i) => c === herniaHits[i]));
+
+  // Global-period chips: every database code's chip equals its CMS value
+  // (independent copy of the approved label map), plus spot checks pinned to
+  // CY2026 - update one deliberately only if CMS changes it in December.
+  const GLABEL = { "000": "0-day", "010": "10-day", "090": "90-day", "ZZZ": "add-on" };
+  const gBad = rows.filter(r => sb.getGlobalDays(r[0]) !== (GLABEL[r[5]] || ""));
+  check("global chips: all " + rows.length + " database codes match their CMS GLOB DAYS",
+    gBad.length === 0 && Object.keys(vm.runInContext("GLOBAL_DAYS", sb)).length === rows.length,
+    gBad.slice(0, 10).map(r => r[0] + " " + r[5] + " -> " + sb.getGlobalDays(r[0])).join(", "));
+  const GSPOT = [["49591", "0-day"], ["49650", "90-day"], ["47562", "90-day"], ["44970", "90-day"], ["11042", "0-day"], ["11045", "add-on"],
+    ["37254", "0-day"], ["37255", "add-on"], ["11450", "90-day"], ["49320", "10-day"], ["37215", "90-day"], ["10060", "10-day"],
+    ["99213", ""], ["97605", ""], ["59400", ""], ["69300", ""], ["", ""], ["ABCDE", ""]];
+  const gSpotBad = GSPOT.filter(g => sb.getGlobalDays(g[0]) !== g[1]);
+  check("global chips: CY2026 spot checks (hernia 0-day, chole/appy 90-day, add-ons, XXX/MMM/YYY none)", gSpotBad.length === 0,
+    gSpotBad.map(g => g[0] + " -> " + JSON.stringify(sb.getGlobalDays(g[0])) + " want " + g[1]).join(", "));
+  check("global chip colors are theme tokens (90 / 10 / 0-day + add-on)",
+    sb.getGlobalColor("49650") === "var(--global-90)" && sb.getGlobalColor("49320") === "var(--global-10)" &&
+    sb.getGlobalColor("49591") === "var(--global-0)" && sb.getGlobalColor("11045") === "var(--global-0)");
+  const stylesSrc = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8");
+  check("global chip color tokens defined for dark AND light mode (each exactly twice in styles.js)",
+    ["--global-90:", "--global-10:", "--global-0:"].every(t => stylesSrc.split(t).length - 1 === 2));
 
   // Shift-entry helpers (call pay form). Local-parts date math only.
   const ADD = [["2026-01-31", 1, "2026-02-01"], ["2026-12-31", 1, "2027-01-01"], ["2028-02-28", 1, "2028-02-29"],

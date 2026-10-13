@@ -34,7 +34,7 @@ icon-512.png            # PWA icon (Android/Chrome, also used for iOS)
 README.md               # This file
 js files/
   crypto.js             # PIN auth + AES-GCM encryption helpers
-  cpt-data.js           # 7,305 CPT codes (CMS CY2026 PFS) — loaded as plain script
+  cpt-data.js           # 7,305 CPT codes (CMS CY2026 PFS, incl. global period) — loaded as plain script
   utils.js              # Constants, helpers, parsers, data persistence
   styles.js             # CSS variable injection + shared style object
   dashboard.js          # Home view
@@ -73,7 +73,7 @@ js files/
 
 - **Source:** CMS CY2026 Physician Fee Schedule (`PPRRVU2026_Jan_nonQPP.csv`)
 - **Codes included:** All 7,305 codes from the PFS
-- **Fields:** CPT, description, work RVU, category
+- **Fields:** CPT, description, work RVU, category, global period (CMS "GLOB DAYS")
 - **Enhanced descriptions:** ~301 commonly used surgical codes have cleaned-up descriptions and keyword supplements (e.g., code 47562 matches "lap chole", "cholecystectomy", "gallbladder")
 - **Storage:** `localStorage` for immediate access, plus `window.storage` key-value storage as a persistent backup
 
@@ -84,7 +84,7 @@ const DATA_VERSION = "CY2026-PFS-v1";
 const DATA_YEAR = 2026;
 ```
 
-When CMS releases a new fee schedule, update `cpt-data.js` with the new CSV, bump `DATA_VERSION`, and update `DATA_YEAR`.
+When CMS releases a new fee schedule, update `cpt-data.js` via `scripts/build-cpt-data.js` (see its header checklist), bump `DATA_VERSION`, and update `DATA_YEAR`.
 
 ---
 

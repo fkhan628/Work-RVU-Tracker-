@@ -212,7 +212,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
             {e.modifiers.map(function(m) { return <span key={m} style={S.histMod}>{m}</span>; })}
             {e.isCall && <span style={{ fontSize: 9, color: "#a78bfa", background: "rgba(139,92,246,0.15)", padding: "1px 5px", borderRadius: 3 }}>call</span>}
             {e.imported && <span style={{ fontSize: 9, color: "var(--text-dim)", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 }}>imported</span>}
-            {!compact && getGlobalDays(e.cptCode) && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.15)", color: getGlobalColor(e.cptCode), fontFamily: "JetBrains Mono", fontWeight: 600 }}>{getGlobalDays(e.cptCode)}</span>}
+            {getGlobalDays(e.cptCode) && <span style={{ fontSize: 9, padding: "1px 5px", borderRadius: 3, background: "rgba(100,116,139,0.1)", border: "1px solid rgba(100,116,139,0.15)", color: getGlobalColor(e.cptCode), fontFamily: "JetBrains Mono", fontWeight: 600 }}>{getGlobalDays(e.cptCode)}</span>}
             {!compact && e.encounterId && <span style={{ fontSize: 9, color: "var(--text-muted)", background: "rgba(148,163,184,0.1)", padding: "1px 5px", borderRadius: 3 }}>{e.encounterId}</span>}
           </div>
           <div style={S.histDesc}>{(cptMap[e.cptCode] && cptMap[e.cptCode].friendly) || e.description}</div>

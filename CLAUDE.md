@@ -127,8 +127,21 @@ the per-file gates below. Run it after EVERY file change.
   need a catch fallback; no `viewport-fit=cover`; chunked u8toB64 in
   crypto paths.
 - `crypto.js` DATA_KEY must equal `utils.js` SK (check.js asserts).
-- CMS_RAW row count baseline lives in check.js — bump it consciously when
-  the CPT database changes.
+- cpt-data.js is built by scripts/build-cpt-data.js. Row contract `[code,
+  desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS]`. wRVU (r[2])
+  and the global (r[5]) always come from the CMS nonQPP PPRRVU file - never
+  hand-edit them. The curated fields - descriptor (r[1]), category (r[3]),
+  keywords (r[4]) - may be edited in place; the generator carries them
+  forward on its next run (and its swap checklist edits them in the
+  candidate). CMS_ROW_BASELINE and GLOB_BASELINE live in check.js and change
+  together, deliberately, in the yearly swap commit.
+- Global period has ONE source: CMS_RAW[5]. utils.js derives GLOBAL_DAYS;
+  getGlobalDays/getGlobalColor are the only label and color source (000
+  0-day, 010 10-day, 090 90-day, ZZZ add-on, anything else no chip; colors
+  are the styles.js --global-90/10/0 theme tokens). Never type codes between
+  `var GLOBAL_DAYS` and `var COMPANION_CODES` (check.js refuses). Chips are
+  looked up at render time, not stored on entries, so a CMS change relabels
+  past rows.
 
 ## Working protocol
 
