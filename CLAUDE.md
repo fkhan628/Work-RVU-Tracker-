@@ -143,7 +143,11 @@ the per-file gates below. Run it after EVERY file change.
   encounter card is "mixed". Exports keep every row and append a Credit
   column (Credited / No credit) LAST; CSV import never reads it back - it
   warns first instead. Remove Duplicates keys on credit and reports
-  same-case pairs that differ only in credit.
+  same-case pairs that differ only in credit. Each "Logged, no credit"
+  line opens History on its No credit chip with the same range (App's
+  one-shot historyPreset; utils.js fiscalYearBoundsYMD/monthBoundsYMD);
+  the chip shows only when something is flagged, and History's filtered
+  bar (with Clear filters) shows for a date range or the No credit chip.
 - Call cases and credit (7b): a case is no-credit only when it is Call,
   logged at a CURRENT site whose casesEarnRVU === false, and dated on/after
   CALL_NO_CREDIT_FROM ("2026-10-01", pinned by check.js to the no-credit

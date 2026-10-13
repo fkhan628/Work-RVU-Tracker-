@@ -1299,6 +1299,25 @@ function entrySiteLabel(e, sites) {
   if (s) return s.name;
   return typeof e.siteName === "string" && e.siteName ? e.siteName + " (deleted)" : "Deleted site";
 }
+// Date ranges for the "Logged, no credit" lines' tap-through to History
+// (inclusive "YYYY-MM-DD" strings, local parts only).
+// "YYYY-MM" -> { start: first day, end: last day }, else null.
+function monthBoundsYMD(ym) {
+  if (typeof ym !== "string" || !/^\d{4}-\d{2}$/.test(ym)) return null;
+  var y = +ym.slice(0, 4), m = +ym.slice(5, 7);
+  if (m < 1 || m > 12) return null;
+  var next = (m === 12 ? (y + 1) + "-01" : y + "-" + String(m + 1).padStart(2, "0")) + "-01";
+  return { start: ym + "-01", end: addDaysYMD(next, -1) };
+}
+// A year from its start date: { start, end: the day before the same date a
+// year later } - the Dashboard/Trends year window (a Feb 29 start ends on
+// Feb 28), else null.
+function fiscalYearBoundsYMD(ys) {
+  if (!isYMD(ys)) return null;
+  var next = (+ys.slice(0, 4) + 1) + ys.slice(4);
+  if (!isYMD(next)) next = (+ys.slice(0, 4) + 1) + "-03-01";
+  return { start: ys, end: addDaysYMD(next, -1) };
+}
 
 // --- Acute care group split math (single implementation - do not duplicate) ---
 // Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in

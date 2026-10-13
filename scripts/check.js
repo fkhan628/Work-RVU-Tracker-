@@ -1543,6 +1543,18 @@ if (sb) {
       fixedPoint7(entStore7(JSON.parse(JSON.stringify([pN.c1, pN.c2, pRe.c0, pPriv.c0, pOld.o1])))),
       JSON.stringify({ pN: keysOf(pN), pSame: keysOf(pSame), pRe: keysOf(pRe), pPriv: keysOf(pPriv), pOld: keysOf(pOld), pBlank: keysOf(pBlank), pToCall: keysOf(pToCall) }));
   }
+
+  {
+    // Tap-through ranges for the "Logged, no credit" lines (inclusive strings).
+    const MB = [["2028-02", "2028-02-01", "2028-02-29"], ["2026-02", "2026-02-01", "2026-02-28"], ["2026-12", "2026-12-01", "2026-12-31"], ["2026-04", "2026-04-01", "2026-04-30"]];
+    const badMB = MB.filter(t => { const r = sb.monthBoundsYMD(t[0]); return !r || r.start !== t[1] || r.end !== t[2]; });
+    const nullMB = ["2026-13", "2026-00", "2026-1", "", null, "2026-02-01"].every(v => sb.monthBoundsYMD(v) === null);
+    const FY = [["2026-01-01", "2026-12-31"], ["2026-07-01", "2027-06-30"], ["2028-02-29", "2029-02-28"], ["2027-03-01", "2028-02-29"], ["2026-12-31", "2027-12-30"]];
+    const badFY = FY.filter(t => { const r = sb.fiscalYearBoundsYMD(t[0]); return !r || r.start !== t[0] || r.end !== t[1]; });
+    const nullFY = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.fiscalYearBoundsYMD(v) === null);
+    check("monthBoundsYMD / fiscalYearBoundsYMD: inclusive local-parts ranges (leap years, a Feb 29 start ends Feb 28), null for bad input",
+      badMB.length === 0 && nullMB && badFY.length === 0 && nullFY, JSON.stringify({ badMB: badMB, badFY: badFY, nullMB: nullMB, nullFY: nullFY }));
+  }
 }
 
 console.log("");

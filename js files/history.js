@@ -50,7 +50,7 @@ function Import({ data, cptMap, upd, setView, showUndo }) {
 // =======================================
 // HISTORY
 // =======================================
-function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
+function History({ data, db, cptMap, categories, upd, setView, showUndo, historyPreset }) {
   const [filter, setFilter] = useState(""); const [sortBy, setSortBy] = useState("date"); const [groupBy, setGroupBy] = useState("date");
   const [editId, setEditId] = useState(null);
   const [editDate, setEditDate] = useState("");
@@ -78,10 +78,13 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   const [addSourceId, setAddSourceId] = useState(null);
   const addSavingRef = useRef(false);
   var ADD_SENTINEL = "__add__";
-  const [dateRange, setDateRange] = useState("all");
-  const [customStart, setCustomStart] = useState("");
-  const [customEnd, setCustomEnd] = useState("");
-  const [showCallFilter, setShowCallFilter] = useState("all");
+  // A "Logged, no credit" line elsewhere opens History on the No credit chip
+  // with its date range (App's one-shot historyPreset, cleared after mount).
+  var hp = historyPreset && historyPreset.current;
+  const [dateRange, setDateRange] = useState(function() { return hp && hp.start ? "custom" : "all"; });
+  const [customStart, setCustomStart] = useState(function() { return hp && hp.start ? hp.start : ""; });
+  const [customEnd, setCustomEnd] = useState(function() { return hp && hp.end ? hp.end : ""; });
+  const [showCallFilter, setShowCallFilter] = useState(function() { return hp ? hp.type : "all"; });
   const { entries, settings } = data;
 
   var dateRangeBounds = useMemo(function() {
@@ -122,11 +125,15 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     }
     if (showCallFilter === "private") items = items.filter(function(e) { return !e.isCall; });
     if (showCallFilter === "call") items = items.filter(function(e) { return e.isCall; });
+    if (showCallFilter === "nc") items = items.filter(isNoCredit);
     if (filter.trim()) {
       const terms = filter.toLowerCase().split(/\s+/).filter(function(t) { return t; });
+      var paySites = data.paySites || [];
       items = items.filter(function(e) {
         var f = cptMap[e.cptCode];
-        var hay = (e.cptCode + " " + e.description + " " + e.category + " " + (e.notes || "") + " " + (f && f.friendly ? f.friendly : "")).toLowerCase();
+        // Also matches a call case's site name and "no credit" (not the word
+        // "call", so results stay the same for users without sites).
+        var hay = (e.cptCode + " " + e.description + " " + e.category + " " + (e.notes || "") + " " + (f && f.friendly ? f.friendly : "") + " " + entrySiteLabel(e, paySites) + (isNoCredit(e) ? " no credit" : "")).toLowerCase();
         for (var i = 0; i < terms.length; i++) { if (hay.indexOf(terms[i]) === -1) return false; }
         return true;
       });
@@ -135,7 +142,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     // order as building two Date objects per comparison, much faster.
     items.sort((a, b) => { if (sortBy === "rvu") return b.adjustedRVU - a.adjustedRVU; if (sortBy === "code") return a.cptCode.localeCompare(b.cptCode); return b.date < a.date ? -1 : b.date > a.date ? 1 : 0; });
     return items;
-  }, [entries, filter, sortBy, dateRangeBounds, showCallFilter, cptMap]);
+  }, [entries, filter, sortBy, dateRangeBounds, showCallFilter, cptMap, data.paySites]);
   const grouped = useMemo(() => { if (groupBy === "none") return { "All": filtered }; const g = {}; filtered.forEach(e => { const k = groupBy === "date" ? e.date : e.category; if (!g[k]) g[k] = []; g[k].push(e); }); return g; }, [filtered, groupBy]);
   // Render about ROWS_STEP rows and add more on demand - thousands of rows on
   // a phone are slow to draw. The window follows the ON-SCREEN order (group
@@ -146,6 +153,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
   var ROWS_STEP = 150;
   const [rowLimit, setRowLimit] = useState(ROWS_STEP);
   useEffect(function() { setRowLimit(ROWS_STEP); }, [filter, sortBy, dateRangeBounds, showCallFilter, groupBy]);
+  useEffect(function() { if (historyPreset) historyPreset.current = null; }, []);
   const visible = useMemo(function() {
     var ids = {}, n = 0, keys = Object.keys(grouped);
     for (var gi = 0; gi < keys.length && n < rowLimit; gi++) {
@@ -541,10 +549,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo }) {
     </div>
 
     {/* Type filter + Sort/Group */}
-    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>{["all","private","call"].map(function(t) { return <button key={t} onClick={function() { setShowCallFilter(t); }} style={showCallFilter === t ? S.catBtnActive : S.catBtn}>{t === "all" ? "All Types" : t === "private" ? "Private" : "Call"}</button>; })}<div style={{ width: 8 }} />{["date","rvu","code"].map(s => <button key={s} onClick={() => setSortBy(s)} style={sortBy === s ? S.catBtnActive : S.catBtn}>Sort: {s === "rvu" ? "wRVU" : s}</button>)}<div style={{ width: 8 }} />{["date","category","none"].map(g => <button key={g} onClick={() => setGroupBy(g)} style={groupBy === g ? S.catBtnActive : S.catBtn}>Group: {g}</button>)}</div>
+    <div style={{ display: "flex", gap: 6, marginTop: 8, flexWrap: "wrap" }}>{["all","private","call"].concat(entries.some(isNoCredit) || showCallFilter === "nc" ? ["nc"] : []).map(function(t) { return <button key={t} onClick={function() { setShowCallFilter(t); }} style={showCallFilter === t ? S.catBtnActive : S.catBtn}>{t === "all" ? "All Types" : t === "private" ? "Private" : t === "call" ? "Call" : "No credit"}</button>; })}<div style={{ width: 8 }} />{["date","rvu","code"].map(s => <button key={s} onClick={() => setSortBy(s)} style={sortBy === s ? S.catBtnActive : S.catBtn}>Sort: {s === "rvu" ? "wRVU" : s}</button>)}<div style={{ width: 8 }} />{["date","category","none"].map(g => <button key={g} onClick={() => setGroupBy(g)} style={groupBy === g ? S.catBtnActive : S.catBtn}>Group: {g}</button>)}</div>
 
     {/* Filtered summary bar */}
-    {dateRange !== "all" && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+    {(dateRange !== "all" || showCallFilter === "nc") && <div style={{ marginTop: 8, padding: "6px 12px", borderRadius: 8, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
       <span style={{ fontSize: 11, color: "#0ea5e9" }}>{filteredCount} procedures{ncF > 0 ? " (" + ncF + " no credit)" : ""} | {tF.toFixed(1)} wRVUs | ${(tF * settings.ratePerRVU).toFixed(0)}</span>
       <button onClick={function() { setDateRange("all"); setShowCallFilter("all"); }} style={{ fontSize: 10, color: "var(--text-dim)", background: "none", border: "none", cursor: "pointer", textDecoration: "underline" }}>Clear filters</button>
     </div>}

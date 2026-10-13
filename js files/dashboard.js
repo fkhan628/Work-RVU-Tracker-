@@ -1,7 +1,7 @@
 // =======================================
 // DASHBOARD
 // =======================================
-function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay }) {
+function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay, openHistory }) {
   const { entries, settings } = data;
   const instData = data.institutionData || [];
   const now = new Date();
@@ -48,7 +48,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // No-credit cases (isNoCredit - e.g. acute-care pool call cases) are logged
   // for the record but are out of every total: they show once, on a quiet
   // line. Counts beside or dividing a credited figure count credited cases.
-  const yeNC = ye.filter(isNoCredit);
+  // The line counts the SAME date-string window it opens in History (and
+  // Trends uses): the Date-based window above can differ by a boundary day.
+  var ncRange = fiscalYearBoundsYMD(selectedYear === "current" ? (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01") : selectedYear + "-01-01");
+  const yeNC = ncRange ? entries.filter(function(e) { return isNoCredit(e) && e.date >= ncRange.start && e.date <= ncRange.end; }) : [];
   const yeCredited = ye.filter(function(e) { return !isNoCredit(e); });
   const ncRVU = yeNC.reduce(function(s, e) { return s + noCreditRVU(e); }, 0);
   const ncEnc = countEncounters(yeNC);
@@ -241,7 +244,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     </div>
     {/* Quiet derived lines - no goals, no cards */}
     {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
-      {yeNC.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3 }}>{"Logged, no credit (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncEnc + " encounter" + (ncEnc === 1 ? "" : "s")}</div>}
+      {yeNC.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncRange); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
+        <span>{"Logged, no credit (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncEnc + " encounter" + (ncEnc === 1 ? "" : "s")}</span>
+        <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+      </div>}
       {callPay.shifts > 0 &&<div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
         <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
         <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>

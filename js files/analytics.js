@@ -5,7 +5,7 @@
 // crossCheck memo inside Analytics.
 var CROSSCHECK_FLAG = 0.75;
 
-function Analytics({ data, db, setView, showComp, toggleComp }) {
+function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   var [selectedYear, setSelectedYear] = useState("current");
   var [detailMonth, setDetailMonth] = useState(null);
   var [showSummary, setShowSummary] = useState(false);
@@ -47,6 +47,16 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
     if (isCurrent) return mk >= yearStart.slice(0, 7) && mk < yearEndStr.slice(0, 7);
     return mk.slice(0, 4) === year;
   };
+  // "Logged, no credit" lines open History on the No credit chip with the
+  // same scope: the selected year, or one month clipped to it.
+  var ncYearRange = isCurrent ? fiscalYearBoundsYMD(yearStart) : { start: year + "-01-01", end: year + "-12-31" };
+  var ncMonthRange = function(ym) {
+    var mb = monthBoundsYMD(ym);
+    if (!mb || !ncYearRange) return mb;
+    return { start: mb.start < ncYearRange.start ? ncYearRange.start : mb.start, end: mb.end > ncYearRange.end ? ncYearRange.end : mb.end };
+  };
+  var ncLink = { cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 };
+  var ncChevron = <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>;
 
   // Friendly labels only - every wRVU figure below comes from the entries'
   // snapshotted values, never re-looked-up from the CPT db.
@@ -318,7 +328,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
         <div style={S.statCard}><div style={S.statValue}>{dm.count}</div><div style={S.statLabel}>Procedures</div></div>
         <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(dm.comp, showComp)}</div><div style={S.statLabel}>Compensation</div></div>
       </div>
-      {dmNC.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12 }}>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{dmNCRVU.toFixed(1)}</span>{" wRVU across " + dmNC.length + " procedure" + (dmNC.length === 1 ? "" : "s")}</div>}
+      {dmNC.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncMonthRange(detailMonth)); }} style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{dmNCRVU.toFixed(1)}</span>{" wRVU across " + dmNC.length + " procedure" + (dmNC.length === 1 ? "" : "s")}</span>{ncChevron}</div>}
       <div style={S.card}><div style={S.cardLabel}>Procedures</div><div style={{ marginTop: 8 }}>{monthProcList.map(function(p) {
         return (<div key={p.code} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}>
           <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 11, color: "#64748b", marginLeft: 6 }}>x{p.count}</span><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{p.desc}</div></div>
@@ -417,7 +427,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
         : <div style={S.statCard}><div style={S.statValue}>{monthlyData.length}</div><div style={S.statLabel}>Months</div></div>}
       <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(selComp, showComp)}</div><div style={S.statLabel}>Total Comp</div></div>
     </div>
-    {creditSplit.nc.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12 }}>{"Logged, no credit (" + (isCurrent ? "YTD" : year) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{creditSplit.ncRVU.toFixed(1)}</span>{" wRVU across " + creditSplit.ncEnc + " encounter" + (creditSplit.ncEnc === 1 ? "" : "s")}</div>}
+    {creditSplit.nc.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncYearRange); }} style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit (" + (isCurrent ? "YTD" : year) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{creditSplit.ncRVU.toFixed(1)}</span>{" wRVU across " + creditSplit.ncEnc + " encounter" + (creditSplit.ncEnc === 1 ? "" : "s")}</span>{ncChevron}</div>}
 
     {/* Monthly bar chart */}
     <div style={S.card}>
@@ -635,7 +645,7 @@ function Analytics({ data, db, setView, showComp, toggleComp }) {
         <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)" }}><div style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Private</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{summaryData.privateRVU.toFixed(1)} wRVU | {summaryData.privateCases} enc</div></div>
         <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}><div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600 }}>Call</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#e2e8f0" }}>{summaryData.callRVU.toFixed(1)} wRVU | {summaryData.callCases} enc</div></div>
       </div>}
-      {summaryData.ncProcs > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -4, marginBottom: 12 }}>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{summaryData.ncRVU.toFixed(1)}</span>{" wRVU | " + summaryData.ncEnc + " enc"}</div>}
+      {summaryData.ncProcs > 0 && <div onClick={function() { if (openHistory) openHistory(monthBoundsYMD(summaryMonth)); }} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -4, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{summaryData.ncRVU.toFixed(1)}</span>{" wRVU | " + summaryData.ncEnc + " enc"}</span>{ncChevron}</div>}
       {goal > 0 && <div style={{ padding: "8px 10px", borderRadius: 6, background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div><span style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Monthly Goal Pace</span><div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>Target: {(goal / 12).toFixed(0)} wRVU/month</div></div>
         <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 700 }}>{((summaryData.totalRVU / (goal / 12)) * 100).toFixed(0)}%</span>
