@@ -39,8 +39,6 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     return dDate >= ys && dDate < yearBounds.end;
   });
   const instTotal = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
-  const instWork = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0); }, 0);
-  const instSplit = instYTD.reduce(function(s, d) { return s + (d.splitRVU || 0); }, 0);
 
   // Tracked data for selected year
   const ye = entries.filter(function(e) { var d = new Date(e.date + "T12:00:00"); return d >= ys && d < yearBounds.end; });
@@ -60,11 +58,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Use institution if available, otherwise tracked
   const tRVU = hasInst ? instTotal : trackedRVU;
   const tComp = tRVU * settings.ratePerRVU;
-  const gPct = settings.annualGoal > 0 ? Math.min((tRVU / settings.annualGoal) * 100, 100) : 0;
   const dp = Math.max(1, Math.floor((effectiveNow - ys) / 86400000));
-  const ePct = (dp / 365) * 100;
-  const pace = gPct >= ePct ? "ahead" : "behind";
-  const pDiff = Math.abs(tRVU - (settings.annualGoal * dp / 365));
 
   // Monthly chart - for current year show last 6 months, for past years show all 12
   const months = [];
@@ -88,7 +82,6 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   const todayRVU = isCurrent ? entries.filter(e => e.date === localYMD(now)).reduce((s, e) => s + creditedRVU(e), 0) : 0;
 
   // Projected annual based on current pace
-  var monthsElapsed = instYTD.length || Math.max(1, dp / 30.44);
   var projected = hasInst && instYTD.length > 0 ? (instTotal / instYTD.length) * 12 : (trackedRVU / Math.max(1, dp / 30.44)) * 12;
 
   // --- Two independent tracks (never blended) ---
