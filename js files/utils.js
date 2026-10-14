@@ -856,6 +856,37 @@ const SK = "rvu-tracker-data";
 // and never read anywhere). The encrypted clipboard backup feature is unrelated.
 try { localStorage.removeItem("rvu-backup"); localStorage.removeItem("rvu-backup-time"); } catch(e) {}
 
+// Backup stamp: when THIS phone last saved a backup, plus Home's nudge snooze.
+// ONE localStorage key OUTSIDE the data store: never a defState/loadData/
+// finishRestore field, never inside a backup, untouched by restore and by
+// last-good recovery. Only these helpers touch it (check.js). Never name it
+// "rvu-backup"/"rvu-backup-time": the line above deletes those on every load.
+var BACKUP_STAMP_KEY = "rvu-last-backup";
+var BACKUP_NUDGE_DAYS = 14;
+var BACKUP_SNOOZE_DAYS = 7;
+function backupStampParse(raw) {
+  var o = null;
+  if (typeof raw === "string") { try { o = JSON.parse(raw); } catch(e) { o = null; } }
+  if (!o || typeof o !== "object" || Array.isArray(o)) o = {};
+  return { date: isYMD(o.date) ? o.date : "", how: (o.how === "file" || o.how === "copy") ? o.how : "", snooze: isYMD(o.snooze) ? o.snooze : "" };
+}
+function readBackupStamp() { var raw = null; try { raw = localStorage.getItem(BACKUP_STAMP_KEY); } catch(e) { raw = null; } return backupStampParse(raw); }
+function backupStampWrite(st) { try { localStorage.setItem(BACKUP_STAMP_KEY, JSON.stringify(st)); } catch(e) {} return st; }
+// A backup left the app today (file shared/downloaded, or code copied). Clears any snooze.
+function markBackupSaved(how, today) { return backupStampWrite({ date: isYMD(today) ? today : todayLocal(), how: how === "copy" ? "copy" : "file", snooze: "" }); }
+// Home's x: hide the nudge for BACKUP_SNOOZE_DAYS and keep the date.
+function snoozeBackupNudge(today) { var st = readBackupStamp(); st.snooze = addDaysYMD(isYMD(today) ? today : todayLocal(), BACKUP_SNOOZE_DAYS); return backupStampWrite(st); }
+// Due when there is something to lose and the last backup is >= 14 days old
+// (or none). A snooze counts only while it ends within 7 days of today, so a
+// clock change cannot silence it for good.
+function backupNudgeDue(st, today, itemCount) {
+  if (!st || typeof st !== "object" || !isYMD(today) || !(itemCount > 0)) return false;
+  if (isYMD(st.snooze) && today < st.snooze && st.snooze <= addDaysYMD(today, BACKUP_SNOOZE_DAYS)) return false;
+  if (!isYMD(st.date)) return true;
+  return addDaysYMD(st.date, BACKUP_NUDGE_DAYS) <= today;
+}
+function backupFileName(today) { return "rvu-backup-" + (isYMD(today) ? today : todayLocal()) + ".txt"; }
+
 // Forensic copy of a store that failed to load. SINGLE key, always overwritten,
 // never accumulates. Cleared on the next clean load and on user dismissal of the
 // recovery alert - it must never become a lingering plaintext copy of the data.

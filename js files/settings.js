@@ -1,7 +1,7 @@
 // =======================================
 // SETTINGS (with wRVU Editor)
 // =======================================
-function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, openCallPay, showUndo, openHistory }) {
+function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, openCallPay, showUndo, openHistory, backupFocus }) {
   const { settings } = data;
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
@@ -12,6 +12,13 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const [restoreText, setRestoreText] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
   const [backupManual, setBackupManual] = useState(""); // encrypted code shown when auto-copy fails
+  const [backupWarn, setBackupWarn] = useState(false);   // status line in amber
+  const [backupFile, setBackupFile] = useState(null);    // encrypted file ready to share (memory only)
+  const [fileBusy, setFileBusy] = useState(false);
+  const [backupStamp, setBackupStamp] = useState(readBackupStamp); // per-device, NOT the store
+  const restoreFileRef = useRef(null);
+  const backupCardRef = useRef(null);
+  const sharingRef = useRef(false);   // one share sheet at a time (iOS InvalidStateError)
   const [shareStatus, setShareStatus] = useState("");
   const [newApiKey, setNewApiKey] = useState("");
   const [showApiKeyInput, setShowApiKeyInput] = useState(false);
@@ -30,19 +37,39 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       }
     } catch(e) {}
   }, []);
+  // A ready file is a snapshot: drop it whenever the data changes.
+  useEffect(function() { setBackupFile(null); }, [data]);
+  // Home's nudge opens More here, scrolled to Backup & Restore (one-shot ref;
+  // the timeout lands after App's scroll-to-top on a view change).
+  useEffect(function() {
+    if (!backupFocus || !backupFocus.current) return;
+    backupFocus.current = false;
+    var t = setTimeout(function() {
+      var el = backupCardRef.current, c = el && el.closest ? el.closest(".rvu-content") : null;
+      if (c) c.scrollTop = c.scrollTop + (el.getBoundingClientRect().top - c.getBoundingClientRect().top) - 8;
+    }, 80);
+    return function() { clearTimeout(t); };
+  }, []);
 
   // (Removed: legacy plaintext auto-backup. It wrote an UNENCRYPTED copy of all
   // entries incl. patient initials/notes to localStorage ("rvu-backup") and was
   // never read anywhere. The encrypted clipboard backup below is the real one.)
 
+  // THE backup code. The clipboard copy and the file share this builder, so a
+  // file's text pastes into Restore (and into an older build) unchanged.
+  var buildBackupCode = function(pin) {
+    return window.RVU_CRYPTO.encrypt(pin, JSON.stringify(data)).then(function(enc) {
+      return btoa(unescape(encodeURIComponent(JSON.stringify({ encrypted: true, v: 1, payload: enc }))));
+    });
+  };
+
   var copyBackup = function() {
+    setBackupWarn(false); setBackupFile(null);
     var pin = window.RVU_CRYPTO.getPin();
-    if (!pin) { setBackupStatus("PIN session expired. Lock and unlock first."); return; }
+    if (!pin) { setBackupStatus("PIN session expired. Lock and unlock first."); setBackupWarn(true); return; }
     try {
-      var backup = JSON.stringify(data);
       setBackupStatus("Encrypting backup...");
-      window.RVU_CRYPTO.encrypt(pin, backup).then(function(enc) {
-        var encoded = btoa(unescape(encodeURIComponent(JSON.stringify({ encrypted: true, v: 1, payload: enc }))));
+      buildBackupCode(pin).then(function(encoded) {
         var copyFallback = function() {
           var ta = document.createElement("textarea");
           ta.value = encoded;
@@ -58,6 +85,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           document.body.removeChild(ta);
           if (ok) {
             setBackupManual("");
+            setBackupStamp(markBackupSaved("copy", todayLocal()));
             setBackupStatus("Encrypted backup copied! (" + data.entries.length + " procedures, " + (encoded.length / 1024).toFixed(0) + " KB)");
             setTimeout(function() { setBackupStatus(""); }, 4000);
           } else {
@@ -68,6 +96,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         if (navigator.clipboard && navigator.clipboard.writeText) {
           navigator.clipboard.writeText(encoded).then(function() {
             setBackupManual("");
+            setBackupStamp(markBackupSaved("copy", todayLocal()));
             setBackupStatus("Encrypted backup copied! (" + data.entries.length + " procedures, " + (encoded.length / 1024).toFixed(0) + " KB)");
             setTimeout(function() { setBackupStatus(""); }, 4000);
           }).catch(function() {
@@ -77,11 +106,67 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           copyFallback();
         }
       }).catch(function(e) {
-        setBackupStatus("Encryption error: " + e.message);
+        setBackupStatus("Encryption error: " + e.message); setBackupWarn(true);
       });
     } catch(e) {
-      setBackupStatus("Error creating backup: " + e.message);
+      setBackupStatus("Error creating backup: " + e.message); setBackupWarn(true);
     }
+  };
+
+  // Backup FILE: same code as the clipboard backup, shared as a .txt file.
+  var canShareFile = function(f) { try { return !!(f && navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch(e) { return false; } };
+  var finePointer = function() { try { return !!(window.matchMedia && window.matchMedia("(pointer: fine)").matches); } catch(e) { return false; } };
+  var saveBackupFile = function() {
+    if (fileBusy) return;
+    var pin = window.RVU_CRYPTO.getPin();
+    setBackupManual(""); setBackupFile(null); setBackupStatus(""); setBackupWarn(false);
+    if (!pin) { setBackupStatus("PIN session expired. Lock and unlock first."); setBackupWarn(true); return; }
+    var count = data.entries.length, shifts = (data.payShifts || []).length;
+    setFileBusy(true);
+    Promise.resolve().then(function() { return buildBackupCode(pin); }).then(function(encoded) {
+      var name = backupFileName(todayLocal()), file = null;
+      try { file = new File([encoded], name, { type: "text/plain" }); } catch(e) { file = null; }
+      setFileBusy(false);
+      setBackupFile({ text: encoded, name: name, file: file, kb: Math.max(1, Math.round(encoded.length / 1024)), count: count, shifts: shifts, shareFailed: false });
+    }).catch(function(e) { setFileBusy(false); setBackupStatus("Encryption error: " + (e && e.message ? e.message : "unknown")); setBackupWarn(true); });
+  };
+  // TWO taps on purpose: iOS opens the share sheet only inside a user gesture,
+  // and the async encrypt can use that gesture up. So navigator.share runs
+  // directly from this tap - never after the encrypt.
+  var shareBackupFile = function() {
+    var bf = backupFile;
+    if (!bf || sharingRef.current || !canShareFile(bf.file)) return;
+    sharingRef.current = true;
+    var failed = function(e) {
+      sharingRef.current = false;
+      setBackupFile(function(cur) { return cur === bf ? { ...bf, shareFailed: true } : cur; });
+      setBackupStatus("Couldn't open the share sheet" + (e && e.name ? " (" + e.name + ")" : "") + ". Use Copy Encrypted Backup instead.");
+      setBackupWarn(true);
+    };
+    try {
+      navigator.share({ files: [bf.file] }).then(function() {   // files only: on iOS, adding text makes a second item
+        sharingRef.current = false;
+        setBackupStamp(markBackupSaved("file", todayLocal()));
+        setBackupFile(null); setBackupWarn(false);
+        setBackupStatus("Backup file saved (" + bf.count + " procedures).");
+        setTimeout(function() { setBackupStatus(""); }, 5000);
+      }).catch(function(e) { if (e && e.name === "AbortError") { sharingRef.current = false; return; } failed(e); });   // sheet closed: the panel stays
+    } catch(e) { failed(e); }
+  };
+  var downloadBackupFile = function() {
+    var bf = backupFile;
+    if (!bf) return;
+    try {
+      var u = URL.createObjectURL(new Blob([bf.text], { type: "text/plain" }));
+      var a = document.createElement("a");
+      a.href = u; a.download = bf.name; a.style.display = "none";
+      document.body.appendChild(a); a.click(); document.body.removeChild(a);
+      setTimeout(function() { try { URL.revokeObjectURL(u); } catch(e) {} }, 60000);   // not in the same tick
+      setBackupStamp(markBackupSaved("file", todayLocal()));
+      setBackupFile(null); setBackupWarn(false);
+      setBackupStatus("Backup file downloaded (" + bf.name + ").");
+      setTimeout(function() { setBackupStatus(""); }, 5000);
+    } catch(e) { setBackupStatus("Download failed. Use Copy Encrypted Backup instead."); setBackupWarn(true); }
   };
 
   var doShare = function() {
@@ -130,39 +215,54 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     }
   };
 
-  var doRestore = function() {
-    if (!restoreText.trim()) return;
+  // ONE restore path: a pasted code and a chosen file both land here, then
+  // finishRestore (whose state object check.js 5c parses - keep it as is).
+  // label (a file name, which carries the backup date) goes in the confirm.
+  var restoreFromText = function(raw, src, label) {
+    var text = String(raw || "").replace(/^\uFEFF/, "").trim();
+    var notBackup = src === "file" ? "That file isn't an RVU Tracker backup." : "Invalid backup code.";
+    if (!text) { if (src === "file") alert(notBackup); return; }
     var pin = window.RVU_CRYPTO.getPin();
     if (!pin) { alert("PIN session expired. Lock and unlock first."); return; }
     try {
       var decoded;
-      try {
-        decoded = decodeURIComponent(escape(atob(restoreText.trim())));
-      } catch(e) {
-        decoded = restoreText.trim();
-      }
+      try { decoded = decodeURIComponent(escape(atob(text))); } catch(e) { decoded = text; }
       var parsed;
-      try { parsed = JSON.parse(decoded); } catch(e) { alert("Invalid backup code. " + e.message); return; }
-      if (parsed.encrypted && parsed.payload) {
+      try { parsed = JSON.parse(decoded); } catch(e) { alert(notBackup + " " + e.message); return; }
+      if (parsed && parsed.encrypted && parsed.payload) {
         setBackupStatus("Decrypting backup...");
         window.RVU_CRYPTO.decrypt(pin, parsed.payload).then(function(plaintext) {
-          var restored = JSON.parse(plaintext);
-          finishRestore(restored);
-        }).catch(function(e) {
-          alert("Decryption failed. Wrong PIN or corrupted backup. " + e.message);
+          setBackupStatus(""); finishRestore(JSON.parse(plaintext), label);
+        }, function(e) {
           setBackupStatus("");
-        });
-      } else if (parsed.entries) {
-        finishRestore(parsed);
+          if (e && e.message === "Invalid encrypted data") { alert("This backup is damaged and can't be opened."); return; }
+          // A new phone usually has a different PIN than the one the backup
+          // was made with: ask once instead of dead-ending.
+          var other = prompt("This backup did not open with this phone's PIN. If it was made with a different PIN, enter that PIN:");
+          if (other === null || !String(other).trim()) return;
+          setBackupStatus("Decrypting backup...");
+          return window.RVU_CRYPTO.decrypt(String(other).trim(), parsed.payload).then(function(pt) {
+            setBackupStatus(""); finishRestore(JSON.parse(pt), label);
+          }, function() { setBackupStatus(""); alert("Decryption failed with that PIN too. Check the PIN - or the backup may be damaged."); });
+        }).catch(function(e) { setBackupStatus(""); alert("Could not restore: " + (e && e.message ? e.message : "unreadable backup")); });
+      } else if (parsed && parsed.entries) {
+        finishRestore(parsed, label);   // also accepts the plain JSON export, as paste always has
       } else {
-        alert("Invalid backup: no procedure entries found.");
+        alert(src === "file" ? notBackup : "Invalid backup: no procedure entries found.");
       }
-    } catch(e) {
-      alert("Could not restore: invalid backup code. " + e.message);
-    }
+    } catch(e) { alert("Could not restore: " + notBackup + " " + e.message); }
+  };
+  var doRestore = function() { restoreFromText(restoreText, "code"); };
+  var restoreFromFile = function(f) {
+    if (!f) return;
+    if (f.size > 25 * 1024 * 1024) { alert("That file is too large to be an RVU Tracker backup."); return; }
+    var r = new FileReader();
+    r.onload = function(ev) { restoreFromText(ev && ev.target ? ev.target.result : "", "file", f.name); };
+    r.onerror = function() { alert("Couldn't read that file. You can also open it, copy its text and paste it below."); };
+    r.readAsText(f);
   };
 
-  var finishRestore = function(restored) {
+  var finishRestore = function(restored, label) {
     if (!restored.entries || !Array.isArray(restored.entries)) {
       alert("Invalid backup: no procedure entries found.");
       return;
@@ -176,7 +276,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     // restore (same rule as loading) - count them so the warning is true.
     if (payWillSeed(restored)) bSites = DEFAULT_PAY_SITES.length;
     var pShifts = cnt(data.payShifts), pSites = cnt(data.paySites);
-    var msg = "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + ").";
+    var msg = (label ? "From " + label + ": " : "") + "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + ").";
     if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed.";
     if (confirm(msg)) {
       // A restore replaces everything: a pending Undo (e.g. from Delete All)
@@ -1008,19 +1108,39 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} disabled={excelBusy} style={{ ...S.secondaryBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.3)", opacity: excelBusy ? 0.6 : 1 }}>{excelBusy ? "Loading..." : "Export Excel"}</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
 
     {/* Backup & Restore */}
-    <div style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
+    <div ref={backupCardRef} style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
       <div style={S.cardLabel}>Backup & Restore</div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Backups are AES-256 encrypted with your PIN. Paste the code on any device and enter your PIN to restore.</div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Backups are AES-256 encrypted with your PIN. Save the file to iCloud Drive (or anywhere off this phone) and keep it private - it holds patient initials and notes.</div>
+      {(function() {
+        var due = backupNudgeDue({ date: backupStamp.date }, todayLocal(), data.entries.length + (data.payShifts || []).length);
+        var txt = backupStamp.date ? "Last backup: " + fmt(backupStamp.date) + (backupStamp.how === "copy" ? " (copied code)" : " (file)") + (due ? " - over 2 weeks ago" : "") : "No backup recorded on this phone yet";
+        // var(--global-90) is the theme-aware amber (#f59e0b dark, #92400e light).
+        return <div style={{ fontSize: 12, marginTop: 6, color: due ? "var(--global-90)" : "var(--text-dim)", fontWeight: due ? 600 : 400 }}>{txt}</div>;
+      })()}
+      <button onClick={saveBackupFile} disabled={fileBusy} style={{ ...S.saveBtn, marginTop: 10, fontSize: 15, opacity: fileBusy ? 0.6 : 1 }}>{fileBusy ? "Encrypting..." : "Save Backup File"}</button>
+      {backupFile && (function() {
+        var bf = backupFile, shareOk = canShareFile(bf.file), showDl = !shareOk || finePointer() || bf.shareFailed;
+        return (<div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid rgba(14,165,233,0.3)" }}>
+          <div style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600, wordBreak: "break-all" }}>{"Ready: " + bf.name}</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.5 }}>{bf.count + " procedures, " + bf.shifts + " call-pay shift" + (bf.shifts === 1 ? "" : "s") + ", " + bf.kb + " KB. Choose Save to Files - iCloud Drive is best."}</div>
+          {shareOk && <button onClick={shareBackupFile} style={{ ...S.secondaryBtn, width: "100%", marginTop: 8, minHeight: 44, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>Save / Share File</button>}
+          {showDl && <button onClick={downloadBackupFile} style={{ ...S.secondaryBtn, width: "100%", marginTop: 8, minHeight: 44 }}>Download File</button>}
+          <button onClick={function() { setBackupFile(null); }} style={{ ...S.linkBtn, display: "block", width: "100%", marginTop: 6, minHeight: 36 }}>Cancel</button>
+        </div>);
+      })()}
+      <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button onClick={copyBackup} style={{ ...S.secondaryBtn, flex: 1, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>{"\uD83D\uDD12"} Copy Encrypted Backup</button>
         <button onClick={function() { setShowRestore(!showRestore); }} style={{ ...S.secondaryBtn, flex: 1 }}>{showRestore ? "Cancel" : "Restore"}</button>
       </div>
-      {backupStatus && <div style={{ fontSize: 12, color: backupManual ? "#f59e0b" : "#10b981", marginTop: 6, textAlign: "center" }}>{backupStatus}</div>}
+      {backupStatus && <div style={{ fontSize: 12, color: (backupManual || backupWarn) ? "#f59e0b" : "#10b981", marginTop: 6, textAlign: "center" }}>{backupStatus}</div>}
       {backupManual && <div style={{ marginTop: 6 }}>
         <textarea readOnly value={backupManual} onFocus={function(e) { e.target.select(); }} style={{ ...S.notesInput, minHeight: 80, fontSize: 10, fontFamily: "JetBrains Mono" }} />
         <button onClick={function() { setBackupManual(""); setBackupStatus(""); }} style={{ ...S.secondaryBtn, width: "100%", marginTop: 6, minHeight: 44 }}>Done</button>
       </div>}
       {showRestore && <div style={{ marginTop: 10 }}>
+        <button onClick={function() { if (restoreFileRef.current) restoreFileRef.current.click(); }} style={{ ...S.secondaryBtn, width: "100%", minHeight: 44, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>Restore from File...</button>
+        <input ref={restoreFileRef} type="file" accept=".txt,.json,text/plain,application/json" style={{ display: "none" }} onChange={function(e) { var f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) restoreFromFile(f); }} />
+        <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", margin: "10px 0 6px" }}>or paste a backup code</div>
         <textarea value={restoreText} onChange={function(e) { setRestoreText(e.target.value); }} placeholder="Paste your backup code here..." style={{ ...S.notesInput, minHeight: 80, fontSize: 11, fontFamily: "JetBrains Mono" }} />
         <button onClick={doRestore} disabled={!restoreText.trim()} style={{ ...S.saveBtn, width: "100%", marginTop: 8, opacity: restoreText.trim() ? 1 : 0.4 }}>Restore Data</button>
       </div>}

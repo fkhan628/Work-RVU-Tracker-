@@ -182,6 +182,25 @@ check("wRVU editor: no override write on a keystroke (the row input commits only
   settingsSrc.indexOf("setOverride(") === -1 && edInputs.length === 1 && !!edBlur && edCalls(edBlur, ["commitOverride"]) === 1 && edCommitAll === 1 && edBad.length === 0,
   JSON.stringify({ inputs: edInputs.length, blurCommits: edBlur ? edCalls(edBlur, ["commitOverride"]) : 0, commitAll: edCommitAll, bad: edBad }));
 
+// Backup stamp ("Last backup" + Home nudge): ONE per-device key, outside the
+// data store, touched only by the utils.js helpers, never a name utils.js
+// deletes on load (rvu-backup / rvu-backup-time) or any other key's name.
+const bkKey = (utils.match(/var BACKUP_STAMP_KEY = "([^"]+)"/) || [])[1];
+const BK_RESERVED = ["rvu-backup", "rvu-backup-time", "rvu-tracker-last-good", "rvu-tracker-last-good-time", "rvu-tracker-data-corrupt", "rvu-theme", "rvu-theme-css",
+  "rvu-pin-hint", "rvu-pin-hash", "rvu-pin-salt", "rvu-pin-session", "rvu-callfix-kept", "rvu-bio-pin", "rvu-bio-pass", "rvu-bio-enabled", "rvu-bio-cred"].concat(skMatch ? [skMatch[1]] : []);
+check("backup stamp key defined and distinct from every other storage key", !!bkKey && BK_RESERVED.indexOf(bkKey) === -1, String(bkKey));
+const bkLeak = jsFiles.filter(f => f !== "utils.js" && /BACKUP_STAMP_KEY|rvu-last-backup/.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));
+check("only utils.js touches the backup stamp key", !!bkKey && bkLeak.length === 0 && utils.split('"' + bkKey + '"').length === 2, bkLeak.join(", "));
+check("data store has no backup field", !!defObj && objKeys(defObj).every(k => !/backup/i.test(k)));
+check("one backup-code builder in settings.js (copy and file share it)", (settingsSrc.match(/encrypted: true, v: 1/g) || []).length === 1 &&
+  (settingsSrc.match(/buildBackupCode\(pin\)/g) || []).length === 2);
+// iOS opens the share sheet only inside a user gesture: navigator.share for
+// the backup file runs from its own tap, never inside the encrypt chain.
+const bkSaveFn = (/var saveBackupFile = function\(\) \{[\s\S]*?\r?\n  \};/.exec(settingsSrc) || [""])[0];
+check("backup file share runs from its own tap (not after the async encrypt)",
+  /var shareBackupFile = function\(\) \{[\s\S]*?navigator\.share\(\{ files: \[bf\.file\] \}\)/.test(settingsSrc) &&
+  bkSaveFn.indexOf("buildBackupCode(pin)") !== -1 && bkSaveFn.indexOf("navigator.share") === -1, String(bkSaveFn.length));
+
 // 5d. wRVU credit: isNoCredit / creditedRVU / noCreditRVU (top level of
 // utils.js) are the ONE rule deciding whether a case counts toward wRVU and
 // comp totals. A raw `.adjustedRVU` used in arithmetic (+ - * / %, compound
@@ -1877,6 +1896,47 @@ if (sb) {
       empty.unique.length === 0 && empty.removed.length === 0 && empty.mixed === 0 &&
       settingsSrc.indexOf("entryDuplicateScan(data.entries)") !== -1,
       JSON.stringify({ removed: ids(ds.removed), unique: ids(ds.unique), mixed: ds.mixed, oldRemoved: oldRemoved }));
+  }
+
+  {
+    // Backup stamp helpers (per-device "Last backup" + Home's 14-day nudge
+    // with a 7-day snooze): junk-proof parse, writes only to the stamp key,
+    // safe when storage throws, and the due rule by local string dates.
+    const J = o => JSON.stringify(o);
+    const realLSb = sb.localStorage;
+    const EMPTY = J({ date: "", how: "", snooze: "" });
+    let parseOk = false, seqOk = false, throwOk = false, seq = [], writesB = [];
+    try {
+      parseOk = [null, "", "{", "null", "[]", "42", J({ date: "2026-02-30", how: "cloud", snooze: 7 })].every(r => J(sb.backupStampParse(r)) === EMPTY) &&
+        J(sb.backupStampParse(J({ date: "2026-10-14", how: "copy", snooze: "2026-10-20" }))) === J({ date: "2026-10-14", how: "copy", snooze: "2026-10-20" });
+      const memB = {};
+      sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(memB, k) ? memB[k] : null), setItem: (k, v) => { writesB.push(k); memB[k] = String(v); }, removeItem: k => { delete memB[k]; } };
+      const empty0 = J(sb.readBackupStamp());
+      sb.markBackupSaved("file", "2026-10-14"); seq.push(J(sb.readBackupStamp()));
+      sb.snoozeBackupNudge("2026-10-20"); seq.push(J(sb.readBackupStamp()));
+      sb.markBackupSaved("copy", "2026-10-21"); seq.push(J(sb.readBackupStamp()));
+      seqOk = empty0 === EMPTY && seq[0] === J({ date: "2026-10-14", how: "file", snooze: "" }) && seq[1] === J({ date: "2026-10-14", how: "file", snooze: "2026-10-27" }) &&
+        seq[2] === J({ date: "2026-10-21", how: "copy", snooze: "" }) && writesB.length === 3 && writesB.every(k => k === sb.BACKUP_STAMP_KEY);
+      sb.localStorage = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("full"); }, removeItem: () => {} };
+      const r1 = sb.readBackupStamp(), r2 = sb.markBackupSaved("file", "2026-10-14"), r3 = sb.snoozeBackupNudge("2026-10-14");
+      throwOk = J(r1) === EMPTY && r2.date === "2026-10-14" && r2.how === "file" && r3.snooze === "2026-10-21";
+    } finally { sb.localStorage = realLSb; }
+    const st = (date, snooze) => ({ date: date || "", how: "file", snooze: snooze || "" });
+    const DUE = [ // [stamp, today, itemCount, due]
+      [st(""), "2026-10-14", 0, false], [st(""), "2026-10-14", 3, true],
+      [st("2026-10-01"), "2026-10-14", 3, false], [st("2026-09-30"), "2026-10-14", 3, true],
+      [st("2026-02-28"), "2026-03-14", 3, true], [st("2026-03-01"), "2026-03-14", 3, false],
+      [st("2026-10-25"), "2026-11-08", 3, true], [st("2026-10-26"), "2026-11-08", 3, false],
+      [st("", "2026-10-20"), "2026-10-14", 3, false], [st("", "2026-10-14"), "2026-10-14", 3, true],
+      [st("", "2027-01-01"), "2026-10-14", 3, true], [st("2026-09-01", "2026-10-21"), "2026-10-14", 3, false],
+      [st("2026-10-20"), "2026-10-14", 3, false], [null, "2026-10-14", 3, false], [st(""), "2026-10-32", 3, false],
+    ];
+    const dueBad = DUE.filter(t => sb.backupNudgeDue(t[0], t[1], t[2]) !== t[3]);
+    check("backup stamp: junk-proof parse; mark/snooze write only the stamp key; storage errors never throw",
+      parseOk && seqOk && throwOk, J({ parseOk: parseOk, seq: seq, writes: writesB, throwOk: throwOk }));
+    check("backupNudgeDue: due at 14+ days (or never) with data to lose; a snooze within 7 days hides it (" + DUE.length + " cases)",
+      dueBad.length === 0, J(dueBad.map(t => [t[0], t[1], t[2]])));
+    check("backupFileName: rvu-backup-<date>.txt", sb.backupFileName("2026-10-14") === "rvu-backup-2026-10-14.txt" && /^rvu-backup-\d{4}-\d{2}-\d{2}\.txt$/.test(sb.backupFileName("junk")));
   }
 }
 

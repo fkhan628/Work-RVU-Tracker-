@@ -211,6 +211,18 @@ the per-file gates below. Run it after EVERY file change.
   need a catch fallback; no `viewport-fit=cover`; chunked u8toB64 in
   crypto paths.
 - `crypto.js` DATA_KEY must equal `utils.js` SK (check.js asserts).
+- Backups: the file text IS the clipboard code (one builder, settings.js
+  buildBackupCode). "Restore from File..." and a pasted code share
+  restoreFromText -> finishRestore (a bad PIN asks once for the backup's
+  PIN; a damaged payload never does). The "Last backup" date and Home's
+  14-day nudge (7-day snooze) live in ONE localStorage key,
+  BACKUP_STAMP_KEY ("rvu-last-backup"): per device, OUTSIDE the data store
+  (never a defState/loadData/finishRestore field, never in a backup), and
+  only the utils.js helpers readBackupStamp/markBackupSaved/
+  snoozeBackupNudge/backupNudgeDue touch it. Never name it
+  rvu-backup/rvu-backup-time (deleted on every load). navigator.share runs
+  directly from its own tap (iOS gesture rule; one sheet at a time), never
+  after the async encrypt. check.js pins all of this.
 - cpt-data.js is built by scripts/build-cpt-data.js. Row contract `[code,
   desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS]`. wRVU (r[2])
   and the global (r[5]) always come from the CMS nonQPP PPRRVU file - never

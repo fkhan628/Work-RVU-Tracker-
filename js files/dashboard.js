@@ -1,7 +1,7 @@
 // =======================================
 // DASHBOARD
 // =======================================
-function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay, openHistory }) {
+function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay, openHistory, openBackup }) {
   const { entries, settings } = data;
   const instData = data.institutionData || [];
   const now = new Date();
@@ -15,6 +15,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
 
   var currentFiscalYear = settings.yearStart ? settings.yearStart.slice(0, 4) : String(now.getFullYear());
   var [selectedYear, setSelectedYear] = useState("current");
+  // Backup nudge: per-device stamp outside the store (utils.js). Home remounts
+  // on every view switch, so a backup saved in More is picked up on return.
+  var [backupStamp, setBackupStamp] = useState(readBackupStamp);
 
   // Calculate year boundaries based on selection
   var yearBounds = useMemo(function() {
@@ -194,6 +197,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var goalComp = settings.annualGoal * settings.ratePerRVU;
   var projectedComp = projected * settings.ratePerRVU;
   var prevYearComp = prevYearRVU.instTotal * settings.ratePerRVU;
+  var backupDue = backupNudgeDue(backupStamp, todayLocal(), entries.length + (data.payShifts || []).length);
 
   return (<div style={S.page}>
     <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>RVU Tracker</h1><p style={S.subtitle}>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div>
@@ -276,6 +280,15 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       {myAcuteCount > 0 && reconCount > 0 && overlapKeys.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
         Clinic + other (derived): <span style={{ fontFamily: "JetBrains Mono", color: clinicOther >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(clinicOther >= 0 ? "+" : "") + clinicOther.toFixed(1)}</span> across {overlapKeys.length} overlapping month{overlapKeys.length === 1 ? "" : "s"}
       </div>}
+    </div>}
+    {/* Backup nudge: 14+ days since this phone saved a backup (or never),
+        only with data to lose; the x snoozes it for 7 days. */}
+    {backupDue && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12, display: "flex", alignItems: "center", gap: 4 }}>
+      <div onClick={function() { if (openBackup) openBackup(); }} style={{ flex: 1, fontSize: 11, color: "var(--global-90)", cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
+        <span>{backupStamp.date ? "Last backup " + fmt(backupStamp.date) + " - save a new backup file" : "No backup recorded on this phone yet - save a backup file"}</span>
+        <span style={{ marginLeft: 6, fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+      </div>
+      <button onClick={function() { setBackupStamp(snoozeBackupNudge(todayLocal())); }} aria-label="Remind me in a week" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 13, cursor: "pointer", minWidth: 32, minHeight: 32, padding: 0 }}>{"\u2715"}</button>
     </div>}
 
     <div style={S.statsRow}>
