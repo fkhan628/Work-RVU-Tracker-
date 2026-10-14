@@ -172,8 +172,9 @@ the per-file gates below. Run it after EVERY file change.
   fields, credit from each case's own date; a case's own deleted site can
   only lose the mark. Log asks for the call site when the user has any
   (an "Other site" chip saves Call with no site; Save waits for a pick);
-  its totals, toast, banner, Save button and selected-code Compensation
-  come from an entryWithCall preview of the encounter. History offers a
+  its totals, save bar and selected-code Compensation come from an
+  entryWithCall preview of the encounter; the toast and the bar's frozen
+  "Logged" line come from the entries save() wrote. History offers a
   one-tap fix-up for Call cases dated on/after the start that have no site
   and were CREATED before the Log site picker (CALL_SITE_PICKER_MS, read
   from the id's Date.now() prefix - a later siteless Call case is a
@@ -185,6 +186,13 @@ the per-file gates below. Run it after EVERY file change.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).
+- Log's one Save control is the 64px save bar (log.js; check.js counts
+  onClick={save}), pinned once the active procedure has a code. While
+  pinned, LogProc reports it (setLogBar) and App lifts the undo toast to
+  bottom 148 so Undo never covers Save; otherwise the toast stays at 64.
+  After the post-save reset, the next case's first code dismisses that
+  save's pending Undo (same Log visit; Call Pay precedent). Change the bar height, nav height or toast offset together;
+  never hide the bar on input focus.
 - PIN pad DOM is appendChild-only (never `innerHTML +=`); clipboard writes
   need a catch fallback; no `viewport-fit=cover`; chunked u8toB64 in
   crypto paths.

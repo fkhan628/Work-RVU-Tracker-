@@ -146,6 +146,8 @@ function App() {
   // Log's unsaved encounter, kept across tab switches (memory only - never
   // persisted; LogProc clears it on save).
   const logDraft = useRef(null);
+  // Log's save bar is pinned (LogProc reports it via setLogBar): lifts the undo toast above it.
+  const [logBar, setLogBar] = useState(false);
   var openCallPay = function(from) { setCallPayFrom(from === "log" || from === "dashboard" ? from : "settings"); setView("callpay"); };
   // History's one-shot filter preset from a "Logged, no credit" line (memory
   // only; History reads it when it mounts, then clears it). range: an
@@ -159,7 +161,7 @@ function App() {
       {/* Scrollable content area */}
       <div style={S.content} className="rvu-content" ref={contentRef}>
         {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} openHistory={openHistory} /></ErrorBoundary>}
-        {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} /></ErrorBoundary>}
+        {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} setLogBar={setLogBar} /></ErrorBoundary>}
         {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openHistory={openHistory} /></ErrorBoundary>}
         {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
         {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
@@ -169,9 +171,9 @@ function App() {
         {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} /></ErrorBoundary>}
       </div>
 
-      {/* Undo toast - positioned above nav */}
+      {/* Undo toast - above the nav; on Log, above the pinned save bar (log.js: 64px bar on the ~71px nav), so Undo never covers Save */}
       {undoAction && <div style={{
-        position: "absolute", bottom: 64, left: "50%", transform: "translateX(-50%)",
+        position: "absolute", bottom: view === "log" && logBar ? 148 : 64, left: "50%", transform: "translateX(-50%)",
         zIndex: 9990, background: "var(--bg-card)", border: "1px solid var(--border-default)",
         borderRadius: 12, padding: "10px 16px", display: "flex", alignItems: "center",
         gap: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", maxWidth: 360, width: "90%",

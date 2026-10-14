@@ -491,6 +491,17 @@ jsFiles.filter(f => ["crypto.js", "cpt-data.js", "utils.js", "styles.js"].indexO
   try { hooksAfterReturn(fs.readFileSync(path.join(JS_DIR, f), "utf8")).forEach(b => hookBad.push(f + " " + b)); } catch (e) { /* parse failure is reported in step 1 */ }
 });
 check("hooks before any conditional return (every component in the Babel files)", hookBad.length === 0, hookBad.join(", "));
+// Log has ONE Save control: the sticky save bar (app.js lifts the undo toast
+// above it while pinned). A second onClick={save} would sit outside that care.
+{
+  let saveClicks = 0;
+  try {
+    walk(parser.parse(fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8"), AST_OPTS).program, n => {
+      if (n.type === "JSXAttribute" && n.name && n.name.name === "onClick" && n.value && n.value.type === "JSXExpressionContainer" && n.value.expression.type === "Identifier" && n.value.expression.name === "save") saveClicks++;
+    });
+  } catch (e) { saveClicks = -1; }
+  check("log.js has exactly one Save control (onClick={save}, the sticky save bar)", saveClicks === 1, saveClicks + " found");
+}
 
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");

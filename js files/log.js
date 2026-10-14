@@ -1,7 +1,7 @@
 // =======================================
 // LOG PROCEDURE
 // =======================================
-function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCallPay, logDraft }) {
+function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCallPay, logDraft, setLogBar }) {
   // An unsaved encounter survives switching tabs: App owns a MEMORY-ONLY
   // draft ref (never written to storage); these lazy initialisers read it and
   // the effect below keeps it current. Saving or emptying the form clears it.
@@ -10,7 +10,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   const [patientId, setPatientId] = useState(function() { return dr ? dr.patientId : ""; });
   const [procs, setProcs] = useState(function() { return dr ? dr.procs : [{ id: 1, code: null, search: "", mods: [] }]; });
   const [notes, setNotes] = useState(function() { return dr ? dr.notes : ""; });
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState(false); // false, or the frozen "Logged ..." line the save bar shows in the 1.2s post-save window (truthiness reads only)
   const [activeProc, setActiveProc] = useState(function() { return dr ? dr.activeProc : 0; });
   const [cat, setCat] = useState("All");
   // Favorites show when the ACTIVE procedure is empty (as after addProc).
@@ -123,6 +123,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   // is the real guard.
   var savingRef = useRef(false);
   var resetTimer = useRef(null); // the 1.2s post-save reset
+  var afterSaveRef = useRef(false); // set by the post-save reset; the next case's first code dismisses the old Undo
   var mountedRef = useRef(true);
   // Leaving Log during the post-save window: cancel the reset and drop the
   // draft, so the encounter just saved can never come back pre-filled (a
@@ -329,6 +330,22 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   var ncNow = isNoCredit(pvAll), credRVU = creditedRVU(pvAll), ncRVUNow = noCreditRVU(pvAll);
   var totalComp = credRVU * data.settings.ratePerRVU;
   var saveReady = isYMD(date) && !needSite;
+  // Sticky save bar (end of render). PINNED once the active procedure has a
+  // code, and through the post-save window; while a code is being picked
+  // (+ Add list) it sits in flow at the page end so it never covers list rows.
+  // While pinned, App lifts the undo toast above it (app.js) so Undo never
+  // sits on Save; otherwise the toast keeps its old spot (bottom 64).
+  var barPinned = !!(saved || (canSave && curSel));
+  useEffect(function() {
+    if (setLogBar) setLogBar(barPinned);
+    return function() { if (setLogBar) setLogBar(false); };
+  }, [barPinned]);
+  // After a save, the NEXT case's first code dismisses the previous case's
+  // Undo (Call Pay precedent, callpay.js openNew/openEdit): an Undo left up
+  // would float over the next case's controls. History can still delete it.
+  useEffect(function() {
+    if (canSave && afterSaveRef.current) { afterSaveRef.current = false; if (showUndo) showUndo(null); }
+  }, [canSave]);
   var creditOffer = pickedSite && callNoCreditDate(date) ? (payCreditOffers(callSites).filter(function(o) { return o.site.id === pickedSite.id; })[0] || null) : null;
   var applySiteRule = function() {
     if (!creditOffer || !confirm(payCreditConfirm([creditOffer]))) return;
@@ -603,11 +620,16 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     var allNC = newEntries.length > 0 && newEntries.every(isNoCredit);
     showUndo({ type: "log", ids: newEntries.map(function(e) { return e.id; }), message: "Logged " + newEntries.length + " proc" + (pickedSite ? " at " + pickedSite.name : "") +
       (allNC ? " - no credit (" + loggedNC.toFixed(1) + " wRVU)" : " (" + loggedRVU.toFixed(1) + " wRVUs)") });
-    setSaved(true);
+    // The bar's confirmation comes from the entries actually written, not the
+    // live preview, so an edit during the 1.2s window cannot change it.
+    setSaved("Logged " + newEntries.length + " code" + (newEntries.length === 1 ? "" : "s") + " \u00B7 " + (allNC ? "no credit (" + loggedNC.toFixed(2) + " wRVU)" : loggedRVU.toFixed(2) + " wRVU"));
     resetTimer.current = setTimeout(function() {
       resetTimer.current = null;
       savingRef.current = false;
       setSaved(false);
+      // Armed only now: a code changed inside the saved window is still the
+      // case just saved, so it must not dismiss that case's Undo.
+      afterSaveRef.current = true;
       setProcs([{ id: nextId.current++, code: null, search: "", mods: [] }]);
       setActiveProc(0);
       setNotes("");
@@ -627,7 +649,6 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       <h1 style={S.title}>Log Encounter</h1>
       {openCallPay && <button onClick={function() { openCallPay("log"); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Call pay</button>}
     </div>
-    {saved && <div style={S.successBanner}>Logged {procs.filter(function(p){return p.code;}).length} procedure(s) - {ncNow ? "no credit (" + ncRVUNow.toFixed(2) + " wRVU)" : credRVU.toFixed(2) + " wRVUs"}</div>}
 
     {/* Scan Buttons (feature-flagged: hidden entirely when SCAN_ENABLED is false) */}
     {SCAN_ENABLED && (function() { var hasKey = hasApiKey(data.settings); return (<div style={{ marginBottom: 12 }}>
@@ -964,9 +985,25 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     </div>}
 
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
-    {canSave && !isYMD(date) && <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>Pick a valid date to save this encounter.</div>}
-    {canSave && isYMD(date) && needSite && <div style={{ fontSize: 12, color: "#f59e0b", marginTop: 8 }}>Pick the call site above to save this encounter.</div>}
-    {canSave && <button onClick={save} disabled={saved || !saveReady} style={{ ...S.saveBtn, opacity: saved || !saveReady ? 0.5 : 1, pointerEvents: saved || !saveReady ? "none" : "auto", background: isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>Log {isCall ? "Call" : "Private"} Encounter - {ncNow ? "no credit (" + ncRVUNow.toFixed(2) + " wRVU)" : credRVU.toFixed(2) + " wRVUs"}</button>}
+    {/* Save bar - the ONE Save control (Call Pay precedent, callpay.js).
+        Inside .rvu-content it rides on the nav and goes behind the iOS
+        keyboard like the nav; pinned only when barPinned. Fixed 64px tall:
+        app.js lifts the undo toast to bottom 148 (nav ~71 + 64 + gap) while
+        it is pinned - change bar height, nav height and toast offset
+        together. Never hide it on input focus (a missed blur strands Save). */}
+    {(canSave || saved) && (function() {
+      var nCodes = procs.filter(function(p) { return p.code; }).length;
+      var mode = isCall ? "Call" + (pickedSite ? " - " + pickedSite.name : callSite === CALL_SITE_OTHER ? " - other site" : "") : "Private";
+      var fix = saved ? "" : !isYMD(date) ? "Pick a valid date" : needSite ? "Pick the call site" : "";
+      var toTop = function() { var sc = document.querySelector(".rvu-content"); if (sc) sc.scrollTop = 0; };
+      var line1 = <div style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nCodes + " code" + (nCodes === 1 ? "" : "s") + " \u00B7 " + mode}</div>;
+      return (<div style={{ position: barPinned ? "sticky" : "static", bottom: 0, zIndex: 5, height: 64, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, marginTop: 8, background: "var(--bg-base)", borderTop: "1px solid var(--border-default)" }}>
+        {saved ? <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "#10b981", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{saved}</div>
+        : fix ? <button onClick={toTop} style={{ flex: 1, minWidth: 0, minHeight: 44, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{line1}<div style={{ fontSize: 13, fontWeight: 600, color: "#f59e0b" }}>{fix + " \u2191"}</div></button>
+        : <div style={{ flex: 1, minWidth: 0 }}>{line1}<div style={{ fontSize: 16, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", whiteSpace: "nowrap" }}>{ncNow ? <span style={{ color: "var(--text-dim)" }}>{ncRVUNow.toFixed(2) + " wRVU "}<span style={S.ncTag}>no credit</span></span> : credRVU.toFixed(2) + " wRVU"}</div></div>}
+        <button onClick={save} disabled={!!saved || !saveReady} style={{ flexShrink: 0, height: 48, padding: "0 18px", borderRadius: 12, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: saved || saveReady ? 1 : 0.45, background: saved ? "linear-gradient(135deg, #10b981, #059669)" : isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>{saved ? "\u2713 Logged" : "Log " + (isCall ? "Call" : "Private")}</button>
+      </div>);
+    })()}
   </div>);
 }
 
