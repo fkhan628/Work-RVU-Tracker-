@@ -196,10 +196,31 @@ check("one backup-code builder in settings.js (copy and file share it)", (settin
   (settingsSrc.match(/buildBackupCode\(pin\)/g) || []).length === 2);
 // iOS opens the share sheet only inside a user gesture: navigator.share for
 // the backup file runs from its own tap, never inside the encrypt chain.
+// Exactly two navigator.share calls (Share App + the file, no wrapper
+// helper); the file one sits in shareBackupFile's own body; the encrypt
+// chain (saveBackupFile) calls nothing share-like.
 const bkSaveFn = (/var saveBackupFile = function\(\) \{[\s\S]*?\r?\n  \};/.exec(settingsSrc) || [""])[0];
+const bkShareFn = (/var shareBackupFile = function\(\) \{\r?\n    var bf = backupFile;[\s\S]*?\r?\n  \};/.exec(settingsSrc) || [""])[0];
 check("backup file share runs from its own tap (not after the async encrypt)",
-  /var shareBackupFile = function\(\) \{[\s\S]*?navigator\.share\(\{ files: \[bf\.file\] \}\)/.test(settingsSrc) &&
-  bkSaveFn.indexOf("buildBackupCode(pin)") !== -1 && bkSaveFn.indexOf("navigator.share") === -1, String(bkSaveFn.length));
+  (settingsSrc.match(/navigator\.share\(/g) || []).length === 2 &&
+  bkShareFn.indexOf("navigator.share({ files: [bf.file] })") !== -1 &&
+  bkSaveFn.indexOf("buildBackupCode(pin)") !== -1 &&
+  !/navigator|share\w*\s*\(/i.test(bkSaveFn.replace(/shareFailed/g, "")),
+  String(bkSaveFn.length) + "/" + String(bkShareFn.length));
+// ONE restore path: paste (doRestore) and file (restoreFromFile) both go
+// through restoreFromText, which holds every finishRestore call; an
+// undecodable payload ("Invalid encrypted data") is handled before the one
+// other-PIN prompt in settings.js.
+const bkRestoreFn = (/var restoreFromText = function\(raw, src, label\) \{[\s\S]*?\r?\n  \};/.exec(settingsSrc) || [""])[0];
+const bkDoRestore = (/var doRestore = function\(\) \{[^\n]*/.exec(settingsSrc) || [""])[0];
+const bkFromFile = (/var restoreFromFile = function\(f\) \{[\s\S]*?\r?\n  \};/.exec(settingsSrc) || [""])[0];
+const bkFinishCalls = (settingsSrc.match(/finishRestore\(/g) || []).length;   // calls only ("var finishRestore = function(" never matches)
+check("one restore path: paste and file -> restoreFromText -> finishRestore; undecodable payload never prompts; one other-PIN prompt",
+  bkRestoreFn.length > 0 && bkDoRestore.indexOf("restoreFromText(") !== -1 && bkFromFile.indexOf("restoreFromText(") !== -1 &&
+  bkFinishCalls > 0 && (bkRestoreFn.match(/finishRestore\(/g) || []).length === bkFinishCalls &&
+  bkRestoreFn.indexOf('"Invalid encrypted data"') !== -1 && bkRestoreFn.indexOf('"Invalid encrypted data"') < bkRestoreFn.indexOf("prompt(") &&
+  (settingsSrc.match(/\bprompt\(/g) || []).length === 1,
+  JSON.stringify({ body: bkRestoreFn.length, finishCalls: bkFinishCalls, prompts: (settingsSrc.match(/\bprompt\(/g) || []).length }));
 
 // 5d. wRVU credit: isNoCredit / creditedRVU / noCreditRVU (top level of
 // utils.js) are the ONE rule deciding whether a case counts toward wRVU and

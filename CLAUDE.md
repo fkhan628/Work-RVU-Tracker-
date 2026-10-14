@@ -214,7 +214,10 @@ the per-file gates below. Run it after EVERY file change.
 - Backups: the file text IS the clipboard code (one builder, settings.js
   buildBackupCode). "Restore from File..." and a pasted code share
   restoreFromText -> finishRestore (a bad PIN asks once for the backup's
-  PIN; a damaged payload never does). The "Last backup" date and Home's
+  PIN; a payload that cannot be decoded - crypto.js "Invalid encrypted
+  data", bad base64 - never does. A corrupted ciphertext looks exactly
+  like a wrong PIN, so it prompts and the retry's alert says the backup
+  may be damaged). The "Last backup" date and Home's
   14-day nudge (7-day snooze) live in ONE localStorage key,
   BACKUP_STAMP_KEY ("rvu-last-backup"): per device, OUTSIDE the data store
   (never a defState/loadData/finishRestore field, never in a backup), and
