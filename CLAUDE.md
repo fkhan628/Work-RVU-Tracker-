@@ -173,7 +173,15 @@ the per-file gates below. Run it after EVERY file change.
   only lose the mark. Log asks for the call site when the user has any
   (an "Other site" chip saves Call with no site; Save waits for a pick);
   its totals, toast, banner, Save button and selected-code Compensation
-  come from an entryWithCall preview of the encounter.
+  come from an entryWithCall preview of the encounter. History offers a
+  one-tap fix-up for Call cases dated on/after the start that have no site
+  and were CREATED before the Log site picker (CALL_SITE_PICKER_MS, read
+  from the id's Date.now() prefix - a later siteless Call case is a
+  deliberate "Other site"); "Keep as is" ids are remembered per device in
+  localStorage "rvu-callfix-kept" (outside the data store). It writes
+  through entryWithCall (entrySitelessCalls / entrySitelessCallPlan) with an
+  in-place Undo (app.js undo type "restore", entryRestoreInPlace, which
+  restores only cases still exactly as the fix-up wrote them).
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

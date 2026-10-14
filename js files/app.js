@@ -119,6 +119,12 @@ function App() {
     } else if (undoAction.type === "log") {
       var ids = undoAction.ids;
       upd(function(prev) { return { ...prev, entries: prev.entries.filter(function(e) { return ids.indexOf(e.id) === -1; }) }; });
+    } else if (undoAction.type === "restore") {
+      // Entries edited in place (History's call-site fix-up): the saved
+      // copies go back where their ids are (utils.js entryRestoreInPlace).
+      // Only cases still exactly as the fix-up wrote them go back.
+      var copies = undoAction.entries, written = undoAction.written;
+      upd(function(prev) { return { ...prev, entries: entryRestoreInPlace(prev.entries, copies, written) }; });
     } else if (undoAction.type === "pay") {
       // Call pay shifts: restores IN PLACE (utils.js payUndoApply, tested).
       var payAction = undoAction;

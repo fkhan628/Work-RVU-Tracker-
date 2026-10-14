@@ -1650,6 +1650,52 @@ if (sb) {
   }
 
   {
+    // History's one-tap fix-up: siteless call cases dated on/after the start.
+    const f1 = Object.assign(lit7("2026-10-05"), { id: "f1" }), f2 = Object.assign(lit7("2026-10-12"), { id: "f2", encounterId: "CD" });
+    const fOld = Object.assign(lit7("2026-09-28"), { id: "fo" }), fPriv = Object.assign(lit7("2026-10-06"), { id: "fp", isCall: false });
+    const fSited = sb.entryWithCall(Object.assign(lit7("2026-10-07"), { id: "fs" }), null, true, "st-c", S7, true);
+    const fBad = Object.assign(lit7("2026-11-31"), { id: "fb" });
+    const fEnts = [f1, fOld, fPriv, fSited, f2, fBad, null, 42], fJson = JSON.stringify(fEnts);
+    const fIds = sb.entrySitelessCalls(fEnts).map(e => e.id).join(",");
+    const pNC = sb.entrySitelessCallPlan(fEnts, "st-n", S7), pCR = sb.entrySitelessCallPlan(fEnts, "st-c", S7);
+    const fixedEnts = fEnts.map(e => (e && pNC[e.id]) || e);
+    const back = sb.entryRestoreInPlace(fixedEnts, [f1, f2]);
+    check("call-site fix-up: only siteless Call cases dated on/after the start; at a no-credit site they lose credit, at a crediting site they keep it; unknown site does nothing; Undo restores in place",
+      fIds === "f1,f2" && Object.keys(pNC).sort().join() === "f1,f2" && sb.isNoCredit(pNC.f1) && pNC.f1.siteId === "st-n" && pNC.f2.siteName === "North" &&
+      Object.keys(pCR).sort().join() === "f1,f2" && !sb.isNoCredit(pCR.f1) && pCR.f1.siteId === "st-c" &&
+      Object.keys(sb.entrySitelessCallPlan(fEnts, "zz", S7)).length === 0 && Object.keys(sb.entrySitelessCallPlan(fEnts, "st-n", [])).length === 0 &&
+      JSON.stringify(fEnts) === fJson && sb.entrySitelessCalls(fixedEnts).length === 0 &&
+      JSON.stringify(back) === JSON.stringify(fEnts) && back[1] === fOld && back[3] === fSited &&
+      sb.entryRestoreInPlace(null, [f1]).length === 0 && sb.entryRestoreInPlace(fEnts, null).length === fEnts.length && sb.entrySitelessCalls(null).length === 0 &&
+      fixedPoint7(entStore7(JSON.parse(JSON.stringify([pNC.f1, pNC.f2, pCR.f1])))),
+      JSON.stringify({ fIds: fIds, nc: Object.keys(pNC), cr: Object.keys(pCR) }));
+    // A Call case CREATED after the site picker shipped (id = Date.now()...)
+    // went through a picker: siteless there = a deliberate "Other site" - never
+    // listed or rewritten. Kept ids are skipped. Undo with `written` leaves a
+    // case edited again since the fix-up as it is.
+    const cut = sb.CALL_SITE_PICKER_MS;
+    const fNew = Object.assign(lit7("2026-10-14"), { id: String(cut) + "-1-abcd" }), fPre = Object.assign(lit7("2026-10-12"), { id: String(cut - 1) + "-1-abcd" });
+    const cEnts = [f1, fNew, fPre, f2];
+    const cIds = sb.entrySitelessCalls(cEnts).map(e => e.id).join(",");
+    const keptIds = sb.entrySitelessCalls(cEnts, ["f2", fPre.id]).map(e => e.id).join(",");
+    const pKept = sb.entrySitelessCallPlan(cEnts, "st-n", S7, ["f2"]);
+    const edited = Object.assign({}, pNC.f1, { notes: "edited later" });
+    const afterEdit = fixedEnts.map(e => (e && e.id === "f1") ? edited : e);
+    const undone = sb.entryRestoreInPlace(afterEdit, [f1, f2], pNC);
+    check("call-site fix-up: cases created after the site picker (deliberate Other site) and kept ids are never listed or rewritten; Undo keeps a case edited since",
+      Date.UTC(2026, 9, 13, 9, 50) < cut && cIds === "f1," + fPre.id + ",f2" && keptIds === "f1" && Object.keys(pKept).sort().join() === ["f1", fPre.id].sort().join() &&
+      sb.entryCreatedMs(fNew) === cut && isNaN(sb.entryCreatedMs(f1)) && isNaN(sb.entryCreatedMs(null)) &&
+      undone[0] === edited && undone[4] === f2 && undone[1] === fOld,
+      JSON.stringify({ cIds: cIds, keptIds: keptIds, plan: Object.keys(pKept), u0: undone[0] && undone[0].notes }));
+    // History + Add on an old siteless case asks for a site instead of
+    // carrying "Other site" (which on a new id would leave the fix-up list).
+    const addKeys = [sb.entryAddSiteKey(f1), sb.entryAddSiteKey(fPre), sb.entryAddSiteKey(f1, ["f1"]), sb.entryAddSiteKey(fNew), sb.entryAddSiteKey(fSited), sb.entryAddSiteKey(fPriv), sb.entryAddSiteKey(fOld)];
+    check("entryAddSiteKey: an old siteless case (still listed) starts the add with no site; kept / deliberate / sited / Private / pre-start cases carry their own key",
+      JSON.stringify(addKeys) === JSON.stringify(["", "", sb.CALL_SITE_OTHER, sb.CALL_SITE_OTHER, "st-c", "", sb.CALL_SITE_OTHER]) && JSON.stringify(fEnts) === fJson,
+      JSON.stringify(addKeys));
+  }
+
+  {
     // Tap-through ranges for the "Logged, no credit" lines (inclusive strings).
     const MB = [["2028-02", "2028-02-01", "2028-02-29"], ["2026-02", "2026-02-01", "2026-02-28"], ["2026-12", "2026-12-01", "2026-12-31"], ["2026-04", "2026-04-01", "2026-04-30"]];
     const badMB = MB.filter(t => { const r = sb.monthBoundsYMD(t[0]); return !r || r.start !== t[1] || r.end !== t[2]; });

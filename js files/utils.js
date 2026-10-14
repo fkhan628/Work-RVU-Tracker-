@@ -1290,6 +1290,56 @@ function entryEncounterCallPlan(entries, cur, isCall, siteKey, sites, rederive) 
   });
   return out;
 }
+// When Log got the call-site picker (fb7375f, 2026-10-13 09:50 UTC) plus a
+// margin for phones still running the old version. A Call case CREATED
+// later went through a site picker, so a siteless one is a deliberate
+// "Other site" pick and the fix-up never lists it.
+var CALL_SITE_PICKER_MS = Date.UTC(2026, 9, 16);
+// An entry's creation time from its id (Log, History and import ids start
+// with Date.now()); NaN when the id carries none - it then counts as older.
+function entryCreatedMs(e) {
+  var m = !!e && typeof e === "object" && typeof e.id === "string" ? /^(\d{12,})/.exec(e.id) : null;
+  return m ? +m[1] : NaN;
+}
+// Call cases dated on/after CALL_NO_CREDIT_FROM with NO stored site, created
+// before the site picker (so not a deliberate "Other site"), minus the ids
+// the user chose to keep as they are: they earn credit until a site is
+// picked. History's one-tap fix-up lists them.
+function entrySitelessCalls(entries, kept) {
+  var skip = Array.isArray(kept) ? kept : [];
+  return (Array.isArray(entries) ? entries : []).filter(function(e) {
+    return !!e && typeof e === "object" && !!e.isCall && entrySiteId(e) === "" && callNoCreditDate(e.date) &&
+      !(entryCreatedMs(e) >= CALL_SITE_PICKER_MS) && skip.indexOf(e.id) === -1;
+  });
+}
+// History + Add's starting site pick: a case the fix-up still lists has NO
+// known site, so a case added to its encounter asks for one ("") instead of
+// carrying "Other site" - which, on a new id, would read as a deliberate
+// pick and leave the fix-up. Any other source carries its own key.
+function entryAddSiteKey(src, kept) { return entrySitelessCalls([src], kept).length ? "" : entrySiteKey(src); }
+// The fix-up at one CURRENT site: { id: new entry } for every listed case,
+// through entryWithCall (credit derived by the rule for each case's own
+// date). {} for a site that is not current.
+function entrySitelessCallPlan(entries, siteId, sites, kept) {
+  var out = {};
+  if (!paySiteById(sites, siteId)) return out;
+  entrySitelessCalls(entries, kept).forEach(function(e) { out[e.id] = entryWithCall(e, e, true, siteId, sites, true); });
+  return out;
+}
+// Undo of an in-place edit of entries (app.js undo type "restore"): each
+// saved copy goes back where its id is - but with `written` (id -> the
+// object the edit wrote), only while the entry is still that very object,
+// so a case changed again since (an edit in the Undo window, a restore)
+// keeps the newer version. Every other entry is kept as is.
+function entryRestoreInPlace(entries, copies, written) {
+  var byId = {};
+  (Array.isArray(copies) ? copies : []).forEach(function(c) { if (c && typeof c === "object" && typeof c.id === "string") byId[c.id] = c; });
+  var w = written && typeof written === "object" ? written : null;
+  return (Array.isArray(entries) ? entries : []).map(function(e) {
+    if (!e || typeof e !== "object" || !Object.prototype.hasOwnProperty.call(byId, e.id)) return e;
+    return !w || w[e.id] === e ? byId[e.id] : e;
+  });
+}
 // Row label: a current site's CURRENT name, else the stored name + " (deleted)"
 // (paySiteNames precedent), "" when the case stores no site. Always a string.
 function entrySiteLabel(e, sites) {
