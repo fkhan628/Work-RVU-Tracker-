@@ -521,6 +521,23 @@ check("hooks before any conditional return (every component in the Babel files)"
   } catch (e) { saveClicks = -1; }
   check("log.js has exactly one Save control (onClick={save}, the sticky save bar)", saveClicks === 1, saveClicks + " found");
 }
+// History's call-site fix-up card: a case's credit is set when it is
+// written, so the built-in credit offer renders BEFORE the site chips, the
+// offered chip says "still credits", and its confirm says to take the offer
+// first.
+{
+  const hs = fs.readFileSync(path.join(JS_DIR, "history.js"), "utf8");
+  const offerAt = hs.indexOf("{fixOffers.map(function(o)"), chipsAt = hs.indexOf("{fixSites.map(function(s)");
+  const orderOk = offerAt !== -1 && chipsAt !== -1 && offerAt < chipsAt;
+  const markAt = hs.indexOf("var offered = fixOffers.some(function(o) { return o.site.id === s.id; });");
+  const markOk = markAt > chipsAt && markAt - chipsAt < 80 && hs.indexOf("var note = offered ? \"still credits\" : paySiteCreditNote(s, CALL_NO_CREDIT_FROM);") !== -1;
+  const lookupOk = hs.indexOf("var offer = fixOffers.filter(function(o) { return o.site.id === s.id; })[0];") !== -1;
+  const hintOk = hs.indexOf("(offer ? \" \" + s.name + \" still credits call cases. For the built-in \" + offer.def.name") !== -1 &&
+    hs.indexOf("tap Cancel, then \\\"No credit for \" + s.name + \"\\\" first.\" : \"\")") !== -1;
+  check("History fix-up card: credit offer above the site chips; offered chip marked; its confirm says take the offer first",
+    orderOk && markOk && lookupOk && hintOk,
+    JSON.stringify({ offerAt: offerAt, chipsAt: chipsAt, orderOk: orderOk, markOk: markOk, lookupOk: lookupOk, hintOk: hintOk }));
+}
 
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");

@@ -563,9 +563,13 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     var ncOut = outs.filter(isNoCredit), ncSum = ncOut.reduce(function(t, e) { return t + noCreditRVU(e); }, 0);
     var ds = cases.map(function(e) { return e.date; }).sort(), n = cases.length;
     var range = ds[0] === ds[n - 1] ? fmt(ds[0]) : fmt(ds[0]) + " - " + fmt(ds[n - 1]);
+    // A site with a pending built-in credit offer still credits: say how to
+    // take the offer first (credit is set when a case is written, so taking
+    // it afterwards would not change these cases).
+    var offer = fixOffers.filter(function(o) { return o.site.id === s.id; })[0];
     if (!confirm("Set the call site of " + n + " call case" + (n === 1 ? "" : "s") + " (" + range + ") to " + s.name + "?\n\n" +
       (ncOut.length ? (ncOut.length === n ? (n === 1 ? "It" : "They") + " will" : ncOut.length + " of them will") + " be logged with no wRVU credit - " + ncSum.toFixed(1) + " wRVU out of your totals."
-        : (n === 1 ? "It keeps its" : "They keep their") + " wRVU credit.") + "\n\nYou can Undo.")) return;
+        : (n === 1 ? "It keeps its" : "They keep their") + " wRVU credit." + (offer ? " " + s.name + " still credits call cases. For the built-in " + offer.def.name + " rule (no credit from " + fmt(CALL_NO_CREDIT_FROM) + "), tap Cancel, then \"No credit for " + s.name + "\" first." : "")) + "\n\nYou can Undo.")) return;
     var sid = s.id;
     // Undo puts back only cases still exactly as written here (`written`).
     var undo = { type: "restore", entries: cases, written: {}, message: "Set " + n + " call case" + (n === 1 ? "" : "s") + " to " + s.name };
@@ -577,7 +581,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>History</h1><p style={S.subtitle}>{filteredCount === entries.length ? entries.length + " procedures" : filteredCount + " of " + entries.length + " procedures"}{ncF > 0 ? " (" + ncF + " no credit)" : ""}  {tF.toFixed(1)} wRVUs{filteredCount < entries.length ? " (filtered)" : ""}</p></div>{filtered.length > 0 && <button onClick={exportFiltered} style={{ padding: "6px 12px", borderRadius: 8, border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.05)", color: "#10b981", fontSize: 11, fontWeight: 600, cursor: "pointer", whiteSpace: "nowrap", marginTop: 4 }}>Export CSV</button>}</div></div>
     {showFix && <div style={{ ...S.card, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}>
       <div style={S.cardLabel}>Call cases without a site</div>
-      <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 6, lineHeight: 1.5 }}>{fixCases.length + " call case" + (fixCases.length === 1 ? " dated " + fmt(CALL_NO_CREDIT_FROM) + " or later has" : "s dated " + fmt(CALL_NO_CREDIT_FROM) + " or later have") + " no call site (logged before Log asked for one), so " + (fixCases.length === 1 ? "it counts" : "they count") + " for wRVU credit. Pick their site below; tap Keep as is for any that was at another hospital."}</div>
+      <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 6, lineHeight: 1.5 }}>{fixCases.length + " call case" + (fixCases.length === 1 ? " dated " + fmt(CALL_NO_CREDIT_FROM) + " or later has" : "s dated " + fmt(CALL_NO_CREDIT_FROM) + " or later have") + " no call site (logged before Log asked for one), so " + (fixCases.length === 1 ? "it counts for wRVU credit. Pick its site below; tap Keep as is if it was at another hospital." : "they count for wRVU credit. Pick their site below; tap Keep as is for any that was at another hospital.")}</div>
       <div style={{ marginTop: 8 }}>
         {fixCases.slice().sort(function(a, b) { return a.date < b.date ? -1 : a.date > b.date ? 1 : 0; }).map(function(e) {
           return (<div key={e.id} style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 36, borderTop: "1px solid rgba(51,65,85,0.3)" }}>
@@ -586,15 +590,17 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
           </div>);
         })}
       </div>
-      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
-        {fixSites.map(function(s) { var note = paySiteCreditNote(s, CALL_NO_CREDIT_FROM); return (<button key={s.id} onClick={function() { applyFix(s); }} style={siteChip(false)}>{s.name}{note ? <span style={{ fontWeight: 400, fontSize: 11 }}>{" - " + note}</span> : null}</button>); })}
-      </div>
+      {/* The credit offer comes BEFORE the site chips: a case's credit is set
+          when it is written, so the offer must be taken before picking. */}
       {fixOffers.map(function(o) {
         return (<div key={o.site.id} style={{ marginTop: 8 }}>
-          <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{o.site.name + " still credits its call cases. The built-in " + o.def.name + " rule gives call cases from " + fmt(CALL_NO_CREDIT_FROM) + " no wRVU credit."}</div>
+          <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{o.site.name + " still credits its call cases. The built-in " + o.def.name + " rule gives call cases from " + fmt(CALL_NO_CREDIT_FROM) + " no wRVU credit - apply it before picking the site below, so " + (fixCases.length === 1 ? "this case follows" : "these cases follow") + " it."}</div>
           <button onClick={function() { applyFixOffer(o); }} style={{ marginTop: 6, minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.4)", background: "transparent", color: "#f59e0b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{"No credit for " + o.site.name}</button>
         </div>);
       })}
+      <div style={{ display: "flex", gap: 6, flexWrap: "wrap", marginTop: 8 }}>
+        {fixSites.map(function(s) { var offered = fixOffers.some(function(o) { return o.site.id === s.id; }); var note = offered ? "still credits" : paySiteCreditNote(s, CALL_NO_CREDIT_FROM); return (<button key={s.id} onClick={function() { applyFix(s); }} style={siteChip(false)}>{s.name}{note ? <span style={{ fontWeight: 400, fontSize: 11 }}>{" - " + note}</span> : null}</button>); })}
+      </div>
       <button onClick={function() { setFixHidden(true); }} style={{ ...S.secondaryBtn, marginTop: 10, minHeight: 44 }}>Not now</button>
     </div>}
     <input type="text" value={filter} onChange={e => setFilter(e.target.value)} placeholder="Search procedures, codes, notes..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={S.searchInput} />
