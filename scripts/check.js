@@ -613,6 +613,47 @@ check("hooks before any conditional return (every component in the Babel files)"
     orderOk && markOk && lookupOk && hintOk,
     JSON.stringify({ offerAt: offerAt, chipsAt: chipsAt, orderOk: orderOk, markOk: markOk, lookupOk: lookupOk, hintOk: hintOk }));
 }
+// 5f. Show/hide $: every fmtDollar call passes App's showComp; every view
+// that masks $ (calls fmtDollar, or Call Pay) renders the ONE CompEye
+// (app.js, hook-free) so $ can be revealed where it is hidden; App passes
+// showComp + toggleComp to those views. A missing or duplicate CompEye
+// would crash every $ view into its ErrorBoundary.
+{
+  const PLAIN_FILES = ["crypto.js", "cpt-data.js", "utils.js", "styles.js"];
+  const eyeAsts = {};
+  jsFiles.filter(f => PLAIN_FILES.indexOf(f) === -1).forEach(f => {
+    try { eyeAsts[f] = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS); } catch (e) { eyeAsts[f] = null; }
+  });
+  const badFmt = [], fmtFiles = [], eyeMissing = [];
+  Object.keys(eyeAsts).forEach(f => {
+    const a = eyeAsts[f]; if (!a) { badFmt.push(f + ": parse"); return; }
+    let calls = 0, eyes = 0;
+    walk(a.program, n => {
+      if (n.type === "CallExpression" && n.callee && n.callee.type === "Identifier" && n.callee.name === "fmtDollar") {
+        calls++;
+        if (n.arguments.length !== 2 || n.arguments[1].type !== "Identifier" || n.arguments[1].name !== "showComp") badFmt.push(f + ":" + n.loc.start.line);
+      }
+      if (n.type === "JSXOpeningElement" && n.name && n.name.name === "CompEye") eyes++;
+    });
+    if (calls > 0) fmtFiles.push(f);
+    if ((calls > 0 || f === "callpay.js") && eyes === 0) eyeMissing.push(f);
+  });
+  check("5f: every fmtDollar call passes showComp; every view that masks $ (and Call Pay) renders CompEye",
+    badFmt.length === 0 && eyeMissing.length === 0 && fmtFiles.length >= 4, JSON.stringify({ badFmt: badFmt, eyeMissing: eyeMissing, fmtFiles: fmtFiles }));
+  const appAst = eyeAsts["app.js"];
+  const topEye = appAst ? appAst.program.body.filter(n => n.type === "FunctionDeclaration" && n.id && n.id.name === "CompEye").length : 0;
+  const otherDecl = jsFiles.filter(f => f !== "app.js" && /(function|var|let|const|class)\s+CompEye\b/.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));
+  const plainMention = PLAIN_FILES.filter(f => jsFiles.indexOf(f) !== -1 && fs.readFileSync(path.join(JS_DIR, f), "utf8").indexOf("CompEye") !== -1);
+  check("5f: app.js declares CompEye exactly once at top level; no other file declares it; plain scripts never mention it",
+    topEye === 1 && otherDecl.length === 0 && plainMention.length === 0, JSON.stringify({ topEye: topEye, otherDecl: otherDecl, plainMention: plainMention }));
+  const needProps = ["Dashboard", "Analytics", "Compare", "Settings", "CallPay"], propBad = [];
+  if (appAst) walk(appAst.program, n => {
+    if (n.type !== "JSXOpeningElement" || !n.name || needProps.indexOf(n.name.name) === -1) return;
+    const names = n.attributes.filter(x => x.type === "JSXAttribute" && x.name).map(x => x.name.name);
+    if (names.indexOf("showComp") === -1 || names.indexOf("toggleComp") === -1) propBad.push(n.name.name);
+  });
+  check("5f: App passes showComp + toggleComp to every view that masks $", !!appAst && propBad.length === 0, propBad.join(", "));
+}
 
 // 6. CPT database integrity
 const cpt = fs.readFileSync(path.join(JS_DIR, "cpt-data.js"), "utf8");

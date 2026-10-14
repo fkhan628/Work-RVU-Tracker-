@@ -167,7 +167,7 @@ function App() {
         {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} openHistory={openHistory} openBackup={openBackup} /></ErrorBoundary>}
         {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} setLogBar={setLogBar} /></ErrorBoundary>}
         {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openHistory={openHistory} /></ErrorBoundary>}
-        {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} /></ErrorBoundary>}
+        {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
         {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
         {view === "history" && <ErrorBoundary name="History" onRetry={goHome} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} historyPreset={historyPreset} /></ErrorBoundary>}
         {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} openHistory={openHistory} backupFocus={backupFocus} /></ErrorBoundary>}
@@ -217,6 +217,15 @@ function Nav({ view, setView }) {
       ))}
     </div>
   );
+}
+
+// The one show/hide-$ button. showComp lives in App (memory only: every
+// launch starts hidden); every view that masks $ renders this near its $.
+// Hook-free. Other Babel files use it at render time (app.js runs before
+// root.render). JSX: never move it into a plain script.
+function CompEye({ showComp, toggleComp, style }) {
+  if (!toggleComp) return null;
+  return <button onClick={toggleComp} aria-label="Show dollar amounts" aria-pressed={!!showComp} title={showComp ? "Hide $" : "Show $"} style={{ minHeight: 44, minWidth: 44, padding: 0, background: "none", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer", color: showComp ? "#10b981" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0, ...(style || {}) }}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>;
 }
 
 // Global error handler - prevents white screen on unhandled errors

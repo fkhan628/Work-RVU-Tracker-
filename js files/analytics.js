@@ -322,7 +322,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     var dmNCRVU = dmNC.reduce(function(s, e) { return s + noCreditRVU(e); }, 0);
 
     return (<div style={S.page}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={function() { setDetailMonth(null); }} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{monthLabel(detailMonth)}</h1></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={function() { setDetailMonth(null); }} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{monthLabel(detailMonth)}</h1><CompEye showComp={showComp} toggleComp={toggleComp} style={{ marginLeft: "auto" }} /></div>
       <div style={S.statsRow}>
         <div style={S.statCard}><div style={S.statValue}>{dm.rvu.toFixed(1)}</div><div style={S.statLabel}>wRVUs</div></div>
         <div style={S.statCard}><div style={S.statValue}>{dm.count}</div><div style={S.statLabel}>Procedures</div></div>
@@ -360,7 +360,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   };
 
   return (<div style={S.page}>
-    <div style={S.header}><h1 style={S.title}>Analytics</h1></div>
+    <div style={{ ...S.header, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}><h1 style={S.title}>Analytics</h1><CompEye showComp={showComp} toggleComp={toggleComp} /></div>
 
     {/* Year selector - same pattern and same year set as the Dashboard */}
     {availableYears.length > 1 && (function() {
@@ -625,7 +625,10 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     {showSummary && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.25)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div style={S.cardLabel}>Monthly Report</div>
-        <input type="month" value={summaryMonth} onChange={function(e) { setSummaryMonth(e.target.value); }} style={{ ...S.dateInput, fontSize: 12, padding: "4px 8px" }} />
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <input type="month" value={summaryMonth} onChange={function(e) { setSummaryMonth(e.target.value); }} style={{ ...S.dateInput, fontSize: 12, padding: "4px 8px" }} />
+          <CompEye showComp={showComp} toggleComp={toggleComp} />
+        </div>
       </div>
       <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fafc", marginBottom: 12 }}>{summaryMonthName(summaryMonth)}</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>

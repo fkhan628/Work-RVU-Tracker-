@@ -428,7 +428,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   var danger = { color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" };
   var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
 
-  var eyeBtn = <button onClick={toggleComp} style={{ minHeight: 44, minWidth: 44, background: "none", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer", color: showComp ? "#10b981" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0 }} title={showComp ? "Hide pay" : "Show pay"}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>;
+  var eyeBtn = <CompEye showComp={showComp} toggleComp={toggleComp} />;
   var chip = function(on, label, onClick, key) {
     return (<button key={key} onClick={onClick} style={btn({ flex: 1, padding: "0 6px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)" })}>{label}</button>);
   };

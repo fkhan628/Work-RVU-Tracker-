@@ -221,6 +221,16 @@ the per-file gates below. Run it after EVERY file change.
   through rvuOverrideFromText: the CMS value removes the override; blank, 0
   or junk is refused and the field reverts. Overrides reach only cases
   logged, added, imported or re-coded later (entries keep their snapshot).
+- Show/hide $: App's showComp is memory only (every launch starts hidden)
+  and reaches each view that masks $ along with toggleComp. Masked $ goes
+  through utils.js fmtDollar(v, showComp) (always passed showComp), a
+  showComp ternary (Dashboard vs-goal and $/wRVU lines, Compare's rate
+  line) or Call Pay's paid()/MASK, and each such view renders CompEye
+  (app.js, hook-free, the one component shared across Babel files) near
+  its $. Log and History still print $ unmasked (owner decision pending).
+  Exports, CSV, Excel and the Copy Summary text stay unmasked. check.js 5f
+  pins the fmtDollar argument, CompEye on every masking view, ONE CompEye
+  declaration and the App props.
 - Log's one Save control is the 64px save bar (log.js; check.js counts
   onClick={save}), pinned once the active procedure has a code. While
   pinned, LogProc reports it (setLogBar) and App lifts the undo toast to

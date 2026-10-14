@@ -201,7 +201,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
 
   return (<div style={S.page}>
     <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>RVU Tracker</h1><p style={S.subtitle}>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div>
-      <button onClick={toggleComp} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 8, padding: "6px 10px", cursor: "pointer", color: showComp ? "#10b981" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0, marginTop: 4 }} title={showComp ? "Hide compensation" : "Show compensation"}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>
+      <CompEye showComp={showComp} toggleComp={toggleComp} style={{ marginTop: 4 }} />
     </div></div>
 
     {/* Year selector - Compare's pattern: Current + 2 prior years pinned,

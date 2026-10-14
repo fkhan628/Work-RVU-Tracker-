@@ -1,7 +1,7 @@
 // =======================================
 // COMPARE (Institution vs Measured)
 // =======================================
-function Compare({ data, upd, setView, showComp }) {
+function Compare({ data, upd, setView, showComp, toggleComp }) {
   var instData = data.institutionData || [];
   var entries = data.entries || [];
   var settings = data.settings || {};
@@ -654,7 +654,7 @@ function Compare({ data, upd, setView, showComp }) {
 
     {/* Compensation estimate */}
     {instData.length > 0 && settings.ratePerRVU > 0 && <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.3)" }}>
-      <div style={S.cardLabel}>Compensation Estimate</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Compensation Estimate</div><CompEye showComp={showComp} toggleComp={toggleComp} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
         <div>
           <div style={{ fontSize: 10, color: "var(--text-dim)" }}>Institution Based</div>
