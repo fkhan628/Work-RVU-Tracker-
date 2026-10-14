@@ -344,7 +344,11 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   // Pay-line labels in plain words; "Call-in n: " only with 2+ call-ins.
   var lineLabel = function(l, shift) {
     var r = shift.rates;
-    if (l.kind === "stipend") return l.hours === r.stipendHours ? "Stipend (full " + r.stipendHours + "h shift)" : "Stipend (" + l.hours + " of " + r.stipendHours + "h)";
+    if (l.kind === "stipend") {
+      if (l.hours === r.stipendHours) return "Stipend (full " + r.stipendHours + "h shift)";
+      if (l.hours > r.stipendHours && l.hours % r.stipendHours === 0) return "Stipend (" + l.hours + "h = " + (l.hours / r.stipendHours) + " \u00D7 " + r.stipendHours + "h shift)";
+      return l.hours > r.stipendHours ? "Stipend (" + l.hours + "h at the " + r.stipendHours + "h rate)" : "Stipend (" + l.hours + " of " + r.stipendHours + "h)";
+    }
     var ev = shift.events[l.ev], pre = shift.events.length > 1 ? "Call-in " + (l.ev + 1) + ": " : "";
     if (l.kind === "fee") return pre + "Call-in fee (" + (ev.cls === "we" || ev.cls === "hol" ? "weekend/holiday" : "weekday") + ")";
     if (!l.paid) return pre + ev.hours + "h weekday daytime - no hourly";
@@ -447,12 +451,18 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     var yesterday = addDaysYMD(today, -1);
     var feeOn = function(ymd) { return r ? (payWeOrHol(ymd, site) ? r.callInWeekendHoliday : r.callInWeekday) : 0; };
     var siteSummary = function(x) {
-      return cash(x.stipend) + " / " + x.stipendHours + "h shift" + DOT + "call-in " + cash(x.callInWeekday) +
+      return cash(x.stipend) + " / " + x.stipendHours + "h shift" + (x.stipendHours < PAY_LONG_SHIFT_HOURS ? " (" + PAY_LONG_SHIFT_HOURS + "h wknd/hol)" : "") + DOT + "call-in " + cash(x.callInWeekday) +
         (x.callInWeekendHoliday !== x.callInWeekday ? " (" + cash(x.callInWeekendHoliday) + " wknd/hol)" : "") + DOT +
         cash(x.hourly) + "/hr" + (x.hourlyMinHours > 0 ? ", " + x.hourlyMinHours + "h min" : "") + (x.hourlyWeekdayDay ? "" : ", no hourly weekdays 7am-5pm");
     };
-    var fullH = r ? r.stipendHours : null;
-    var showHoursInput = !!r && (hoursOpen || payNum(d.callHours) !== fullH);
+    // Shift length: where the stipend period is shorter than a 24h shift
+    // (weekend and holiday call), a stipend-period / 24h choice; the form
+    // starts at payDefaultShiftHours for the day. Any other length is typed.
+    var fullH = r ? payDefaultShiftHours(d.date, site, r) : null;
+    var lenChoices = r && r.stipendHours < PAY_LONG_SHIFT_HOURS ? [r.stipendHours, PAY_LONG_SHIFT_HOURS] : null;
+    var curH = payNum(d.callHours);
+    var showHoursInput = !!r && (hoursOpen || (lenChoices ? lenChoices.indexOf(curH) === -1 : curH !== fullH));
+    var pickLen = function(h) { setHoursOpen(false); setD(function(x) { return { ...x, callHours: String(h), hoursSet: true }; }); };
     var went = d.events.length > 0;
     var setWent = function(on) {
       if (on) { setD(function(x) { return { ...x, events: x.events.concat([trip(x)]) }; }); return; }
@@ -510,7 +520,18 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
           <button onClick={useCurrentRates} style={btn({ display: "block", marginTop: 6, color: "#f59e0b", border: "1px solid rgba(245,158,11,0.4)" })}>Use current rates</button>
         </div>}
 
-        {r && <div style={{ marginTop: 12 }}>
+        {r && lenChoices && <div style={{ marginTop: 12 }}>
+          <div style={S.fieldLabel}>Shift length</div>
+          <div style={{ display: "flex", gap: 6 }}>
+            {lenChoices.map(function(h) { return chip(!showHoursInput && curH === h, h + "h shift", function() { pickLen(h); }, "len" + h); })}
+            {chip(showHoursInput, "Other hours", function() { setHoursOpen(true); }, "lenOther")}
+          </div>
+          {showHoursInput && <div style={{ marginTop: 8 }}>
+            <div style={S.fieldLabel}>Hours on call</div>
+            <input type="text" inputMode="decimal" value={d.callHours} onChange={function(e) { var v = e.target.value; setD(function(x) { return { ...x, callHours: v, hoursSet: true }; }); }} placeholder="0" style={{ ...S.numberInput, width: 110 }} />
+          </div>}
+        </div>}
+        {r && !lenChoices && <div style={{ marginTop: 12 }}>
           {!showHoursInput
             ? <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
                 <div style={{ flex: 1, fontSize: 13, color: "var(--text-primary)" }}>{"Full shift: " + d.callHours + "h"}</div>

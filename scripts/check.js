@@ -877,9 +877,13 @@ if (sb) {
     sb.payShiftStale(base24, S1back) && !sb.payShiftStale(base24, S1fut) && !sb.payShiftStale(base24, S1lbl) &&
     !sb.payShiftStale(base24, S2) && !sb.payShiftStale(base24, null));
   const rpBefore = JSON.stringify(base24);
-  const rp = sb.payRepriceShift(base24, S1back), rpPart = sb.payRepriceShift(part12, S1back);
-  check("payRepriceShift: full-length takes the new length; partial keeps its hours; hand-checked totals",
+  // base24 is a Sunday - a weekend day at S1 - so under a 12h version it
+  // stays a 24h weekend shift (two stipends); the weekday copy takes 12h.
+  const baseWd = Object.assign({}, base24, { id: "rpw", date: "2026-05-12" });
+  const rp = sb.payRepriceShift(baseWd, S1back), rpWe = sb.payRepriceShift(base24, S1back), rpPart = sb.payRepriceShift(part12, S1back);
+  check("payRepriceShift: full-length takes the new length (24h on a weekend day); partial keeps its hours; hand-checked totals",
     !!rp && rp.callHours === 12 && rp.rates.id === "new12" && sb.computeShiftPay(rp).total === 1200 &&
+    !!rpWe && rpWe.callHours === 24 && sb.computeShiftPay(rpWe).total === 2400 &&
     !!rpPart && rpPart.callHours === 12 && sb.computeShiftPay(rpPart).total === 1200 && sb.payRepriceShift(base24, S1lbl) === null);
   // Partial hours must be KEPT even when they differ from both lengths;
   // full-length grows as well as shrinks; the version IN FORCE is used (not
@@ -1077,8 +1081,9 @@ if (sb) {
     badMid.map(m => m[0].name + " " + m[1]).join(", "));
   // A full simple-form flow: pick site + day, then each trip = new trip +
   // the answers the form would collect (hours, before/after midnight, Day/Night).
-  const sflow = (site, date, trips) => {
-    let d = { id: "f-" + date, siteId: site.id, date: date, callHours: "", hoursSet: false, events: [], note: "" };
+  // len: a shift length the user picked (else the form's default for the day).
+  const sflow = (site, date, trips, len) => {
+    let d = { id: "f-" + date, siteId: site.id, date: date, callHours: len || "", hoursSet: !!len, events: [], note: "" };
     const rate = sb.payDraftRate(d, site, null).rates;
     d = sb.payDraftRefresh(d, site, "", "", rate);
     (trips || []).forEach(t => {
@@ -1099,14 +1104,114 @@ if (sb) {
     ["Silvis Thu, after midnight, 1.5h", sflow(SIL, "2026-10-15", [{ hours: "1.5", rel: "next" }]), "2269.50"],
     ["Silvis Thu, before midnight, 1.5h", sflow(SIL, "2026-10-15", [{ hours: "1.5", rel: "same" }]), "1978.50"],
     ["Silvis Thanksgiving, 3h", sflow(SIL, "2026-11-26", [{ hours: "3" }]), "2457.00"],
-    ["Davenport Sat, 4h", sflow(DAV, "2026-10-17", [{ hours: "4" }]), "4451.54"],
-    ["Davenport Christmas, 2h", sflow(DAV, "2026-12-25", [{ hours: "2" }]), "4208.85"],
+    ["Davenport Sat, 12h shift picked, 4h", sflow(DAV, "2026-10-17", [{ hours: "4" }], "12"), "4451.54"],
+    ["Davenport Christmas, 12h shift picked, 2h", sflow(DAV, "2026-12-25", [{ hours: "2" }], "12"), "4208.85"],
+    ["Davenport Sat, default 24h shift, 4h", sflow(DAV, "2026-10-17", [{ hours: "4" }]), "7641.19"],
+    ["Davenport Christmas, default 24h shift, 2h", sflow(DAV, "2026-12-25", [{ hours: "2" }]), "7398.50"],
+    ["Davenport Sun, default 24h shift, did not go in", sflow(DAV, "2026-10-18", []), "6379.30"],
+    ["Davenport Thanksgiving (a Thursday), default 24h shift", sflow(DAV, "2026-11-26", []), "6379.30"],
+    ["Davenport Wed, 24h shift picked, did not go in", sflow(DAV, "2026-10-14", [], "24"), "6379.30"],
+    ["Silvis Sat, default stays its 24h shift", sflow(SIL, "2026-10-17", []), "1500.00"],
     ["Davenport weekday, Day/Night unanswered", sflow(DAV, "2026-10-14", [{ hours: "1" }]), "blocked:evCls"],
     ["Davenport two 1h trips at night", sflow(DAV, "2026-10-14", [{ hours: "1", dn: "wn" }, { hours: "1", dn: "wn" }]), "5228.05"],
   ];
   const badFlows = FLOWS.filter(f => f[1] !== f[2]);
-  check("simple form flows on the built-in sites (" + FLOWS.length + ": the owner's examples, no call-in, questions blocking until answered)",
+  check("simple form flows on the built-in sites (" + FLOWS.length + ": the owner's examples, no call-in, questions blocking until answered, 24h weekend/holiday shifts)",
     badFlows.length === 0, badFlows.map(f => f[0] + " -> " + f[1] + " want " + f[2]).join("; "));
+  // 24h weekend/holiday shifts (owner 2026-10-13): where the stipend period is
+  // shorter, a weekend day or holiday starts at 24h; up to 24h is no warning.
+  const DEFH = [ // [site, date, want]
+    [DAV, "2026-10-17", 24], [DAV, "2026-10-18", 24], [DAV, "2026-12-25", 24], [DAV, "2026-11-26", 24], [DAV, "2026-12-24", 24],
+    [DAV, "2026-10-14", 12], [DAV, "2026-10-16", 12], [DAV, "", 12], [SIL, "2026-10-17", 24], [SIL, "2026-10-14", 24],
+  ];
+  const badDefH = DEFH.filter(t => sb.payDefaultShiftHours(t[1], t[0], rif(t[0], "2026-10-14")) !== t[2]);
+  const ghost = { id: DAV.id, name: DAV.name, weekendDays: [], rates: [], deleted: true };
+  const warnAt = (h) => sb.payShiftFromDraft({ id: "w", siteId: DAV.id, date: "2026-10-14", callHours: String(h), events: [] }, DAV, null).problems.map(p => p.code).indexOf("overLength") !== -1;
+  const S36 = hand("s36", "Long", [Object.assign({}, rif(DAV, "2026-10-14"), { id: "r36", stipendHours: 36 })]);
+  const warn36 = (h) => sb.payShiftFromDraft({ id: "w", siteId: S36.id, date: "2026-10-14", callHours: String(h), events: [] }, S36, null).problems.map(p => p.code).indexOf("overLength") !== -1;
+  check("payDefaultShiftHours: 24h on a weekend day or holiday where the stipend period is shorter, else the stipend period; a deleted site counts holidays only; over-length warns only past 24h",
+    badDefH.length === 0 && sb.payDefaultShiftHours("2026-10-17", ghost, rif(DAV, "2026-10-17")) === 12 && sb.payDefaultShiftHours("2026-12-25", ghost, rif(DAV, "2026-12-25")) === 24 &&
+    sb.payDefaultShiftHours("2026-10-17", DAV, null) === null && sb.payDefaultShiftHours("2026-10-17", DAV, { stipendHours: 0 }) === null &&
+    sb.payDefaultShiftHours("2026-10-17", DAV, { stipendHours: 36 }) === 36 && sb.payDefaultShiftHours("2026-10-14", DAV, { stipendHours: 8 }) === 8 &&
+    sb.payDefaultShiftHours("2026-10-17", DAV, { stipendHours: 8 }) === 24 && sb.payDefaultShiftHours("2026-07-03", DAV, rif(DAV, "2026-10-14")) === 24 &&
+    !warn36(30) && !warn36(36) && warn36(37) &&
+    !warnAt(12) && !warnAt(24) && warnAt(24.5) && sb.PAY_LONG_SHIFT_HOURS === 24,
+    badDefH.map(t => t[0].name + " " + t[1] + " -> " + sb.payDefaultShiftHours(t[1], t[0], rif(t[0], "2026-10-14"))).join(", "));
+  // Reopening a saved shift: hours count as picked unless they equal the
+  // day's default, so a saved 12h weekend shift (logged before the 24h
+  // default) stays 12h, and a default 24h weekend shift follows a day change.
+  const savedSat12 = sb.payShiftFromDraft({ id: "s12", siteId: DAV.id, date: "2026-10-17", callHours: "12", events: [] }, DAV, null).shift;
+  const savedSat24 = sb.payShiftFromDraft({ id: "s24", siteId: DAV.id, date: "2026-10-17", callHours: "24", events: [] }, DAV, null).shift;
+  const re12 = sb.payDraftFromShift(savedSat12, DAV), re24 = sb.payDraftFromShift(savedSat24, DAV);
+  const re12Wed = sb.payDraftRefresh(Object.assign({}, re12, { date: "2026-10-14" }), DAV, "", "", rif(DAV, "2026-10-14"));
+  const re24Wed = sb.payDraftRefresh(Object.assign({}, re24, { date: "2026-10-14" }), DAV, "", "", rif(DAV, "2026-10-14"));
+  const reSame12 = sb.payShiftFromDraft(re12, DAV, savedSat12).shift;
+  check("payDraftFromShift: a saved 12h weekend shift reopens as picked (stays 12h, saves unchanged); a default 24h one follows a day change to 12h",
+    re12.hoursSet === true && re12.callHours === "12" && re24.hoursSet === false && re24.callHours === "24" &&
+    re12Wed.callHours === "12" && re24Wed.callHours === "12" && !!reSame12 && JSON.stringify(reSame12) === JSON.stringify(savedSat12) &&
+    sb.computeShiftPay(savedSat12).total === 3189.65 && sb.computeShiftPay(savedSat24).total === 6379.3,
+    JSON.stringify({ re12: re12.hoursSet, re24: re24.hoursSet, w12: re12Wed.callHours, w24: re24Wed.callHours }));
+  // A picked 24h WEEKDAY shift (longer than the day's default) reopens as
+  // picked, and a same-day refresh (re-tapping the site or day) keeps it.
+  const savedWed24 = sb.payShiftFromDraft({ id: "w24", siteId: DAV.id, date: "2026-10-14", callHours: "24", events: [] }, DAV, null).shift;
+  const reW24 = sb.payDraftFromShift(savedWed24, DAV);
+  const reW24Same = sb.payDraftRefresh(reW24, DAV, "", "", sb.payDraftRate(reW24, DAV, savedWed24).rates);
+  const reW24B = sb.payShiftFromDraft(reW24Same, DAV, savedWed24).shift;
+  check("payDraftFromShift: a picked 24h weekday shift reopens as picked and a same-day refresh saves it byte-identical",
+    reW24.hoursSet === true && reW24Same.callHours === "24" && !!reW24B && JSON.stringify(reW24B) === JSON.stringify(savedWed24) && sb.computeShiftPay(savedWed24).total === 6379.3,
+    JSON.stringify({ hs: reW24.hoursSet, h: reW24Same.callHours }));
+  // A shift on a DELETED site (stand-in: weekend days unknown). A stipend-
+  // length one shorter than 24h is ambiguous (weekday default or a weekend
+  // shift picked short), so it counts as picked: its hours survive any
+  // sequence of site and date changes. A holiday 24h one keeps the holiday
+  // default. No state rides in the draft, so tap order cannot matter.
+  const DAV2 = Object.assign({}, DAV, { id: "dav-new" });
+  const siteOfD = id => id === ghost.id ? ghost : [DAV2, SIL].filter(s => s.id === id)[0];
+  const stepD = (dd, st, shift) => {
+    const md = Object.assign({}, dd, typeof st === "string" ? { date: st } : { siteId: st.id });
+    const site = siteOfD(md.siteId);
+    return sb.payDraftRefresh(md, site, "", "", sb.payDraftRate(md, site, shift).rates);
+  };
+  const runSeq = (shift, steps) => steps.reduce((dd, st) => stepD(dd, st, shift), sb.payDraftFromShift(shift, ghost));
+  const savedWd12 = sb.payShiftFromDraft({ id: "d12", siteId: DAV.id, date: "2026-10-14", callHours: "12", events: [] }, DAV, null).shift;
+  const savedXmas24 = sb.payShiftFromDraft({ id: "x24", siteId: DAV.id, date: "2026-12-25", callHours: "24", events: [] }, DAV, null).shift;
+  const SEQ = [ // [label, shift, steps, want hours]
+    ["Sat 12h -> new site", savedSat12, [DAV2], "12"], ["Sat 12h -> 24h-stipend site -> new site", savedSat12, [SIL, DAV2], "12"],
+    ["Sat 12h -> 24h-stipend site", savedSat12, [SIL], "12"], ["Sat 12h -> new site -> Wed", savedSat12, [DAV2, "2026-10-14"], "12"],
+    ["Wed 12h -> new site -> Sat", savedWd12, [DAV2, "2026-10-17"], "12"], ["Wed 12h -> Sat -> new site", savedWd12, ["2026-10-17", DAV2], "12"],
+    ["Christmas 24h -> new site", savedXmas24, [DAV2], "24"], ["Sat 12h, stays on the deleted site", savedSat12, [ghost], "12"],
+  ];
+  const badSeq = SEQ.filter(t => runSeq(t[1], t[2]).callHours !== t[3]);
+  // Not ambiguous: a 24h-stipend site's full shift on a deleted site follows
+  // the new site's default (a weekday at a 12h site = 12h).
+  const silWd24 = sb.payShiftFromDraft({ id: "sw24", siteId: SIL.id, date: "2026-10-14", callHours: "24", events: [] }, SIL, null).shift;
+  const ghostS = Object.assign({}, ghost, { id: SIL.id, name: SIL.name });
+  const silD = sb.payDraftFromShift(silWd24, ghostS), silMd = Object.assign({}, silD, { siteId: DAV2.id });
+  const silMoved = sb.payDraftRefresh(silMd, DAV2, "", "", sb.payDraftRate(silMd, DAV2, silWd24).rates);
+  if (!(silD.hoursSet === false && silMoved.callHours === "12")) badSeq.push(["24h-stipend deleted weekday -> 12h site", silWd24, [DAV2], "12"]);
+  const fromGhost = sb.payDraftFromShift(savedSat12, ghost);
+  const viaSil = runSeq(savedSat12, [SIL, DAV2]), direct = runSeq(savedSat12, [DAV2]);
+  check("deleted-site shift: a stipend-length one keeps its hours through any site/date sequence (order never matters); holiday 24h keeps the holiday default; nothing extra in the draft or the saved shift",
+    badSeq.length === 0 && fromGhost.hoursSet === true && Object.keys(fromGhost).join() === Object.keys(sb.payDraftFromShift(savedSat12, DAV)).join() &&
+    JSON.stringify(sb.payShiftFromDraft(viaSil, DAV2, savedSat12).shift) === JSON.stringify(sb.payShiftFromDraft(direct, DAV2, savedSat12).shift),
+    badSeq.map(t => t[0] + " -> " + runSeq(t[1], t[2]).callHours).join("; "));
+  // Bulk re-price and the editor's "Use current rates" give the same hours.
+  const viaEditor = (shift, site) => {
+    const dd = Object.assign({}, sb.payDraftFromShift(shift, site), { reprice: true });
+    const rif2 = sb.rateInForce(site, shift.date);
+    if (rif2 && shift.rates && +dd.callHours === shift.rates.stipendHours) dd.callHours = String(rif2.stipendHours); // callpay.js useCurrentRates
+    const nd = sb.payDraftRefresh(dd, site, "", "", sb.payDraftRate(dd, site, shift).rates);
+    return sb.payShiftFromDraft(nd, site, shift).shift.callHours;
+  };
+  const R10 = Object.assign({}, rif(DAV, "2026-10-14"), { id: "dav10", effective: "2026-10-05", stipend: 2500, stipendHours: 10 });
+  const DAV10 = Object.assign({}, DAV, { rates: DAV.rates.concat([R10]) });
+  const SIL12 = Object.assign({}, SIL, { rates: SIL.rates.concat([Object.assign({}, rif(SIL, "2026-10-14"), { id: "sil12", effective: "2026-10-05", stipend: 800, stipendHours: 12 })]) });
+  const silSat24 = sb.payShiftFromDraft({ id: "ss", siteId: SIL.id, date: "2026-10-17", callHours: "24", events: [] }, SIL, null).shift;
+  const silWed24 = sb.payShiftFromDraft({ id: "sw", siteId: SIL.id, date: "2026-10-14", callHours: "24", events: [] }, SIL, null).shift;
+  const AGREE = [[savedSat24, DAV10, 24], [savedSat12, DAV10, 10], [savedWd12, DAV10, 10], [savedWed24, DAV10, 24], [silSat24, SIL12, 24], [silWed24, SIL12, 12]];
+  const badAgree = AGREE.filter(t => { const bulk = sb.payRepriceShift(t[0], t[1]); return !bulk || bulk.callHours !== t[2] || viaEditor(t[0], t[1]) !== t[2]; });
+  check("bulk re-price and the editor's Use current rates agree on hours (default length takes the new default, stipend length the new stipend, other hours kept)",
+    badAgree.length === 0, badAgree.map(t => t[0].id + " bulk " + (sb.payRepriceShift(t[0], t[1]) || {}).callHours + " editor " + viaEditor(t[0], t[1]) + " want " + t[2]).join("; "));
   const rr = (site, from, to, e) => { const rt = rif(site, to); return sb.payDraftRefresh({ id: "x", siteId: site.id, date: to, callHours: "12", hoursSet: true, events: [e] }, site, "", "", rt).events[0]; };
   const dnWed = sb.payDraftEvent(Object.assign(sb.payDraftTrip("2026-10-14", DAV, rif(DAV, "2026-10-14")), { dn: "wd" }), "2026-10-14", DAV, "", "", rif(DAV, "2026-10-14"));
   const toSat = rr(DAV, "2026-10-14", "2026-10-17", dnWed), backWed = rr(DAV, "2026-10-17", "2026-10-14", toSat);

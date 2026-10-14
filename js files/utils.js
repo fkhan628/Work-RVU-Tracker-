@@ -1469,6 +1469,18 @@ function payDraftRate(draft, site, orig) {
 function payWeOrHol(ymd, site) {
   return isYMD(ymd) && (!!payHolidayName(ymd) || (!!site && Array.isArray(site.weekendDays) && site.weekendDays.indexOf(ymdWeekday(ymd)) !== -1));
 }
+// Weekend and holiday call is a 24-hour shift (owner 2026-10-13): at a site
+// whose stipend covers a shorter period, a weekend-day or holiday shift
+// starts at PAY_LONG_SHIFT_HOURS, paid stipend x hours / stipendHours (a 24h
+// shift on a 12h stipend = two stipends). The user can always pick another
+// length; up to PAY_LONG_SHIFT_HOURS is a normal shift, not an over-length one.
+var PAY_LONG_SHIFT_HOURS = 24;
+// The shift length the form starts at for this day (null without a rate).
+// A deleted site's stand-in has no weekend days, so only holidays count there.
+function payDefaultShiftHours(ymd, site, rate) {
+  if (!rate || !(rate.stipendHours > 0)) return null;
+  return rate.stipendHours < PAY_LONG_SHIFT_HOURS && payWeOrHol(ymd, site) ? PAY_LONG_SHIFT_HOURS : rate.stipendHours;
+}
 // Ask "Day or Night?" for a call-in only where the answer changes pay: a
 // non-holiday weekday when the rate pays no hourly on weekday daytime.
 // Never for a deleted site's stand-in: its weekend days are unknown, so the
@@ -1509,7 +1521,7 @@ function payShiftFromDraft(draft, site, orig, ctx) {
   if (siteOk && dateOk && !rates) add("rates", -1, true);
   var callHours = payNum(draft.callHours);
   if (callHours === null) add("hours", -1, true);
-  else if (rates && callHours > rates.stipendHours) add("overLength", -1, false);
+  else if (rates && callHours > Math.max(rates.stipendHours, PAY_LONG_SHIFT_HOURS)) add("overLength", -1, false);
   var lastOk = dateOk ? addDaysYMD(draft.date, Math.max(1, Math.ceil((callHours || 0) / 24))) : "";
   var events = [];
   (Array.isArray(draft.events) ? draft.events : []).forEach(function(e, i) {
@@ -1613,7 +1625,14 @@ function payDraftFromShift(s, site) {
   var gone = !!(site && site.deleted);
   var quiet = !!(s.rates && s.rates.hourlyWeekdayDay === true);
   var askedMid = payMidnightAsks(s.date, site, s.rates);
-  return { id: s.id, siteId: s.siteId, date: s.date, callHours: String(s.callHours), hoursSet: !(s.rates && s.callHours === s.rates.stipendHours), note: s.note || "",
+  // Hours count as "set" unless they equal the length the form would start
+  // at for this day - so a saved 12h weekend shift stays 12h when edited. A
+  // deleted site's weekend days are unknown, so there a stipend-length shift
+  // shorter than 24h may be a weekend shift picked short: it counts as set
+  // too, and keeps its hours through any later site or date change.
+  var hoursSet = !(s.rates && s.callHours === payDefaultShiftHours(s.date, site, s.rates)) ||
+    (gone && !!s.rates && s.rates.stipendHours < PAY_LONG_SHIFT_HOURS && s.callHours === s.rates.stipendHours);
+  var d = { id: s.id, siteId: s.siteId, date: s.date, callHours: String(s.callHours), hoursSet: hoursSet, note: s.note || "",
     events: (s.events || []).map(function(e) {
       var rel = e.date === s.date ? "same" : e.date === nextDay ? "next" : "other";
       var ne = { date: e.date, rel: rel, relSet: rel !== "same" || askedMid, time: e.time || "", timeAuto: false, cls: e.cls, clsSet: false, dn: "", fee: e.fee, hours: String(e.hours) };
@@ -1625,6 +1644,7 @@ function payDraftFromShift(s, site) {
       } else if (auto !== e.cls) ne.clsSet = true;
       return ne;
     }) };
+  return d;
 }
 // Undo for call-pay shifts (app.js doUndo type "pay"): drop the ids in
 // action.remove (undoes a save), then put each action.restore copy back IN
@@ -1660,15 +1680,19 @@ function payShiftStale(shift, site) {
   return !!rif && payRatesDiffer(shift.rates, rif);
 }
 // The shift re-priced at the version in force for its date - a NEW object
-// with a COPY of that version (never shared with the site). A full-length
-// shift (hours on call = its old shift length) takes the new length; a
-// partial shift keeps its hours. null when the shift is not stale. Output
-// passes repairData unchanged (check.js).
+// with a COPY of that version (never shared with the site). The same length
+// rule as the editor's "Use current rates": a shift at the day's default
+// length (payDefaultShiftHours - 24h on a weekend day or holiday where the
+// stipend period is shorter) takes the new default; one at the old stipend
+// period takes the new stipend period; any other hours are kept. null when
+// the shift is not stale. Output passes repairData unchanged (check.js).
 function payRepriceShift(shift, site) {
   if (!payShiftStale(shift, site)) return null;
   var rif = rateInForce(site, shift.date);
-  var full = shift.rates && shift.callHours === shift.rates.stipendHours;
-  return { ...shift, siteName: site.name, callHours: full ? rif.stipendHours : shift.callHours, rates: { ...rif } };
+  var old = shift.rates, h = shift.callHours;
+  if (old && h === payDefaultShiftHours(shift.date, site, old)) h = payDefaultShiftHours(shift.date, site, rif);
+  else if (old && h === old.stipendHours) h = rif.stipendHours;
+  return { ...shift, siteName: site.name, callHours: h, rates: { ...rif } };
 }
 // After "Use built-in rates" ADDED weekend days to a site (oldDays ->
 // newDays), a recorded weekday call-in ("wd"/"wn") dated on or after `from`
@@ -1767,12 +1791,14 @@ function payMonthTotals(shifts, year, sites) {
   return { total: cents / 100, shifts: count, callIns: callIns, unpriced: unpriced, months: out };
 }
 // Re-derive everything that follows the site/date: default hours on call
-// (until the user edits them) and every call-in via payDraftEvent. `rate`
-// (optional, the draft's payDraftRate choice) sets the full length and
-// switches on the simple-form rules; without it the version in force does.
+// (until the user picks them - payDefaultShiftHours: 24h on a weekend day or
+// holiday where the stipend period is shorter) and every call-in via
+// payDraftEvent. `rate` (optional, the draft's payDraftRate choice) sets the
+// lengths and switches on the simple-form rules; without it the version in
+// force does.
 function payDraftRefresh(d, site, today, nowHM, rate) {
   var nd = { ...d };
-  if (!nd.hoursSet) { var rif = rate || (site ? rateInForce(site, nd.date) : null); if (rif) nd.callHours = String(rif.stipendHours); }
+  if (!nd.hoursSet) { var rif = rate || (site ? rateInForce(site, nd.date) : null); if (rif) nd.callHours = String(payDefaultShiftHours(nd.date, site, rif)); }
   nd.events = (nd.events || []).map(function(e) { return payDraftEvent(e, nd.date, site, today, nowHM, rate); });
   return nd;
 }

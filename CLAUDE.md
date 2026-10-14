@@ -80,6 +80,9 @@ the per-file gates below. Run it after EVERY file change.
   payDraftEvent/payDraftNewEvent/payDraftRefresh plus the simple form's
   payDraftRate (the ONE rate choice: kept copy or version in force),
   payAsksDayNight/payMidnightAsks (ask only where the answer changes pay),
+  payDefaultShiftHours/PAY_LONG_SHIFT_HOURS (weekend and holiday call is a
+  24h shift: where the stipend period is shorter the form starts there at
+  24h, paid stipend x hours / stipendHours; up to 24h never warns),
   payDraftTrip/payDraftFromShift (dn and relSet are UI-only draft fields;
   passing `rate` to payDraftEvent/payDraftRefresh switches their rules on),
   payWeOrHol, payReclassShift, payUndoApply, the
