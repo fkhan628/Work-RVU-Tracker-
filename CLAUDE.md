@@ -14,8 +14,11 @@ preload, derived from the same constant).
 
 Script execution order:
 
-1. React, ReactDOM, Babel standalone — SRI-pinned CDN tags. If a pinned
-   version is ever bumped, recompute the sha384 hash or the script blocks.
+1. React, ReactDOM, Babel standalone — SRI-pinned unpkg tags. Each is
+   DIRECTLY followed by an inline `window.X || document.write(...)`
+   jsdelivr fallback with the SAME path, hash and crossorigin="anonymous".
+   If a pinned version is ever bumped, recompute the sha384 hash and change
+   BOTH lines, or the script blocks (check.js 4c).
 2. **Plain scripts** (`var plain = ['crypto','cpt-data','utils','styles']`
    in index.html) — classic tags, execute during HTML parse, in order.
    ALL FOUR ARE JSX-FREE AND MUST STAY THAT WAY: adding JSX to any of them
@@ -25,6 +28,19 @@ Script execution order:
    and executed at DOMContentLoaded, after every plain script.
 4. SheetJS is NOT loaded at boot. `loadXLSX()` in utils.js lazy-injects it
    (same pinned version + SRI) on first Excel use with an in-flight guard.
+
+Startup: an inline watchdog in index.html sits AFTER #app-loader and
+BEFORE the CDN tags (so it still runs while one hangs). At 15 s it shows
+"Still loading..." + Retry (the spinner keeps going); it shows "RVU Tracker
+couldn't start" + Retry + details when a CDN global is missing at
+DOMContentLoaded, or at 15 s after a script error or a failed same-origin
+script. Retry only reloads; the watchdog never reads app data or writes
+storage. The started signal is React's first commit into #root removing
+#app-loader: keep `ReactDOM.createRoot(document.getElementById("root"))`
+and never use the id app-loader in js files. check.js 4c pins all of this
+and parses every inline script in index.html. A pre-paint light-mode theme
+is deferred until the PIN pad is theme-aware (it would add a light-to-dark
+flash on every cold launch).
 
 `scripts/check.js` (`npm run check`) enforces this structure: both arrays
 parsed, disk<->array set equality, pinned plain-set membership, ASSET_V

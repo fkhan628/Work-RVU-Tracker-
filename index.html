@@ -33,9 +33,13 @@
     body { background: #0f172a; }
     body.light-mode { background: #f1f5f9; }
     #pin-lock { display: none; position: fixed; inset: 0; z-index: 10000; background: #0f172a; }
-    #app-loader { display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; gap: 16px; }
+    #app-loader { display: flex; align-items: center; justify-content: center; height: 100vh; flex-direction: column; gap: 16px; padding: 0 24px; text-align: center; }
     #app-loader .spinner { width: 36px; height: 36px; border: 3px solid #1e293b; border-top-color: #0ea5e9; border-radius: 50%; animation: spin 0.8s linear infinite; }
     #app-loader .label { color: #475569; font-family: -apple-system, sans-serif; font-size: 13px; }
+    #app-loader .title { color: #e2e8f0; font: 600 17px -apple-system, sans-serif; }
+    #app-loader .msg { color: #94a3b8; font: 14px/1.45 -apple-system, sans-serif; max-width: 320px; }
+    #app-loader .retry { min-height: 44px; padding: 0 32px; border: none; border-radius: 10px; background: #0ea5e9; color: #fff; font: 600 16px -apple-system, sans-serif; cursor: pointer; }
+    #app-loader .det { color: #64748b; font: 11px/1.4 ui-monospace, Menlo, monospace; max-width: 320px; word-break: break-all; }
     @keyframes spin { to { transform: rotate(360deg); } }
   </style>
 </head>
@@ -48,12 +52,82 @@
     </div>
   </div>
 
+  <!-- Startup watchdog (CLAUDE.md "Startup"): reads no app data, writes no
+       storage. Must stay AFTER #app-loader and BEFORE the CDN tags so it
+       still runs while one of them hangs (check.js 4c). -->
+  <script>
+    // RVU startup watchdog. React's first render into #root removes
+    // #app-loader, so while #app-loader exists the app has not started.
+    // Level 1 (15 s, nothing known wrong): "Still loading..." + Retry, the
+    // spinner keeps going. Level 2 (React/ReactDOM/Babel missing once the
+    // HTML is parsed, or a script error / failed app file and still no app):
+    // "couldn't start" + Retry + details. A late mount replaces either.
+    // Retry only reloads.
+    (function () {
+      var level = 0, failed = [], firstErr = "", localFail = false;
+      function add(box, tag, cls, text) {
+        var el = document.createElement(tag);
+        el.className = cls;
+        el.textContent = text;
+        box.appendChild(el);
+        return el;
+      }
+      function missing() {
+        var m = [];
+        if (!window.React) m.push("React");
+        if (!window.ReactDOM) m.push("ReactDOM");
+        if (!window.Babel) m.push("Babel");
+        return m;
+      }
+      function show(n) {
+        var box = document.getElementById("app-loader");
+        if (!box || n <= level) return;
+        level = n;
+        var m = missing();
+        while (box.firstChild) box.removeChild(box.firstChild);
+        if (n === 1) add(box, "div", "spinner", "");
+        add(box, "div", "title", n === 2 ? "RVU Tracker couldn't start" : "Still loading...");
+        add(box, "div", "msg", n === 2
+          ? "This is usually a weak or blocked internet connection. Check your connection, then tap Retry (or close and reopen the app)."
+          : "This is taking longer than usual, usually because of a slow connection.");
+        add(box, "div", "msg", "Your logged cases are saved on this phone and are not affected.");
+        add(box, "button", "retry", "Retry").onclick = function () { location.reload(); };
+        var det = (m.length ? "Not loaded: " + m.join(", ") + ". " : "")
+          + (failed.length ? "Failed: " + failed.join(", ") + ". " : "")
+          + (firstErr ? "Error: " + firstErr : "");
+        if (det) add(box, "div", "det", det);
+      }
+      // Capture phase: script load and SRI failures don't bubble.
+      window.addEventListener("error", function (e) {
+        var t = e && e.target;
+        if (t && t.tagName === "SCRIPT") {
+          var src = String(t.src);
+          failed.push(src.split("?")[0]);
+          if (src.indexOf(location.protocol + "//" + location.host + "/") === 0) localFail = true;
+          return;
+        }
+        if (!(e && e.message)) return; // e.g. a preload LINK or IMG failure
+        if (!firstErr) firstErr = String(e.message).slice(0, 200);
+        if (level === 1) show(2);
+      }, true);
+      document.addEventListener("DOMContentLoaded", function () {
+        if (missing().length) show(2);
+      });
+      setTimeout(function () { show(firstErr || localFail ? 2 : 1); }, 15000);
+    })();
+  </script>
+
   <!-- SRI: hashes computed from the pinned files, cross-checked byte-identical
        against the jsdelivr npm mirror. If a pinned version is ever bumped, the
-       matching integrity hash MUST be recomputed or the script will be blocked. -->
+       matching integrity hash MUST be recomputed or the script will be blocked.
+       Each tag is DIRECTLY followed by a jsdelivr fallback with the SAME path,
+       hash and crossorigin. A version bump changes BOTH (check.js 4c). -->
   <script crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" src="https://unpkg.com/react@18.3.1/umd/react.production.min.js"></script>
+  <script>window.React || document.write('<script crossorigin="anonymous" integrity="sha384-DGyLxAyjq0f9SPpVevD6IgztCFlnMF6oW/XQGmfe+IsZ8TqEiDrcHkMLKI6fiB/Z" src="https://cdn.jsdelivr.net/npm/react@18.3.1/umd/react.production.min.js"><\/script>');</script>
   <script crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.production.min.js"></script>
+  <script>window.ReactDOM || document.write('<script crossorigin="anonymous" integrity="sha384-gTGxhz21lVGYNMcdJOyq01Edg0jhn/c22nsx0kyqP0TxaV5WVdsSH1fSDUf5YJj1" src="https://cdn.jsdelivr.net/npm/react-dom@18.3.1/umd/react-dom.production.min.js"><\/script>');</script>
   <script crossorigin="anonymous" integrity="sha384-BcI7nduYchENm39cFMEVJXHEE7fwHONANyn/pY2YTa+BNtrWF2bKBZeI0wqVithi" src="https://unpkg.com/@babel/standalone@7.26.10/babel.min.js"></script>
+  <script>window.Babel || document.write('<script crossorigin="anonymous" integrity="sha384-BcI7nduYchENm39cFMEVJXHEE7fwHONANyn/pY2YTa+BNtrWF2bKBZeI0wqVithi" src="https://cdn.jsdelivr.net/npm/@babel/standalone@7.26.10/babel.min.js"><\/script>');</script>
   <!-- SheetJS is NOT loaded at boot: Compare's Excel upload and Settings'
        Excel export lazy-load it via loadXLSX (utils.js) with the same
        pinned version + SRI hash. -->

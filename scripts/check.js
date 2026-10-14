@@ -99,6 +99,41 @@ if (plainArrMatch && jsArrMatch) {
   check("index.html defines hand-bumped ASSET_V", /var ASSET_V = "[^"]+"/.test(html));
 }
 
+// 4c. Startup robustness (CLAUDE.md "Startup"). Each unpkg tag is DIRECTLY
+// followed by a jsdelivr fallback with the SAME hash, path and crossorigin,
+// guarded by its own global. Every attribute-less inline script parses (a
+// syntax error there is a white screen the watchdog can't report). The
+// watchdog sits after #app-loader and before the first CDN tag. React's
+// first render into #root removing #app-loader is the started signal, so no
+// js file may mention app-loader. index.html never writes or clears storage.
+const bootCdn = [...html.matchAll(/<script crossorigin="anonymous" integrity="(sha384-[A-Za-z0-9+\/=]+)" src="https:\/\/unpkg\.com\/([^"]+)"><\/script>/g)];
+check("index.html loads React, ReactDOM, Babel from unpkg with SRI", bootCdn.length === 3, "got " + bootCdn.length);
+const bootGlobalOf = p => /^react@/.test(p) ? "React" : /^react-dom@/.test(p) ? "ReactDOM" : /^@babel\/standalone@/.test(p) ? "Babel" : "";
+const bootNoFallback = bootCdn.filter(m => {
+  const want = "<script>window." + bootGlobalOf(m[2]) + " || document.write('<script crossorigin=\"anonymous\" integrity=\"" + m[1] + "\" src=\"https://cdn.jsdelivr.net/npm/" + m[2] + "\"><\\/script>');</script>";
+  const after = m.index + m[0].length, at = html.indexOf(want, after);
+  return !bootGlobalOf(m[2]) || at === -1 || !/^\s*$/.test(html.slice(after, at));
+}).map(m => m[2]);
+check("each unpkg script is directly followed by its same-SRI, same-path jsdelivr fallback guarded by its own global", bootNoFallback.length === 0, "missing/misplaced: " + bootNoFallback.join(", "));
+const bootInline = [...html.matchAll(/<script>([\s\S]*?)<\/script>/g)].map(m => m[1]);
+const bootInlineBad = [];
+bootInline.forEach((s, i) => {
+  try {
+    let opt = 0;
+    walk(parser.parse(s, { sourceType: "script" }).program, n => { if (n.type === "OptionalMemberExpression" || n.type === "OptionalCallExpression") opt++; });
+    if (opt) bootInlineBad.push("inline #" + i + ": optional chaining");
+  } catch (e) { bootInlineBad.push("inline #" + i + ": " + e.message); }
+});
+check("index.html inline scripts parse, no ?.", bootInline.length >= 7 && bootInlineBad.length === 0, bootInline.length + " found; " + bootInlineBad.join("; "));
+const bootLoader = html.indexOf('id="app-loader"'), bootWatch = html.indexOf("// RVU startup watchdog"), bootFirstCdn = html.indexOf('src="https://unpkg.com/');
+check("startup watchdog sits after #app-loader, before the CDN scripts", bootLoader !== -1 && bootWatch > bootLoader && bootFirstCdn > bootWatch);
+const bootAppSrc = fs.readFileSync(path.join(JS_DIR, "app.js"), "utf8");
+const bootMentions = jsFiles.filter(f => fs.readFileSync(path.join(JS_DIR, f), "utf8").indexOf("app-loader") !== -1);
+check("app.js mounts into #root; no js file touches #app-loader", bootAppSrc.indexOf('ReactDOM.createRoot(document.getElementById("root"))') !== -1 && bootMentions.length === 0, bootMentions.join(", "));
+check("index.html never writes or clears storage", !/\.(setItem|removeItem|clear)\s*\(/.test(html));
+const bootNa = html.search(/[^\x00-\x7f]/);
+check("index.html is ASCII-only", bootNa === -1, "non-ASCII at index " + bootNa);
+
 // 5. utils.js: keyword/friendly maps must be defined ABOVE CPT_DATABASE_DEFAULT
 const utils = fs.readFileSync(path.join(JS_DIR, "utils.js"), "utf8");
 const kIdx = utils.indexOf("var KEYWORD_SUPPLEMENT");
