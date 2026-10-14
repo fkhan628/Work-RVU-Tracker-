@@ -37,8 +37,13 @@ DOMContentLoaded, or at 15 s after a script error or a failed same-origin
 script. Retry only reloads; the watchdog never reads app data or writes
 storage. The started signal is React's first commit into #root removing
 #app-loader: keep `ReactDOM.createRoot(document.getElementById("root"))`
-and never use the id app-loader in js files. check.js 4c pins all of this
-and parses every inline script in index.html. A pre-paint light-mode theme
+and never use the id app-loader in js files. check.js 4c pins the
+STRUCTURE (placement, one same-SRI fallback per CDN tag, every inline
+script parses, no storage writes, ASCII); the watchdog's behaviour (timer,
+levels, Retry) is covered only by live tests - re-run them after editing
+it. Known gap: a text/babel file whose download drops mid-launch reaches
+Babel as an empty file (no error), so that case shows level 1, not 2. A
+pre-paint light-mode theme
 is deferred until the PIN pad is theme-aware (it would add a light-to-dark
 flash on every cold launch).
 
