@@ -1418,13 +1418,15 @@ function fiscalYearBoundsYMD(ys) {
 // (a past year, a year already over) is compared whole; before the year
 // starts both spans are empty. A bound moved back a year stays a plain
 // string: Feb 29 becomes "YYYY-02-29" of a common year, which still sorts
-// between Feb 28 and Mar 1. Only cur.end is ever displayed.
+// between Feb 28 and Mar 1. A whole prior year ends the day before this
+// one starts (so a Mar 1 year keeps a leap Feb 29). Only cur.end is ever
+// displayed.
 function priorSpanYMD(ys, today) {
   var fy = fiscalYearBoundsYMD(ys);
   if (!fy) return null;
   var back = function(k) { return (+k.slice(0, 4) - 1) + k.slice(4); };
   var end = isYMD(today) && today < fy.end ? today : fy.end;
-  return { cur: { start: fy.start, end: end }, prev: { start: back(fy.start), end: back(end) }, toDate: end !== fy.end };
+  return { cur: { start: fy.start, end: end }, prev: { start: back(fy.start), end: end === fy.end ? addDaysYMD(fy.start, -1) : back(end) }, toDate: end !== fy.end };
 }
 
 // --- Acute care group split math (single implementation - do not duplicate) ---

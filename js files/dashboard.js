@@ -290,7 +290,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     </div>
 
     {/* Year-over-year comparison - the same span on both sides (yoy) */}
-    {yoy.prev > 0 && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.02)" }}>
+    {Math.round(yoy.prev) > 0 && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.02)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>vs. Prior Year</div>

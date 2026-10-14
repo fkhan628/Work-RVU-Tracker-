@@ -1397,7 +1397,7 @@ if (sb) {
     [editTo(myFri, standOf(myFri), SIL, "2026-10-16"), editTo(silTue, standOf(silTue), DAV, "2026-10-13"), editTo(davThu, standOf(davThu), SIL, "2026-10-15"), timeEdit].join(" | "));
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
   check("availableDataYears: entries, institution, acute AND call-pay-only years, newest first; missing/bad payShifts safe",
-    sb.availableDataYears({ entries: [{ date: "2026-03-02" }], institutionData: [{ month: "2025-11" }], acuteMonths: { "2025-12": {} }, payShifts: [{ date: "2023-07-04" }, { date: "2026-01-01" }, { date: "junk" }, null] }).join(",") === "2026,2025,2023" &&
+    sb.availableDataYears({ entries: [{ date: "2026-03-02" }], institutionData: [{ month: "2024-11" }], acuteMonths: { "2022-12": {} }, payShifts: [{ date: "2023-07-04" }, { date: "2023-01-01" }, { date: "junk" }, null] }).join(",") === "2026,2024,2023,2022" &&
     sb.availableDataYears({ entries: [], institutionData: [], acuteMonths: {} }).join(",") === "" &&
     sb.availableDataYears({ entries: [], payShifts: "bad" }).join(",") === "");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
@@ -1834,6 +1834,10 @@ if (sb) {
       ["2025-01-01", "2026-10-14", "2025-01-01", "2025-12-31", "2024-01-01", "2024-12-31", false],
       ["2027-01-01", "2026-10-14", "2027-01-01", "2026-10-14", "2026-01-01", "2025-10-14", true],
       ["2026-01-01", "", "2026-01-01", "2026-12-31", "2025-01-01", "2025-12-31", false],
+      ["2028-03-01", "2029-10-14", "2028-03-01", "2029-02-28", "2027-03-01", "2028-02-29", false], // prior year keeps its leap Feb 29
+      ["2028-03-01", "2029-02-28", "2028-03-01", "2029-02-28", "2027-03-01", "2028-02-29", false],
+      ["2028-02-29", "2029-10-14", "2028-02-29", "2029-02-28", "2027-02-29", "2028-02-28", false],
+      ["2026-07-01", "2027-08-01", "2026-07-01", "2027-06-30", "2025-07-01", "2026-06-30", false],
     ];
     const badPS = PS.filter(t => { const r = sb.priorSpanYMD(t[0], t[1]); return !r || r.cur.start !== t[2] || r.cur.end !== t[3] || r.prev.start !== t[4] || r.prev.end !== t[5] || r.toDate !== t[6] || !(r.prev.end < r.cur.start); });
     const nullPS = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.priorSpanYMD(v, "2026-10-14") === null);
