@@ -1125,7 +1125,10 @@ function repairData(d) {
       lossMsgs.push((ncOne ? "The no-credit mark on procedure " : "The no-credit marks on " + ncBad.length + " procedures (") + ncBad.slice(0, 5).join(", ") + (ncBad.length > 5 ? " and " + (ncBad.length - 5) + " more" : "") + (ncOne ? " was" : ") were") + " unreadable and removed - " + (ncOne ? "it counts" : "they count") + " for wRVU credit, as before. Check " + (ncOne ? "it" : "them") + " in History.");
     }
   }
-  if (lossMsgs.length > 0) showDataAlert(lossMsgs.join(" "));
+  // The banner text also rides on the result as fixed.loss (a non-index
+  // property: length/join/JSON are unchanged) so recoverFromBad, whose own
+  // banner replaces this one, can carry it.
+  if (lossMsgs.length > 0) { fixed.loss = lossMsgs.join(" "); showDataAlert(fixed.loss); }
   return fixed;
 }
 
@@ -1138,12 +1141,14 @@ function recoverFromBad(raw, reason) {
   var preservedMsg = preserved
     ? " The unreadable data was preserved as a raw forensic copy (it can NOT be restored with one click - recovery requires manual work). Dismissing this notice DISCARDS that copy."
     : " The unreadable data could NOT be preserved (storage full).";
-  var lg = null;
-  try { lg = loadLastGood(); if (lg) repairData(lg); } catch(e) { lg = null; }
+  // showDataAlert keeps ONE bar, so the snapshot's repair-loss notice
+  // (fixed.loss) goes inside the recovery banner or it is never seen.
+  var lg = null, lgLoss = "";
+  try { lg = loadLastGood(); if (lg) { var lgFixed = repairData(lg); if (lgFixed && lgFixed.loss) lgLoss = " In that snapshot: " + lgFixed.loss; } } catch(e) { lg = null; }
   if (lg && validateData(lg)) {
     var age = "";
     try { var ts = localStorage.getItem(LAST_GOOD_TIME_KEY); if (ts) age = " (saved " + ts + ")"; } catch(e) {}
-    showDataAlert("DATA RECOVERY: your saved data " + reason + ". An older snapshot" + age + " was loaded instead - anything logged after that snapshot is NOT in the app right now." + preservedMsg + " Export a backup from Settings before continuing.", clearCorruptCopy);
+    showDataAlert("DATA RECOVERY: your saved data " + reason + ". An older snapshot" + age + " was loaded instead - anything logged after that snapshot is NOT in the app right now." + lgLoss + preservedMsg + " Export a backup from Settings before continuing.", clearCorruptCopy);
     return lg;
   }
   showDataAlert("DATA RECOVERY FAILED: your saved data " + reason + " and no valid snapshot exists, so the app is starting EMPTY." + preservedMsg, clearCorruptCopy);
@@ -1193,7 +1198,11 @@ function saveData(d) {
 // window.storage was never defined in production - a dead shim from the
 // app's artifact origins. localStorage is the single persistence layer.)
 
-// Apply user overrides to CPT database and include CMS imported codes
+// Apply user overrides to the CPT database. An override is in force only when
+// truthy: a stored 0 (the old keystroke editor could save one) is inert and the
+// code keeps its CMS value. Deliberate - honoring 0 would silently zero that
+// code on any phone holding one. check.js pins it; the Settings editor badges
+// and counts with the same test.
 function getDB(overrides) {
   let db = [...CPT_DATABASE_DEFAULT];
 
@@ -1201,6 +1210,19 @@ function getDB(overrides) {
     db = db.map(c => overrides[c.code] ? { ...c, wRVU: overrides[c.code] } : c);
   }
   return db;
+}
+
+// wRVU editor commit rule (Settings). text = a row's typed draft, cms = the
+// code's CMS wRVU. Returns null = remove the override (the CMS value itself),
+// a number > 0 = the override, undefined = refuse and revert (blank,
+// unreadable, or 0 - getDB ignores a 0, so storing one would badge "custom"
+// while Log kept CMS).
+function rvuOverrideFromText(text, cms) {
+  var t = String(text == null ? "" : text).trim();
+  if (t === "" || !/^\d*\.?\d*$/.test(t) || !/\d/.test(t)) return undefined;
+  var n = parseFloat(t);
+  if (typeof cms === "number" && Math.abs(n - cms) < 0.001) return null;
+  return n > 0 ? n : undefined;
 }
 
 function calcAdj(base, mods) {
@@ -1240,6 +1262,26 @@ function withNoCredit(e, on) {
 function entrySiteId(e) { return !!e && typeof e === "object" && typeof e.siteId === "string" ? e.siteId : ""; }
 function entrySiteKey(e) { return !!e && typeof e === "object" && e.isCall ? (entrySiteId(e) || CALL_SITE_OTHER) : ""; }
 function entryCallKey(e) { return (!!e && typeof e === "object" && e.isCall ? "call" : "private") + "|" + entrySiteId(e) + "|" + (isNoCredit(e) ? "nc" : ""); }
+// Settings "Remove Duplicates" (one rule; check.js tests it): a case is a
+// duplicate only when an earlier case in the list (list order, not date) has
+// the same date, code, modifiers (any order), patient (encounterId), notes
+// AND call fields (entryCallKey: Call/Private, call site, credit). The first
+// copy is kept, list order is unchanged and no entry is changed. Copies that
+// differ only in their call fields are never merged: mixed counts those
+// cases for the user to check in History. A non-object entry is kept.
+function entryDuplicateScan(entries) {
+  var seen = {}, callSeen = {}, unique = [], removed = [];
+  (Array.isArray(entries) ? entries : []).forEach(function(e) {
+    if (!e || typeof e !== "object") { unique.push(e); return; }
+    var base = e.date + "|" + e.cptCode + "|" + (Array.isArray(e.modifiers) ? e.modifiers.slice().sort().join(",") : "") + "|" + (e.encounterId || "") + "|" + (e.notes || "");
+    var ck = entryCallKey(e);
+    callSeen[base] = callSeen[base] === undefined || callSeen[base] === ck ? ck : "mixed";
+    var key = base + "|" + ck;
+    if (seen[key] === true) removed.push(e); else { seen[key] = true; unique.push(e); }
+  });
+  var mixed = Object.keys(callSeen).filter(function(k) { return callSeen[k] === "mixed"; }).length;
+  return { unique: unique, removed: removed, mixed: mixed };
+}
 // THE writer of a case's call fields (check.js G8): isCall, siteId + siteName
 // (Call at a CURRENT site; a case's own deleted site keeps its label) and the
 // credit flag, all decided together; the rest of `next` is copied as is and

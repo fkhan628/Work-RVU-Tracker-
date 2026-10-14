@@ -74,6 +74,10 @@ the per-file gates below. Run it after EVERY file change.
   finishRestore (check.js asserts parity), give it repairData +
   validateData shape rules, and read it as `(data.x || [])` - last-good
   recovery can return a snapshot that predates the field.
+- A repairData loss notice goes into lossMsgs (never a direct
+  showDataAlert from a rule): it is shown once and also returned as
+  fixed.loss, which recoverFromBad carries into its recovery banner
+  (showDataAlert keeps ONE bar; check.js pins this).
 - Call-pay math has ONE implementation in utils.js (payHolidayName,
   classifyPayEvent, computeShiftPay, rateInForce, plus the entry helpers
   addDaysYMD/payDefaultShiftDate/payStartBack, the shift-form draft rules
@@ -145,8 +149,10 @@ the per-file gates below. Run it after EVERY file change.
   the grey S.ncTag "no credit" tag and a dimmed wRVU; a partly flagged
   encounter card is "mixed". Exports keep every row and append a Credit
   column (Credited / No credit) LAST; CSV import never reads it back - it
-  warns first instead. Remove Duplicates keys on credit and reports
-  same-case pairs that differ only in credit. Each "Logged, no credit"
+  warns first instead. Remove Duplicates (utils.js entryDuplicateScan)
+  keys on the call fields - Call/Private, call site and credit
+  (entryCallKey) - and reports same-case copies that differ only in
+  them. Each "Logged, no credit"
   line opens History on its No credit chip with the same range (App's
   one-shot historyPreset; utils.js fiscalYearBoundsYMD/monthBoundsYMD);
   the chip shows only when something is flagged, and History's filtered
@@ -186,6 +192,14 @@ the per-file gates below. Run it after EVERY file change.
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).
+- wRVU overrides (rvuOverrides, { code: number }): getDB applies one only
+  when truthy - a stored 0 is inert (the code keeps its CMS value; check.js
+  pins it, since honoring 0 would silently zero that code on any phone that
+  holds one). The Settings editor badges and counts with the same test and
+  commits a row only on blur/Enter when its text changed (Escape reverts)
+  through rvuOverrideFromText: the CMS value removes the override; blank, 0
+  or junk is refused and the field reverts. Overrides reach only cases
+  logged, added, imported or re-coded later (entries keep their snapshot).
 - Log's one Save control is the 64px save bar (log.js; check.js counts
   onClick={save}), pinned once the active procedure has a code. While
   pinned, LogProc reports it (setLogBar) and App lifts the undo toast to

@@ -6,6 +6,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
   const [showEditor, setShowEditor] = useState(false);
+  const [rvuDraft, setRvuDraft] = useState(null); // wRVU editor: { code, text } of the row being typed in
+  const rvuEsc = useRef(false);                    // Escape pressed: that blur reverts instead of committing
   const [showRestore, setShowRestore] = useState(false);
   const [restoreText, setRestoreText] = useState("");
   const [backupStatus, setBackupStatus] = useState("");
@@ -466,12 +468,21 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     var n = parseFloat(v);
     if (!isNaN(n) && n >= 0) set(key, n);
   };
-  const setOverride = (code, val) => upd(prev => {
-    const o = { ...prev.rvuOverrides };
+  // wRVU editor: a row commits its typed draft on blur or Enter (Escape
+  // reverts) only when the text changed; rvuOverrideFromText (utils.js) is
+  // the rule. Nothing changed = no store write.
+  const commitOverride = (code, text) => {
     const orig = CPT_DATABASE_DEFAULT.find(c => c.code === code);
-    if (orig && Math.abs(val - orig.wRVU) < 0.001) { delete o[code]; } else { o[code] = val; }
-    return { ...prev, rvuOverrides: o };
-  });
+    const val = rvuOverrideFromText(text, orig ? orig.wRVU : undefined);
+    if (val === undefined) return;
+    const cur = data.rvuOverrides || {};
+    if (val === null ? cur[code] === undefined : cur[code] === val) return;
+    upd(prev => {
+      const o = { ...(prev.rvuOverrides || {}) };
+      if (val === null) delete o[code]; else o[code] = val;
+      return { ...prev, rvuOverrides: o };
+    });
+  };
   const resetOverrides = () => { if (confirm("Reset all wRVU values to CMS defaults?")) upd(prev => ({ ...prev, rvuOverrides: {} })); };
 
   const editFiltered = useMemo(() => {
@@ -628,41 +639,27 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   };
 
   const removeDuplicates = () => {
-    // Duplicate = same date + CPT + modifiers + PATIENT + NOTES. The old key
-    // ignored encounterId/notes and silently flattened legitimate same-day
-    // repeats (same code on two patients, or a deliberate repeat procedure).
-    // The confirm PREVIEWS exactly what will be removed, and the removal is
-    // undoable via the standard toast. (.slice() before .sort(): the old
-    // code sorted each entry's own modifiers array in place.)
-    // Credit is part of the key: a credited case and a no-credit copy of it
-    // are never merged - they are reported for the user to check instead.
-    var seen = {};
-    var unique = [];
-    var removed = [];
-    var credSeen = {};
-    data.entries.forEach(function(e) {
-      var base = e.date + "|" + e.cptCode + "|" + (e.modifiers || []).slice().sort().join(",") + "|" + (e.encounterId || "") + "|" + (e.notes || "");
-      var nc = isNoCredit(e);
-      credSeen[base] = credSeen[base] === undefined ? nc : (credSeen[base] === nc ? nc : "both");
-      var key = base + "|" + (nc ? "nc" : "");
-      if (!seen[key]) {
-        seen[key] = true;
-        unique.push(e);
-      } else {
-        removed.push(e);
-      }
-    });
-    var both = Object.keys(credSeen).filter(function(k) { return credSeen[k] === "both"; }).length;
-    var bothNote = both > 0 ? "\n\n" + both + " case" + (both === 1 ? " is" : "s are") + " logged both with and without credit - not removed. Check " + (both === 1 ? "it" : "them") + " in History." : "";
+    // Duplicate = same date + CPT + modifiers + PATIENT + NOTES + call fields
+    // (Call/Private, call site, credit) - the one rule is utils.js
+    // entryDuplicateScan. The old key ignored encounterId/notes and silently
+    // flattened legitimate same-day repeats (same code on two patients, or a
+    // deliberate repeat procedure). The confirm PREVIEWS exactly what will be
+    // removed, and the removal is undoable via the standard toast. Copies
+    // that differ only in Call/Private, call site or credit are never merged -
+    // they are reported for the user to check instead.
+    var scan = entryDuplicateScan(data.entries);
+    var unique = scan.unique, removed = scan.removed, mixed = scan.mixed;
+    var mixedNote = mixed > 0 ? "\n\n" + mixed + " case" + (mixed === 1 ? " is" : "s are") + " logged more than once with a different Call/Private, call site or credit - not removed. Check " + (mixed === 1 ? "it" : "them") + " in History." : "";
     if (removed.length === 0) {
-      alert("No duplicates found. (Same-day repeats with different patient initials, notes, or credit are not counted as duplicates.)" + bothNote);
+      alert("No duplicates found. (Same-day repeats with different patient initials, notes, Call/Private, call site or credit are not counted as duplicates.)" + mixedNote);
       return;
     }
     var preview = removed.slice(0, 8).map(function(e) {
-      return "  " + e.date + "  " + e.cptCode + "  " + (e.adjustedRVU || 0).toFixed(2) + " wRVU" + (e.encounterId ? "  " + e.encounterId : "") + (isNoCredit(e) ? "  no credit" : "");
+      var site = e.isCall ? entrySiteLabel(e, data.paySites || []) : "";
+      return "  " + e.date + "  " + e.cptCode + "  " + (e.adjustedRVU || 0).toFixed(2) + " wRVU" + (e.encounterId ? "  " + e.encounterId : "") + (e.isCall ? "  call" + (site ? " at " + site : "") : "") + (isNoCredit(e) ? "  no credit" : "");
     }).join("\n");
     if (removed.length > 8) preview += "\n  ...and " + (removed.length - 8) + " more";
-    if (confirm("Remove " + removed.length + " duplicate(s)? Exact copies only - same date, code, modifiers, patient, notes, and credit.\n\n" + preview + bothNote)) {
+    if (confirm("Remove " + removed.length + " duplicate(s)? Exact copies only - same date, code, modifiers, patient, notes, Call/Private, call site and credit.\n\n" + preview + mixedNote)) {
       upd(function(prev) { return { ...prev, entries: unique }; });
       if (showUndo) showUndo({ type: "delete", entries: removed, message: "Removed " + removed.length + " duplicate(s)" });
     }
@@ -674,7 +671,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const ncRVU = data.entries.reduce((s, e) => s + noCreditRVU(e), 0);
   const credCount = data.entries.length - ncCount;
   const avg = credCount > 0 ? tRVU / credCount : 0;
-  const overrideCount = Object.keys(data.rvuOverrides).length;
+  // Same test as getDB: only a truthy override is in force. A stored 0 is
+  // inert, so it is neither counted nor badged "custom".
+  const ovr = data.rvuOverrides || {};
+  const overrideCount = Object.keys(ovr).filter(k => ovr[k]).length;
 
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>Settings</h1></div>
@@ -984,7 +984,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         <div style={{ maxHeight: 300, overflowY: "auto", marginTop: 8, scrollbarWidth: "thin", scrollbarColor: "var(--border-default) transparent" }}>
           {editFiltered.slice(0, 30).map(cpt => {
             const orig = CPT_DATABASE_DEFAULT.find(c => c.code === cpt.code);
-            const isOverridden = data.rvuOverrides[cpt.code] !== undefined;
+            const isOverridden = !!ovr[cpt.code];
             return (<div key={cpt.code} style={{ display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.4)", gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
@@ -994,7 +994,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.friendly || cpt.desc}</div>
                 {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.desc}</div>}
               </div>
-              <input type="text" inputMode="decimal" value={cpt.wRVU} onChange={e => { const v = parseFloat(e.target.value); if (!isNaN(v) && v >= 0) setOverride(cpt.code, v); }} style={{ width: 65, padding: "4px 6px", background: isOverridden ? "rgba(251,191,36,0.1)" : "var(--bg-inset)", border: "1px solid " + (isOverridden ? "rgba(251,191,36,0.3)" : "var(--border-default)"), borderRadius: 6, color: "var(--text-bright)", fontSize: 13, fontFamily: "JetBrains Mono", fontWeight: 600, textAlign: "right", outline: "none" }} />
+              <input type="text" inputMode="decimal" value={rvuDraft && rvuDraft.code === cpt.code ? rvuDraft.text : String(cpt.wRVU)} placeholder={orig ? String(orig.wRVU) : ""} onFocus={function() { rvuEsc.current = false; setRvuDraft({ code: cpt.code, text: String(cpt.wRVU) }); }} onChange={function(e) { setRvuDraft({ code: cpt.code, text: e.target.value.replace(/,/g, ".").replace(/[^0-9.]/g, "") }); }} onKeyDown={function(e) { if (e.key === "Enter") { e.target.blur(); } else if (e.key === "Escape") { rvuEsc.current = true; e.target.blur(); } }} onBlur={function(e) { var t = e.target.value; var esc = rvuEsc.current; rvuEsc.current = false; setRvuDraft(null); if (!esc && t !== String(cpt.wRVU)) commitOverride(cpt.code, t); }} style={{ width: 65, padding: "4px 6px", background: isOverridden ? "rgba(251,191,36,0.1)" : "var(--bg-inset)", border: "1px solid " + (isOverridden ? "rgba(251,191,36,0.3)" : "var(--border-default)"), borderRadius: 6, color: "var(--text-bright)", fontSize: 13, fontFamily: "JetBrains Mono", fontWeight: 600, textAlign: "right", outline: "none" }} />
             </div>);
           })}
           {editFiltered.length > 30 && <div style={{ fontSize: 11, color: "var(--text-faint)", padding: 8, textAlign: "center" }}>Showing 30 of {editFiltered.length} - narrow your search</div>}

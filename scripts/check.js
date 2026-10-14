@@ -162,6 +162,25 @@ if (defObj && loadObj && restoreObj) {
   check("finishRestore carries every defState field", diff(dk, rk).length === 0 && diff(rk, dk).length === 0,
     "missing: " + diff(dk, rk).join(", ") + " | extra: " + diff(rk, dk).join(", "));
 }
+// wRVU editor: the row input (the one whose value reads rvuDraft) writes the
+// store only through commitOverride in its onBlur; no other handler on it
+// calls commitOverride or upd, and commitOverride has no other caller (a
+// keystroke or effect commit would bring back the 1021-for-10.21 bug).
+const edCalls = (n, names) => { let c = 0; walk(n, x => { if (x.type === "CallExpression" && x.callee && x.callee.type === "Identifier" && names.indexOf(x.callee.name) !== -1) c++; }); return c; };
+const edUses = (n, name) => { let hit = false; walk(n, x => { if (x.type === "Identifier" && x.name === name) hit = true; }); return hit; };
+const edAttr = (n, name) => n.attributes.find(a => a.type === "JSXAttribute" && a.name && a.name.name === name);
+const edInputs = [];
+if (settingsAst) walk(settingsAst.program, n => {
+  if (n.type !== "JSXOpeningElement" || !n.name || n.name.name !== "input") return;
+  const v = edAttr(n, "value");
+  if (v && edUses(v, "rvuDraft")) edInputs.push(n);
+});
+const edBlur = edInputs.length === 1 ? edAttr(edInputs[0], "onBlur") : null;
+const edBad = edInputs.length === 1 ? edInputs[0].attributes.filter(a => a.type === "JSXAttribute" && a.name && /^on/.test(a.name.name) && a.name.name !== "onBlur" && edCalls(a, ["commitOverride", "upd"]) > 0).map(a => a.name.name) : [];
+const edCommitAll = settingsAst ? edCalls(settingsAst.program, ["commitOverride"]) : -1;
+check("wRVU editor: no override write on a keystroke (the row input commits only via commitOverride in its onBlur; no other handler calls commitOverride or upd)",
+  settingsSrc.indexOf("setOverride(") === -1 && edInputs.length === 1 && !!edBlur && edCalls(edBlur, ["commitOverride"]) === 1 && edCommitAll === 1 && edBad.length === 0,
+  JSON.stringify({ inputs: edInputs.length, blurCommits: edBlur ? edCalls(edBlur, ["commitOverride"]) : 0, commitAll: edCommitAll, bad: edBad }));
 
 // 5d. wRVU credit: isNoCredit / creditedRVU / noCreditRVU (top level of
 // utils.js) are the ONE rule deciding whether a case counts toward wRVU and
@@ -656,6 +675,22 @@ if (sb) {
     order("49505", { "10021": 50 }) + " | " + order("4950", { "10021": 50 }));
   const plain = sb.rankCPTMatches(herniaHits, "hernia", {}, []);
   check("rankCPTMatches: no usage/favorites = CPT order (stable)", plain.every((c, i) => c === herniaHits[i]));
+
+  // wRVU overrides. getDB applies an override only when truthy: a stored 0
+  // (the old keystroke editor could save one) stays inert - the code keeps its
+  // CMS value. Honoring 0 would silently zero that code on any phone holding
+  // one, so this is pinned. rvuOverrideFromText is the editor's commit rule:
+  // null = remove, number = set, undefined = refuse and revert.
+  const ovC = db0[0].code, ovCms = db0[0].wRVU;
+  const ovOf = o => sb.getDB(o).find(c => c.code === ovC).wRVU;
+  const ovSet = v => { const o = {}; o[ovC] = v; return o; };
+  check("getDB: a truthy override applies; a stored 0 keeps the CMS value",
+    ovOf(ovSet(5.5)) === 5.5 && ovOf(ovSet(0)) === ovCms && ovOf({}) === ovCms && ovOf(undefined) === ovCms);
+  const OVT = [["", 6.2, undefined], ["  ", 6.2, undefined], [null, 6.2, undefined], ["6.2", 6.2, null], ["6.20", 6.2, null], ["10.", 6.2, 10], ["10.5", 6.2, 10.5], [".5", 6.2, 0.5],
+    ["0", 6.2, undefined], ["0.0", 6.2, undefined], [".", 6.2, undefined], ["1.2.3", 6.2, undefined], ["abc", 6.2, undefined], ["-1", 6.2, undefined], ["7", undefined, 7]];
+  const ovtBad = OVT.filter(t => sb.rvuOverrideFromText(t[0], t[1]) !== t[2]);
+  check("rvuOverrideFromText: the CMS value removes, a positive number sets, blank/0/junk is refused (" + OVT.length + " cases)", ovtBad.length === 0,
+    ovtBad.map(t => JSON.stringify(t[0]) + " -> " + JSON.stringify(sb.rvuOverrideFromText(t[0], t[1]))).join(", "));
 
   // Global-period chips: every database code's chip equals its CMS value
   // (independent copy of the approved label map), plus spot checks pinned to
@@ -1419,6 +1454,51 @@ if (sb) {
       writes.length === w3start && banners2.length === b3start && warns.length === warn3start,
       JSON.stringify({ w1: w1, b1: b1, warn1: warn1, w2: w2, b2: b2, warn2: warn2, w3: writes.length - w3start }));
   } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realAlert2; }
+  // Last-good recovery keeps repairData's loss notice. showDataAlert keeps
+  // ONE bar, so the recovery banner (the last one shown) must carry the
+  // snapshot's fixed.loss text; the discarded primary's notice must not
+  // appear; a clean snapshot's banner and the recovered data are unchanged.
+  const realLS8 = sb.localStorage, realConsole8 = sb.console, realAlert8 = sb.showDataAlert;
+  try {
+    const mem = {}, seen = [];
+    sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null), setItem: (k, v) => { mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+    sb.console = { log: () => {}, warn: () => {}, error: () => {} };
+    sb.showDataAlert = (m, f) => seen.push([m, f]);
+    const SK8 = vm.runInContext("SK", sb), LG8 = sb.LAST_GOOD_KEY, CK8 = sb.CORRUPT_KEY;
+    const LOSS8 = "The no-credit mark on procedure 2026-03-11 47561 was unreadable and removed - it counts for wRVU credit, as before. Check it in History.";
+    const fL = sb.repairData(ncStore([ncE(1, "x")])), bL = seen.map(s => s[0]);
+    const fN = sb.repairData(ncStore([ncE(1, true)])), bN = seen.length - bL.length;
+    // Primary fails validation (a non-numeric rate) and carries its own garbled mark (47563).
+    const bad8 = JSON.stringify({ entries: [ncE(3, "y")], settings: { ratePerRVU: "abc" } });
+    const last8 = () => seen[seen.length - 1];
+    mem[sb.LAST_GOOD_TIME_KEY] = "T0";
+    mem[SK8] = bad8; mem[LG8] = JSON.stringify(ncStore([ncE(2, true)]));
+    const rC = sb.loadData(), bC = last8();
+    mem[SK8] = bad8; mem[LG8] = JSON.stringify(ncStore([ncE(1, "x"), ncE(2, true)])); delete mem[CK8];
+    const rL = sb.loadData(), bLg = last8();
+    mem[SK8] = bad8; delete mem[LG8];
+    const rE = sb.loadData(), bE = last8();
+    // A lossy snapshot that itself fails validation is not used, so its loss
+    // text must stay out of the FAILED banner.
+    mem[SK8] = bad8; mem[LG8] = JSON.stringify(Object.assign(ncStore([ncE(1, "x")]), { settings: { ratePerRVU: "abc" } }));
+    const rF = sb.loadData(), bF = last8();
+    const HEAD8 = "DATA RECOVERY: your saved data failed validation. An older snapshot (saved T0) was loaded instead - anything logged after that snapshot is NOT in the app right now.";
+    check("repairData exposes its loss text as fixed.loss (same text as its banner; length unchanged); in-shape data has none",
+      fL.loss === LOSS8 && bL.length === 1 && bL[0] === LOSS8 && fL.length === 1 && fL[0] === "entries.noCredit" &&
+      fN.loss === undefined && fN.length === 0 && bN === 0,
+      JSON.stringify({ fL: fL, loss: fL.loss, bL: bL, fN: fN, bN: bN }));
+    check("last-good recovery: the recovery banner carries the snapshot's loss notice (not the discarded primary's); clean snapshot and failed-recovery banners unchanged; data unchanged",
+      bC[0].indexOf(HEAD8 + " The unreadable data was preserved") === 0 && bC[0].indexOf("In that snapshot") === -1 && bC[1] === sb.clearCorruptCopy &&
+      bLg[0] === bC[0].replace(HEAD8, HEAD8 + " In that snapshot: " + LOSS8) && bLg[1] === sb.clearCorruptCopy &&
+      seen.some(s => s[0].indexOf("2026-03-13 47563") !== -1) && bLg[0].indexOf("47563") === -1 && !/[^\x00-\x7f]/.test(bLg[0]) && mem[CK8] === bad8 &&
+      JSON.stringify(rC) === JSON.stringify(ncStore([ncE(2, true)])) &&
+      JSON.stringify(rL) === JSON.stringify(ncStore([ncE(1), ncE(2, true)])) &&
+      bE[0].indexOf("DATA RECOVERY FAILED: your saved data failed validation and no valid snapshot exists") === 0 && bE[0].indexOf("In that snapshot") === -1 &&
+      rE.entries.length === 0 && sb.validateData(rE) === true &&
+      bF[0].indexOf("DATA RECOVERY FAILED") === 0 && bF[0].indexOf("In that snapshot") === -1 && bF[0].indexOf("47561") === -1 &&
+      seen.some(s => s[0] === LOSS8 && s !== bF) && rF.entries.length === 0,
+      JSON.stringify({ bC: bC[0], bLg: bLg[0], bE: bE[0], bF: bF[0] }));
+  } finally { sb.localStorage = realLS8; sb.console = realConsole8; sb.showDataAlert = realAlert8; }
 
   // ---- 7b: call cases and wRVU credit (made-up site names; built-in names
   // come from DEFAULT_PAY_SITES at run time) ----
@@ -1716,6 +1796,40 @@ if (sb) {
     const nullFY = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.fiscalYearBoundsYMD(v) === null);
     check("monthBoundsYMD / fiscalYearBoundsYMD: inclusive local-parts ranges (leap years, a Feb 29 start ends Feb 28), null for bad input",
       badMB.length === 0 && nullMB && badFY.length === 0 && nullFY, JSON.stringify({ badMB: badMB, badFY: badFY, nullMB: nullMB, nullFY: nullFY }));
+  }
+
+  {
+    // Settings "Remove Duplicates": exact copies only - Call/Private, call
+    // site and credit are part of the key; copies differing only in them are
+    // kept and counted in mixed.
+    const E7 = { id: "st-e", name: "East", weekendDays: [0, 6], casesEarnRVU: true, rates: [] };
+    const SD = [N7, C7, E7];
+    const at = (d, id, key, sites) => sb.entryWithCall(Object.assign(lit7(d), { id: id }), null, true, key, sites || SD, true);
+    const d0 = Object.assign(lit7("2026-09-20"), { id: "d0", isCall: false, modifiers: ["-22", "-59"] }); // Private
+    const d1 = Object.assign(lit7("2026-09-20"), { id: "d1", modifiers: ["-59", "-22"] });                // siteless Call, credited
+    const d2 = Object.assign(lit7("2026-09-20"), { id: "d2", isCall: false, modifiers: ["-59", "-22"] }); // copy of d0
+    const a1 = at("2026-10-05", "a1", "st-c"), a2 = at("2026-10-05", "a2", "st-e"), a3 = at("2026-10-05", "a3", "st-c"); // a3 copies a1
+    const n1 = at("2026-10-06", "n1", "st-n"), n2 = at("2026-10-06", "n2", "st-n", [sb.paySiteWithCredit(N7, true)]); // same site, credit differs
+    const o1 = Object.assign(lit7("2026-09-20"), { id: "o1", isCall: false, modifiers: ["-22", "-59"], encounterId: "XY" }); // other patient
+    const o2 = Object.assign(lit7("2026-09-20"), { id: "o2", isCall: false, modifiers: ["-22", "-59"], notes: "CD" });       // other notes
+    const o3 = Object.assign(lit7("2026-09-20"), { id: "o3", isCall: false, modifiers: ["-22", "-59"], cptCode: "47563" });  // other code
+    const DE = [d0, d1, null, a1, d2, a2, n1, a3, n2, o1, o2, o3], deJ = JSON.stringify(DE);
+    const ds = sb.entryDuplicateScan(DE);
+    const ids = l => l.map(e => e ? e.id : String(e)).join(",");
+    const empty = sb.entryDuplicateScan(null);
+    // The new key only splits the old one (base + credit), so it never
+    // removes a case the old rule kept.
+    const oldSeen = {}, oldRemoved = [];
+    DE.forEach(e => { if (!e) return; const k = e.date + "|" + e.cptCode + "|" + e.modifiers.slice().sort().join(",") + "|" + (e.encounterId || "") + "|" + (e.notes || "") + "|" + (sb.isNoCredit(e) ? "nc" : ""); if (oldSeen[k]) oldRemoved.push(e.id); else oldSeen[k] = true; });
+    check("entryDuplicateScan: exact copies only (Call/Private, call site and credit in the key); copies differing only in them kept and counted; order kept, inputs untouched; Settings uses it",
+      ids(ds.removed) === "d2,a3" && ids(ds.unique) === "d0,d1,null,a1,a2,n1,n2,o1,o2,o3" && ds.mixed === 3 &&
+      sb.isNoCredit(n1) && !sb.isNoCredit(n2) && !sb.isNoCredit(a1) && !sb.isNoCredit(a2) &&
+      ds.unique[0] === d0 && ds.removed[1] === a3 && JSON.stringify(DE) === deJ &&
+      ds.removed.every(e => oldRemoved.indexOf(e.id) !== -1) &&
+      sb.entryDuplicateScan([d0, d2]).mixed === 0 && sb.entryDuplicateScan([d0, d1]).removed.length === 0 &&
+      empty.unique.length === 0 && empty.removed.length === 0 && empty.mixed === 0 &&
+      settingsSrc.indexOf("entryDuplicateScan(data.entries)") !== -1,
+      JSON.stringify({ removed: ids(ds.removed), unique: ids(ds.unique), mixed: ds.mixed, oldRemoved: oldRemoved }));
   }
 }
 
