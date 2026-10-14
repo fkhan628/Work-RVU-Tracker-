@@ -31,7 +31,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   // so the two chip rows always offer the same set.
   var availableYears = useMemo(function() {
     return availableDataYears(data);
-  }, [data.entries, data.institutionData, data.acuteMonths]);
+  }, [data.entries, data.institutionData, data.acuteMonths, data.payShifts]);
   var isCurrent = selectedYear === "current";
   var year = isCurrent ? String(now.getFullYear()) : selectedYear;
 

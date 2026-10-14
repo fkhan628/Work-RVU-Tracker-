@@ -11,7 +11,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // two chip rows can never drift.
   var availableYears = useMemo(function() {
     return availableDataYears(data);
-  }, [entries, instData, data.acuteMonths]);
+  }, [entries, instData, data.acuteMonths, data.payShifts]);
 
   var currentFiscalYear = settings.yearStart ? settings.yearStart.slice(0, 4) : String(now.getFullYear());
   var [selectedYear, setSelectedYear] = useState("current");
@@ -160,21 +160,42 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   });
   var clinicOther = overlapRecon - overlapOR - overlapMyAcute;
 
-  // Previous year comparison
+  // Prior Year (Institution) card: the WHOLE prior year of institution rows.
+  // (vs. Prior Year below compares the same span instead - see yoy.)
   var prevYearRVU = useMemo(function() {
     var prevStart = new Date(ys); prevStart.setFullYear(prevStart.getFullYear() - 1);
     var prevEnd = new Date(ys);
-    var prevEntries = entries.filter(function(e) { var d = new Date(e.date + "T12:00:00"); return d >= prevStart && d < prevEnd; });
-    var prevTracked = prevEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
     var prevInst = instData.filter(function(d) { var dDate = new Date(d.month + "-01"); return dDate >= prevStart && dDate < prevEnd; });
     var prevInstTotal = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
     var prevInstWork = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0); }, 0);
     var prevInstSplit = prevInst.reduce(function(s, d) { return s + (d.splitRVU || 0); }, 0);
-    if (prevInstTotal > 0 || prevTracked > 0) {
-      return { total: hasInst ? prevInstTotal : prevTracked, hasData: true, instTotal: prevInstTotal, instWork: prevInstWork, instSplit: prevInstSplit, monthCount: prevInst.length };
-    }
-    return { total: 0, hasData: false, instTotal: 0, instWork: 0, instSplit: 0, monthCount: 0 };
-  }, [entries, instData, ys, hasInst]);
+    return { instTotal: prevInstTotal, instWork: prevInstWork, instSplit: prevInstSplit, monthCount: prevInst.length };
+  }, [instData, ys]);
+
+  // vs. Prior Year: the SAME span on both sides, string date keys only.
+  // Tracked: the year window (cpFrom) cut at today while today is inside it,
+  // vs the same span a year earlier (priorSpanYMD); a past-year chip, or a
+  // year already over, compares whole years. Credited wRVU only
+  // (creditedRVU). With institution data (hasInst - the tracks never blend)
+  // it compares Compare months: this period's entered months (reconKeys)
+  // that ALSO have the month a year earlier, so a month missing on either
+  // side drops out of both (no matched month hides the card).
+  var yoySpan = priorSpanYMD(cpFrom, todayLocal());
+  var yoy = { cur: 0, prev: 0, months: 0 };
+  if (hasInst) {
+    reconKeys.forEach(function(k) {
+      var pk = (+k.slice(0, 4) - 1) + k.slice(4);
+      if (instByMonth[pk] === undefined) return;
+      yoy.cur += instByMonth[k]; yoy.prev += instByMonth[pk]; yoy.months++;
+    });
+  } else if (yoySpan) {
+    entries.forEach(function(e) {
+      if (e.date >= yoySpan.cur.start && e.date <= yoySpan.cur.end) yoy.cur += creditedRVU(e);
+      else if (e.date >= yoySpan.prev.start && e.date <= yoySpan.prev.end) yoy.prev += creditedRVU(e);
+    });
+  }
+  var yoyLabel = hasInst ? "Same " + yoy.months + " month" + (yoy.months === 1 ? "" : "s") + ", prior year"
+    : (yoySpan && yoySpan.toDate ? "Same period last year (to " + fmtShort(yoySpan.cur.end) + ")" : "Prior full year");
 
   // Compensation calculations
   var goalComp = settings.annualGoal * settings.ratePerRVU;
@@ -275,17 +296,17 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(tComp, showComp)}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
     </div>
 
-    {/* Year-over-year comparison */}
-    {prevYearRVU.hasData && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.02)" }}>
+    {/* Year-over-year comparison - the same span on both sides (yoy) */}
+    {yoy.prev > 0 && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.02)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>vs. Prior Year</div>
-          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>Same period last year: {prevYearRVU.total.toFixed(0)} wRVUs</div>
+          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{yoyLabel}: {yoy.prev.toFixed(0)} wRVUs</div>
         </div>
         <div style={{ textAlign: "right" }}>
           {(function() {
-            var yoyDiff = tRVU - prevYearRVU.total;
-            var yoyPct = prevYearRVU.total > 0 ? ((yoyDiff / prevYearRVU.total) * 100) : 0;
+            var yoyDiff = yoy.cur - yoy.prev;
+            var yoyPct = (yoyDiff / yoy.prev) * 100;
             return <>
               <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: yoyDiff >= 0 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>{yoyDiff >= 0 ? "+" : ""}{yoyDiff.toFixed(0)}</div>
               <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#64748b" }}>{yoyDiff >= 0 ? "+" : ""}{yoyPct.toFixed(1)}%</div>

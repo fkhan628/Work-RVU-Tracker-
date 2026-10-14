@@ -1396,6 +1396,10 @@ if (sb) {
     timeEdit === "",
     [editTo(myFri, standOf(myFri), SIL, "2026-10-16"), editTo(silTue, standOf(silTue), DAV, "2026-10-13"), editTo(davThu, standOf(davThu), SIL, "2026-10-15"), timeEdit].join(" | "));
   check("payShiftYears: distinct, newest first, bad dates ignored", sb.payShiftYears(tShifts.concat([{ date: "junk" }, null])).join(",") === "2026,2025");
+  check("availableDataYears: entries, institution, acute AND call-pay-only years, newest first; missing/bad payShifts safe",
+    sb.availableDataYears({ entries: [{ date: "2026-03-02" }], institutionData: [{ month: "2025-11" }], acuteMonths: { "2025-12": {} }, payShifts: [{ date: "2023-07-04" }, { date: "2026-01-01" }, { date: "junk" }, null] }).join(",") === "2026,2025,2023" &&
+    sb.availableDataYears({ entries: [], institutionData: [], acuteMonths: {} }).join(",") === "" &&
+    sb.availableDataYears({ entries: [], payShifts: "bad" }).join(",") === "");
   const noTime = sb.payShiftFromDraft(draft({ events: [dEv({ time: "" })] }), S1, null).shift;
   check("start time never changes pay", CONTRACT.every(s => sb.computeShiftPay(s) !== null) && sb.computeShiftPay(noTime).total === sb.computeShiftPay(CONTRACT[0]).total);
   // creditedRVU: strict noCredit === true gives 0; anything else passes the
@@ -1813,6 +1817,28 @@ if (sb) {
     const nullFY = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.fiscalYearBoundsYMD(v) === null);
     check("monthBoundsYMD / fiscalYearBoundsYMD: inclusive local-parts ranges (leap years, a Feb 29 start ends Feb 28), null for bad input",
       badMB.length === 0 && nullMB && badFY.length === 0 && nullFY, JSON.stringify({ badMB: badMB, badFY: badFY, nullMB: nullMB, nullFY: nullFY }));
+  }
+
+  {
+    // vs. Prior Year (Dashboard): the year cut at today while today is inside
+    // it, whole years otherwise; the prior side is the same span a year back
+    // and never overlaps the current one (a Feb 29 bound stays "YYYY-02-29").
+    const PS = [ // [ys, today, cur.start, cur.end, prev.start, prev.end, toDate]
+      ["2026-01-01", "2026-10-14", "2026-01-01", "2026-10-14", "2025-01-01", "2025-10-14", true],
+      ["2026-07-01", "2026-10-14", "2026-07-01", "2026-10-14", "2025-07-01", "2025-10-14", true],
+      ["2026-07-01", "2027-03-10", "2026-07-01", "2027-03-10", "2025-07-01", "2026-03-10", true],
+      ["2026-01-01", "2026-01-01", "2026-01-01", "2026-01-01", "2025-01-01", "2025-01-01", true],
+      ["2028-01-01", "2028-02-29", "2028-01-01", "2028-02-29", "2027-01-01", "2027-02-29", true],
+      ["2028-02-29", "2028-06-01", "2028-02-29", "2028-06-01", "2027-02-29", "2027-06-01", true],
+      ["2026-01-01", "2026-12-31", "2026-01-01", "2026-12-31", "2025-01-01", "2025-12-31", false],
+      ["2025-01-01", "2026-10-14", "2025-01-01", "2025-12-31", "2024-01-01", "2024-12-31", false],
+      ["2027-01-01", "2026-10-14", "2027-01-01", "2026-10-14", "2026-01-01", "2025-10-14", true],
+      ["2026-01-01", "", "2026-01-01", "2026-12-31", "2025-01-01", "2025-12-31", false],
+    ];
+    const badPS = PS.filter(t => { const r = sb.priorSpanYMD(t[0], t[1]); return !r || r.cur.start !== t[2] || r.cur.end !== t[3] || r.prev.start !== t[4] || r.prev.end !== t[5] || r.toDate !== t[6] || !(r.prev.end < r.cur.start); });
+    const nullPS = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.priorSpanYMD(v, "2026-10-14") === null);
+    check("priorSpanYMD: to-date same span a year back while today is in the year, whole years otherwise, never overlapping; null for a bad start",
+      badPS.length === 0 && nullPS, JSON.stringify({ badPS: badPS, nullPS: nullPS }));
   }
 
   {

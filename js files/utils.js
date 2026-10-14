@@ -1411,6 +1411,22 @@ function fiscalYearBoundsYMD(ys) {
   return { start: ys, end: addDaysYMD(next, -1) };
 }
 
+// vs. Prior Year (Dashboard): the year window starting on ys, cut at today
+// while today is inside it, and the SAME span one year earlier -
+// { cur: { start, end }, prev: { start, end }, toDate }, inclusive
+// "YYYY-MM-DD" strings - else null. A window that does not contain today
+// (a past year, a year already over) is compared whole; before the year
+// starts both spans are empty. A bound moved back a year stays a plain
+// string: Feb 29 becomes "YYYY-02-29" of a common year, which still sorts
+// between Feb 28 and Mar 1. Only cur.end is ever displayed.
+function priorSpanYMD(ys, today) {
+  var fy = fiscalYearBoundsYMD(ys);
+  if (!fy) return null;
+  var back = function(k) { return (+k.slice(0, 4) - 1) + k.slice(4); };
+  var end = isYMD(today) && today < fy.end ? today : fy.end;
+  return { cur: { start: fy.start, end: end }, prev: { start: back(fy.start), end: back(end) }, toDate: end !== fy.end };
+}
+
 // --- Acute care group split math (single implementation - do not duplicate) ---
 // Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in
 // decimal but 16.004999... in binary floats, and naive toFixed(2) would display
@@ -1896,13 +1912,16 @@ function payDraftRefresh(d, site, today, nowHM, rate) {
 }
 
 // Years that have ANY data (logged entries, institution months, acute
-// months), newest first. Shared by the Dashboard and Trends year chips so
-// the two surfaces can never drift. Callers wrap in useMemo.
+// months, call-pay shifts via payShiftYears), newest first. Shared by the
+// Dashboard and Trends year chips so the two surfaces can never drift (a
+// call-pay-only year shows Home's Call pay line and Trends' empty states).
+// Callers wrap in useMemo with data.payShifts among the deps.
 function availableDataYears(data) {
   var ySet = {};
   (data.entries || []).forEach(function(e) { if (e && e.date) ySet[e.date.slice(0, 4)] = true; });
   (data.institutionData || []).forEach(function(d) { if (d && d.month) ySet[d.month.slice(0, 4)] = true; });
   Object.keys(data.acuteMonths || {}).forEach(function(mk) { ySet[mk.slice(0, 4)] = true; });
+  payShiftYears(data.payShifts).forEach(function(y) { ySet[y] = true; });
   return Object.keys(ySet).sort().reverse();
 }
 
