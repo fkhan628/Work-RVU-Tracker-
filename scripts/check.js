@@ -624,7 +624,7 @@ check("hooks before any conditional return (every component in the Babel files)"
   jsFiles.filter(f => PLAIN_FILES.indexOf(f) === -1).forEach(f => {
     try { eyeAsts[f] = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS); } catch (e) { eyeAsts[f] = null; }
   });
-  const badFmt = [], fmtFiles = [], eyeMissing = [];
+  const badFmt = [], fmtFiles = [], eyeMissing = [], eyeCount = {};
   Object.keys(eyeAsts).forEach(f => {
     const a = eyeAsts[f]; if (!a) { badFmt.push(f + ": parse"); return; }
     let calls = 0, eyes = 0;
@@ -633,13 +633,28 @@ check("hooks before any conditional return (every component in the Babel files)"
         calls++;
         if (n.arguments.length !== 2 || n.arguments[1].type !== "Identifier" || n.arguments[1].name !== "showComp") badFmt.push(f + ":" + n.loc.start.line);
       }
-      if (n.type === "JSXOpeningElement" && n.name && n.name.name === "CompEye") eyes++;
+      if (n.type === "JSXOpeningElement" && n.name && n.name.name === "CompEye") {
+        eyes++;
+        // CompEye renders null without toggleComp: every use passes both
+        // props straight from the view's own showComp / toggleComp.
+        ["showComp", "toggleComp"].forEach(p => {
+          const a = n.attributes.filter(x => x.type === "JSXAttribute" && x.name && x.name.name === p)[0];
+          if (!a || !a.value || a.value.type !== "JSXExpressionContainer" || a.value.expression.type !== "Identifier" || a.value.expression.name !== p) eyeMissing.push(f + ":" + n.loc.start.line + " " + p);
+        });
+      }
     });
+    eyeCount[f] = eyes;
     if (calls > 0) fmtFiles.push(f);
     if ((calls > 0 || f === "callpay.js") && eyes === 0) eyeMissing.push(f);
   });
-  check("5f: every fmtDollar call passes showComp; every view that masks $ (and Call Pay) renders CompEye",
+  check("5f: every fmtDollar call passes showComp; every view that masks $ (and Call Pay) renders CompEye with both props",
     badFmt.length === 0 && eyeMissing.length === 0 && fmtFiles.length >= 4, JSON.stringify({ badFmt: badFmt, eyeMissing: eyeMissing, fmtFiles: fmtFiles }));
+  // One eye per place $ is masked: Trends header + month detail + Monthly
+  // Report; Compare card; More's Summary Stats; Home; Call Pay's shared
+  // eyeBtn. Removing any one of them (or adding a stray one) fails here.
+  const EYES = { "analytics.js": 3, "compare.js": 1, "settings.js": 1, "dashboard.js": 1, "callpay.js": 1 };
+  const eyeOff = Object.keys(eyeAsts).filter(f => (eyeCount[f] || 0) !== (EYES[f] || 0)).map(f => f + "=" + (eyeCount[f] || 0));
+  check("5f: CompEye count per file matches each masked place (" + JSON.stringify(EYES).replace(/"/g, "") + ")", eyeOff.length === 0, eyeOff.join(", "));
   const appAst = eyeAsts["app.js"];
   const topEye = appAst ? appAst.program.body.filter(n => n.type === "FunctionDeclaration" && n.id && n.id.name === "CompEye").length : 0;
   const otherDecl = jsFiles.filter(f => f !== "app.js" && /(function|var|let|const|class)\s+CompEye\b/.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));

@@ -625,12 +625,9 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     {showSummary && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.25)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div style={S.cardLabel}>Monthly Report</div>
-        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-          <input type="month" value={summaryMonth} onChange={function(e) { setSummaryMonth(e.target.value); }} style={{ ...S.dateInput, fontSize: 12, padding: "4px 8px" }} />
-          <CompEye showComp={showComp} toggleComp={toggleComp} />
-        </div>
+        <input type="month" value={summaryMonth} onChange={function(e) { setSummaryMonth(e.target.value); }} style={{ ...S.dateInput, fontSize: 12, padding: "4px 8px" }} />
       </div>
-      <div style={{ fontSize: 16, fontWeight: 700, color: "#f8fafc", marginBottom: 12 }}>{summaryMonthName(summaryMonth)}</div>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12 }}><div style={{ fontSize: 16, fontWeight: 700, color: "#f8fafc" }}>{summaryMonthName(summaryMonth)}</div><CompEye showComp={showComp} toggleComp={toggleComp} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <div style={{ background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
           <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 700 }}>{summaryData.totalRVU.toFixed(1)}</div>
