@@ -65,6 +65,14 @@ the per-file gates below. Run it after EVERY file change.
 - index.html + the two load arrays + the files they name are an ATOMIC
   deploy set: a file shipped without its array entry (or vice versa) is a
   white screen. check.js catches this — keep it green before pushing.
+- Day/Night call pay ships in two commits: the READER (ASSET_V 37 -
+  utils.js payEffKey / payRateIsTyped / payShiftIsTyped, a null `effective`
+  as the Original, typed shapes passed through repairData untouched,
+  unpriced and never re-priced; callpay.js placeholders) and the FEATURE on
+  top of it. Roll the feature back by reverting ITS commit only, never the
+  reader, and bump ASSET_V again: a build without the reader drops every
+  typed version, typed shift and Original-priced shift on its first load
+  (announced in a banner, but permanent on that device).
 - Commit and push from `RVU App Split/` (the repo root). Never commit
   billing data (`RVU Wallet Data/`), CMS source files (`CMS 2026/`), or
   any partner name — the repo is public and the roster is runtime user
@@ -134,7 +142,8 @@ the per-file gates below. Run it after EVERY file change.
   payWeOrHol, payReclassShift, payUndoApply, the
   whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, the
   Dashboard's payTotalInRange (a separate line, never added to Comp),
-  re-pricing payRatesDiffer/payShiftStale/payRepriceShift, the shift
+  re-pricing payRatesDiffer/payShiftStale/payRepriceShift, the version-kind
+  readers payEffKey/payRateIsTyped/payShiftIsTyped, the shift
   editor's "Use current rates" payDraftUseCurrent (its stipend-length rule;
   a Day/Night call-in on a day the site counts as weekend - listed by
   payDraftWeekendPicks - becomes a weekend call-in only when the user
@@ -163,6 +172,25 @@ the per-file gates below. Run it after EVERY file change.
   output must pass repairData unchanged (check.js contract tests) -
   otherwise every load silently rewrites user data. utils.js must stay loadable in check.js's vm sandbox: a
   new top-level browser-API call needs a stub there, not a skipped test.
+- Day/Night rate versions (the reader, ASSET_V 37): a site's `rates` list
+  holds two kinds - LEGACY (the stipend / fee / hourly shape above) and
+  TYPED (`shiftTypes`; a typed shift's rate copy holds the one `shiftType`
+  it was priced with). `effective: null` is the site's Original rates:
+  cleanPayRate accepts it, rateInForce treats it as earlier than any date,
+  and every compare of version starts goes through payEffKey (never
+  `a.effective < b.effective`). This build only READS the typed shapes:
+  repairData keeps a typed version or a typed shift exactly as it is (no
+  check, no tag, no banner - the feature commit replaces this with the full
+  rules); computeShiftPay returns null for a typed shift (counted, never
+  summed); payDraftRate never chooses a typed version in force (the form
+  reports "no rates" instead of saving a shift it cannot price);
+  payShiftStale is false and payRepriceShift null whenever the shift copy or
+  the version in force is typed (re-pricing never crosses kinds - a typed
+  version inside a legacy shift would be dropped by an older build).
+  callpay.js: a typed version is a one-line placeholder with Delete only, a
+  typed shift row opens nothing but an explanation, a null date reads
+  "Original" (never "null"), and the version sort and the form's pre-fill
+  use payEffKey and skip typed versions.
 - CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
   rankCPTMatches only reorders them (exact, prefix, usage, favorites,
   CPT order). Log and History both use it; check.js pins it.

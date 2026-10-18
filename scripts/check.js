@@ -1349,7 +1349,13 @@ if (sb) {
   // owner's confirmed worked examples must come out to the cent through the
   // preset, priced via rateInForce on dates after the Oct 1 2026 effective.
   const defs = sb.defaultPaySites();
-  const SIL = defs.filter(s => s.name === "Silvis")[0], DAV = defs.filter(s => s.name === "Davenport")[0];
+  // DAVT is the preset Davenport as shipped. DAV is the SAME site with only
+  // its LEGACY rate version(s), re-dated 2026-10-01: every legacy fixture
+  // below (WORKED, FLOWS, DEFH, the edit flows) prices October dates through
+  // it, so those pinned figures prove pre-change pay is unchanged whatever
+  // the preset's Day/Night version does. A legacy version has no shiftTypes.
+  const SIL = defs.filter(s => s.name === "Silvis")[0], DAVT = defs.filter(s => s.name === "Davenport")[0];
+  const DAV = Object.assign({}, DAVT, { rates: DAVT.rates.filter(r => !Array.isArray(r.shiftTypes)).map(r => Object.assign({}, r, { effective: "2026-10-01" })) });
   const work = (site, shiftDate, hrs, evDate, time, h) => {
     const r = sb.rateInForce(site, shiftDate);
     const cls = sb.classifyPayEvent(evDate, time, site.weekendDays);
@@ -1388,6 +1394,44 @@ if (sb) {
   const seededJson = JSON.stringify(sEmpty.paySites);
   const fixed2 = sb.repairData(sEmpty);
   check("built-in sites pass repairData unchanged (no rewrite on later loads)", JSON.stringify(sEmpty.paySites) === seededJson && fixed2.length === 0, fixed2.join(","));
+  // ---- Day/Night reader (commit A): the typed shapes (plan b1/b3) pass
+  // through this build untouched, unpriced and never re-priced, so a rollback
+  // to it keeps the data. Made-up amounts.
+  const TV = { id: "tv", effective: "2026-10-01", shiftTypes: [
+    { key: "day", label: "Day", hours: 12, flat: 1000, stipend: 0, stipendLabel: "", callIn: null },
+    { key: "night", label: "Night", hours: 12, flat: 100, stipend: 0, stipendLabel: "", callIn: { hourly: 50, thresholdMinutes: 180 } }] };
+  const ORIG = Object.assign({}, RA, { id: "orig", effective: null });
+  const SX2 = { id: "sx2", name: "SX2", weekendDays: [0, 6], casesEarnRVU: true, rates: [ORIG, TV] };
+  const TSHIFT = { id: "ts1", date: "2026-10-05", siteId: "sx2", siteName: "SX2", rates: { id: "tv", effective: "2026-10-01", shiftType: TV.shiftTypes[1] }, callIns: [120, 30] };
+  const OSHIFT = mkShift("os1", { id: "sx2", name: "SX2", weekendDays: [0, 6], rates: [ORIG] }, "2026-09-10");
+  const aStore = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [JSON.parse(JSON.stringify(SX2))], payShifts: JSON.parse(JSON.stringify([TSHIFT, OSHIFT])) });
+  const aJson = JSON.stringify(aStore), aSeen = [], aReal = sb.showDataAlert;
+  let aFixed = null;
+  try { sb.showDataAlert = m => aSeen.push(m); aFixed = sb.repairData(aStore); } finally { sb.showDataAlert = aReal; }
+  check("reader: an Original (null date), a typed version and a typed shift pass repairData byte for byte with no tag and no banner; validateData stays true",
+    !!aFixed && aFixed.length === 0 && aSeen.length === 0 && JSON.stringify(aStore) === aJson && sb.validateData(aStore) === true, JSON.stringify({ fixed: aFixed, seen: aSeen }));
+  check("reader: payRateIsTyped / payShiftIsTyped / payEffKey",
+    sb.payRateIsTyped(TV) === true && sb.payRateIsTyped(TSHIFT.rates) === true && sb.payRateIsTyped(RA) === false && sb.payRateIsTyped(ORIG) === false && sb.payRateIsTyped(null) === false && sb.payRateIsTyped([]) === false &&
+    sb.payShiftIsTyped(TSHIFT) === true && sb.payShiftIsTyped(OSHIFT) === false && sb.payShiftIsTyped({ rates: TV }) === false && sb.payShiftIsTyped(null) === false &&
+    sb.payEffKey(ORIG) === "" && sb.payEffKey(TV) === "2026-10-01" && sb.payEffKey({ effective: "junk" }) === null && sb.payEffKey({}) === null && sb.payEffKey(null) === null);
+  check("reader: rateInForce - the Original before the first dated version, the typed version from its date, a tie goes to the version added last, an Original alone applies to every date, junk never",
+    sb.rateInForce(SX2, "2026-09-30") === ORIG && sb.rateInForce(SX2, "2026-10-01") === TV && sb.rateInForce(SX2, "2027-12-31") === TV &&
+    sb.rateInForce({ rates: [ORIG, Object.assign({}, ORIG, { id: "orig2" })] }, "2026-01-01").id === "orig2" && sb.rateInForce({ rates: [ORIG] }, "2000-01-01") === ORIG &&
+    sb.rateInForce({ rates: [TV] }, "2026-09-30") === null && sb.rateInForce({ rates: [{ effective: "junk", stipend: 1 }] }, "2026-10-01") === null);
+  const aRange = sb.payTotalInRange([TSHIFT, OSHIFT], "2026-01-01", "2027-01-01"), aMonths = sb.payMonthTotals([TSHIFT, OSHIFT], 2026, [SX2]);
+  check("reader: a typed shift is unpriced (null; counted, never summed); a legacy shift priced from an Original copy still prices",
+    sb.computeShiftPay(TSHIFT) === null && sb.computeShiftPay({ rates: TV, callHours: 12, events: [] }) === null && sb.computeShiftPay(OSHIFT).total === 1000 &&
+    aRange.shifts === 2 && aRange.total === 1000 && aMonths.unpriced === 1 && aMonths.total === 1000 && !!sb.cleanPayRate(ORIG, "x") && sb.cleanPayRate(ORIG, "x").effective === null,
+    JSON.stringify({ range: aRange, unpriced: aMonths.unpriced }));
+  const legacyOct = Object.assign({}, OSHIFT, { id: "lo", date: "2026-10-10" });   // a legacy shift dated where the typed version is in force
+  const aDraft = { id: "ad", siteId: "sx2", date: "2026-10-10", callHours: "24", note: "", events: [] };
+  const aBuilt = sb.payShiftFromDraft(aDraft, SX2, null);
+  check("reader kind guard: a legacy shift is never stale against a typed version, a typed shift is never stale, re-price returns null; a draft dated under a typed version gets no rates (blocked, nothing saved); legacy vs legacy still works with an Original",
+    sb.payShiftStale(legacyOct, SX2) === false && sb.payRepriceShift(legacyOct, SX2) === null && sb.payShiftStale(TSHIFT, SX2) === false && sb.payRepriceShift(TSHIFT, SX2) === null &&
+    sb.payShiftStale(OSHIFT, Object.assign({}, SX2, { rates: [Object.assign({}, ORIG, { stipend: 999 })] })) === true &&
+    sb.payDraftRate(aDraft, SX2, null).rates === null && !aBuilt.shift && aBuilt.problems.some(p => p.code === "rates" && p.block) &&
+    sb.payDraftRate({ id: "bd", siteId: "sx2", date: "2026-09-10" }, SX2, null).from === "inForce",
+    JSON.stringify(aBuilt.problems));
   const ds = vm.runInContext("defState()", sb), ds2 = vm.runInContext("defState()", sb);
   check("new installs start with the built-in sites + marker (fresh copies)", ds.paySites.length === 2 && ds.settings.paySitesSeeded === true && ds.paySites[0] !== ds2.paySites[0]);
   // "Use built-in rates" (R1): a phone whose own same-named sites lack paying

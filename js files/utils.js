@@ -935,9 +935,24 @@ function payNum(v) {
   if (typeof v === "string" && v.trim() !== "") v = Number(v);
   return (typeof v === "number" && isFinite(v) && v >= 0) ? v : null;
 }
+// Two kinds of rate version share one site's `rates` list (Day/Night batch):
+// a TYPED version carries `shiftTypes`, and a typed shift's rate copy carries
+// the one `shiftType` it was priced with; everything else is a LEGACY
+// version (the stipend / call-in fee / hourly shape below). `effective:
+// null` marks a site's Original rates - in force before every dated version.
+// This build only READS the typed shapes: repairData keeps them exactly as
+// they are, computeShiftPay prices none of them (unpriced), payDraftRate
+// never picks one, and re-pricing never crosses kinds - so a rollback to it
+// never drops or misprices Day/Night data.
+function payRateIsTyped(r) { return !!r && typeof r === "object" && !Array.isArray(r) && (Array.isArray(r.shiftTypes) || (!!r.shiftType && typeof r.shiftType === "object" && !Array.isArray(r.shiftType))); }
+function payShiftIsTyped(s) { return !!s && typeof s === "object" && !Array.isArray(s) && payRateIsTyped(s.rates) && !!s.rates.shiftType; }
+// A version's start as a sort / compare key: its date, "" for an Original
+// (sorts before every date, so plain string compares still work), or null
+// when it is neither (unreadable - never in force).
+function payEffKey(r) { if (!r || typeof r !== "object") return null; if (r.effective === null) return ""; return isYMD(r.effective) ? r.effective : null; }
 // Returns a cleaned COPY (unknown fields kept) or null if unreadable.
 function cleanPayRate(r, fallbackId) {
-  if (!r || typeof r !== "object" || Array.isArray(r) || !isYMD(r.effective)) return null;
+  if (!r || typeof r !== "object" || Array.isArray(r) || payEffKey(r) === null) return null;
   if (typeof r.hourlyWeekdayDay !== "boolean") return null;
   var c = { ...r };
   for (var i = 0; i < PAY_RATE_NUMS.length; i++) {
@@ -1102,6 +1117,7 @@ function repairData(d) {
         cs.rates = [];
         if (s.rates !== undefined && !Array.isArray(s.rates)) droppedR.push(s.name + " (all rates)");
         (Array.isArray(s.rates) ? s.rates : []).forEach(function(r, ri) {
+          if (payRateIsTyped(r)) { cs.rates.push(r); return; }   // typed version: kept exactly as is (this build only reads it)
           var cr = cleanPayRate(r, cs.id + "-r" + ri);
           if (cr) cs.rates.push(cr);
           else droppedR.push(s.name + " " + (r && typeof r.effective === "string" ? r.effective : "#" + (ri + 1)));
@@ -1132,6 +1148,7 @@ function repairData(d) {
     } else {
       var droppedP = [], droppedC = [], cleanP = [];
       d.payShifts.forEach(function(p, pi) {
+        if (payShiftIsTyped(p)) { cleanP.push(p); return; }   // typed shift: kept exactly as is, unpriced here (this build only reads it)
         var isObj = !!p && typeof p === "object" && !Array.isArray(p);
         var label = (isObj && typeof p.date === "string" && p.date ? p.date : "#" + (pi + 1)) + (isObj && typeof p.siteName === "string" && p.siteName ? " " + p.siteName : "");
         var cp = isObj ? { ...p } : null;
@@ -1699,6 +1716,7 @@ function classifyPayEvent(ymd, time, weekendDays) {
 // Each line is rounded to the cent ONCE; total = sum of the rounded lines.
 function computeShiftPay(shift) {
   if (!shift || typeof shift !== "object") return null;
+  if (payShiftIsTyped(shift)) return null;   // a Day/Night shift: unpriced in this build (counted, never summed)
   var r = cleanPayRate(shift.rates, "x");
   var callHours = payNum(shift.callHours);
   var evs = (shift.events === undefined || shift.events === null) ? [] : shift.events;
@@ -1721,12 +1739,15 @@ function computeShiftPay(shift) {
 }
 // The site's rate version in force on ymd: the latest effective date on or
 // before ymd (string compare is safe on validated YYYY-MM-DD; on a tie the
-// version added last wins). null when no version applies yet.
+// version added last wins). An Original (effective null, key "") applies
+// to every date a dated version does not. Either kind can come back -
+// callers that price branch on payRateIsTyped. null when no version applies.
 function rateInForce(site, ymd) {
   if (!site || !Array.isArray(site.rates) || !isYMD(ymd)) return null;
-  var best = null;
+  var best = null, bestKey = null;
   site.rates.forEach(function(r) {
-    if (r && isYMD(r.effective) && r.effective <= ymd && (!best || r.effective >= best.effective)) best = r;
+    var k = payEffKey(r);
+    if (k !== null && k <= ymd && (best === null || k >= bestKey)) { best = r; bestKey = k; }
   });
   return best;
 }
@@ -1756,7 +1777,9 @@ function payDraftRate(draft, site, orig) {
   var siteOk = !!site && typeof site.id === "string" && site.id !== "" && typeof site.name === "string";
   if (!draft || typeof draft !== "object") return { rates: null, from: "" };
   if (orig && !draft.reprice && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) return { rates: { ...orig.rates }, from: "kept" };
-  if (siteOk && isYMD(draft.date)) { var rif = rateInForce(site, draft.date); if (rif) return { rates: { ...rif }, from: "inForce" }; }
+  // A typed (Day/Night) version in force is never chosen by this build: the
+  // form then reports "no rates" instead of saving a shift it cannot price.
+  if (siteOk && isYMD(draft.date)) { var rif = rateInForce(site, draft.date); if (rif && !payRateIsTyped(rif)) return { rates: { ...rif }, from: "inForce" }; }
   return { rates: null, from: "" };
 }
 // Is a date a weekend or holiday for this site? (decides the call-in fee)
@@ -1968,10 +1991,13 @@ function payRatesDiffer(a, b) {
 // A recorded shift is "stale" when the site's version in force for the
 // shift's date prices differently from the shift's own rate copy. A deleted
 // site or a date with no version in force is never stale (nothing to apply).
+// KIND GUARD: a typed (Day/Night) shift, or a typed version in force, is
+// never stale here - a re-price must never put a typed version into a legacy
+// shift (an older build would then drop that shift) or the other way round.
 function payShiftStale(shift, site) {
-  if (!shift || !site || shift.siteId !== site.id) return false;
+  if (!shift || !site || shift.siteId !== site.id || payRateIsTyped(shift.rates)) return false;
   var rif = rateInForce(site, shift.date);
-  return !!rif && payRatesDiffer(shift.rates, rif);
+  return !!rif && !payRateIsTyped(rif) && payRatesDiffer(shift.rates, rif);
 }
 // The shift re-priced at the version in force for its date - a NEW object
 // with a COPY of that version (never shared with the site). The same length

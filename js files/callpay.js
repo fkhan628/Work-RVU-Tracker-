@@ -114,8 +114,16 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
   // version pre-fills from the site's latest one so a rate change is an edit
   // of the numbers that changed.
   var numText = function(v) { return typeof v === "number" ? String(v) : ""; };
+  // Versions sort by payEffKey (a null date = the Original, earliest). A
+  // typed (Day/Night) version is only recognised by this build: it is kept,
+  // listed as one line with Delete, and never pre-fills or prices anything.
+  var byStartDesc = function(a, b) { var ka = payEffKey(a), kb = payEffKey(b); return ka < kb ? 1 : ka > kb ? -1 : 0; };
+  var effLabel = function(r) { return r && r.effective === null ? "Original" : r ? r.effective : ""; };
+  var TYPED_NOTE = "Day/Night rates - needs the newer app";
+  var TYPED_SHIFT_ROW = "Day/Night shift - needs the newer app";
+  var TYPED_SHIFT_NOTE = "This shift was saved by a newer version of the app. Update the app to open it; it is kept as it is.";
   var openRateForm = function(s, r) {
-    var latest = s.rates.slice().sort(function(a, b) { return a.effective < b.effective ? 1 : a.effective > b.effective ? -1 : 0; })[0];
+    var latest = s.rates.filter(function(x) { return !payRateIsTyped(x); }).sort(byStartDesc)[0];
     var src = r || latest || null;
     var f = { effective: r ? r.effective : today, label: r && r.label ? r.label : "", hourlyWeekdayDay: src ? src.hourlyWeekdayDay === true : true };
     RATE_FIELDS.forEach(function(rf) { f[rf[0]] = src ? numText(src[rf[0]]) : ""; });
@@ -153,7 +161,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     setRepriceOffer({ siteIds: [rf.siteId] });
   };
   var deleteRate = function(s, r) {
-    if (!confirm("Delete the " + s.name + " rate version starting " + r.effective + "? Recorded shifts keep their own rates.")) return;
+    if (!confirm("Delete the " + s.name + (r.effective === null ? " Original rate version" : " rate version starting " + r.effective) + "? Recorded shifts keep their own rates.")) return;
     updSites(function(l) { return l.map(function(x) { return x.id !== s.id ? x : { ...x, rates: x.rates.filter(function(y) { return y.id !== r.id; }) }; }); });
     if (rateForm && rateForm.rateId === r.id) setRateForm(null);
   };
@@ -514,7 +522,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
           var sr = rateInForce(s, isYMD(d.date) ? d.date : today);
           return (<button key={s.id} onClick={function() { setD(function(x) { return refresh({ ...x, siteId: s.id }); }); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 56, padding: "10px 12px", marginTop: 6, borderRadius: 10, cursor: "pointer", ...pick(on) }}>
             <div style={{ fontSize: 15, fontWeight: 700, color: on ? "#0ea5e9" : "var(--text-bright)" }}>{s.name}</div>
-            <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.4, color: sr ? "var(--text-muted)" : "#f59e0b" }}>{sr ? siteSummary(sr) : "No rates for this date"}</div>
+            <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.4, color: sr && !payRateIsTyped(sr) ? "var(--text-muted)" : "#f59e0b" }}>{sr ? (payRateIsTyped(sr) ? TYPED_NOTE : siteSummary(sr)) : "No rates for this date"}</div>
           </button>);
         })}
 
@@ -525,11 +533,11 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
         </div>
         <input type="date" value={d.date} onChange={function(e) { var v = e.target.value; setD(function(x) { return refresh({ ...x, date: v }); }); }} style={{ ...S.dateInput, marginTop: 6 }} />
         {isYMD(d.date) && r && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>
-          {dayLabel(d.date) + (dayKind(d.date) ? DOT + dayKind(d.date) : "") + DOT + "rates from " + fromLabel(r.effective) + (r.label ? " (" + r.label + ")" : "") + (built.ratesFrom === "kept" ? ", saved with this shift" : "")}
+          {dayLabel(d.date) + (dayKind(d.date) ? DOT + dayKind(d.date) : "") + DOT + (r.effective === null ? "Original rates" : "rates from " + fromLabel(r.effective)) + (r.label ? " (" + r.label + ")" : "") + (built.ratesFrom === "kept" ? ", saved with this shift" : "")}
           {editOrig && built.ratesFrom === "inForce" ? (d.reprice ? " - updated to the current rates." : " - updated for the new site/day.") : ""}
         </div>}
         {editOrig && built.ratesFrom === "kept" && site && !site.deleted && payShiftStale(editOrig, site) && <div style={{ marginTop: 8, padding: 10, borderRadius: 8, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)", fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>
-          {"This shift was saved with the version from " + editOrig.rates.effective + "; the version from " + rateInForce(site, d.date).effective + " is now in force for its date."}
+          {"This shift was saved with the version from " + effLabel(editOrig.rates) + "; the version from " + effLabel(rateInForce(site, d.date)) + " is now in force for its date."}
           <button onClick={useCurrentRates} style={btn({ display: "block", marginTop: 6, color: "#f59e0b", border: "1px solid rgba(245,158,11,0.4)" })}>Use current rates</button>
         </div>}
 
@@ -706,12 +714,13 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
                   {recent.map(function(s) {
                     var p = computeShiftPay(s);
                     var n = (s.events || []).length;
+                    var typed = payShiftIsTyped(s);
                     return (<div key={s.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid rgba(51,65,85,0.4)" }}>
-                      <button onClick={function() { openEdit(s, false); }} style={{ flex: 1, minWidth: 0, minHeight: 48, textAlign: "left", background: "none", border: "none", padding: "4px 0", cursor: "pointer" }}>
+                      <button onClick={function() { if (typed) { alert(TYPED_SHIFT_NOTE); return; } openEdit(s, false); }} style={{ flex: 1, minWidth: 0, minHeight: 48, textAlign: "left", background: "none", border: "none", padding: "4px 0", cursor: "pointer" }}>
                         <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s)}</div>
-                        <div style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?")}{staleTag(s)}</div>
+                        <div style={{ fontSize: 11, color: typed ? "#f59e0b" : "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{typed ? TYPED_SHIFT_ROW : s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?")}{staleTag(s)}</div>
                       </button>
-                      <button onClick={function() { openEdit(s, true); }} style={btn()}>+ Call-in</button>
+                      {!typed && <button onClick={function() { openEdit(s, true); }} style={btn()}>+ Call-in</button>}
                     </div>);
                   })}
                   {shifts.length > 5 && <button onClick={function() { setAllShifts(!allShifts); }} style={btn({ width: "100%", marginTop: 6 })}>{allShifts ? "Show recent only" : "Show all " + shifts.length + " shifts"}</button>}
@@ -745,8 +754,9 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
             {m.list.map(function(s) {
               var p = computeShiftPay(s);
               var n = (s.events || []).length;
-              return (<button key={s.id} onClick={function() { openEdit(s, false); }} style={{ width: "100%", minHeight: 44, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", borderTop: "1px solid rgba(51,65,85,0.25)", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s) + DOT + plural(n, "call-in")}</span>
+              var typed = payShiftIsTyped(s);
+              return (<button key={s.id} onClick={function() { if (typed) { alert(TYPED_SHIFT_NOTE); return; } openEdit(s, false); }} style={{ width: "100%", minHeight: 44, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", borderTop: "1px solid rgba(51,65,85,0.25)", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: typed ? "#f59e0b" : "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s) + DOT + (typed ? TYPED_SHIFT_ROW : plural(n, "call-in"))}</span>
                 {staleTag(s)}
                 <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)", flexShrink: 0 }}>{p ? paid(p.total) : "?"}</span>
               </button>);
@@ -762,7 +772,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
       {sites.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "10px 0" }}>No sites yet.</div>}
       {sites.map(function(s) {
         var cur = rateInForce(s, today);
-        var sorted = s.rates.slice().sort(function(a, b) { return a.effective < b.effective ? 1 : a.effective > b.effective ? -1 : 0; });
+        var sorted = s.rates.slice().sort(byStartDesc);
         var visible = (showAll[s.id] || !cur) ? sorted : [cur];
         var hidden = sorted.length - visible.length;
         var wd = s.weekendDays || [];
@@ -804,14 +814,17 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
               // A past version that is not current has been replaced by the
               // next newer one in the (newest-first) sorted list.
               var newer = sorted[sorted.indexOf(r) - 1];
-              var status = r === cur ? "Current since " + r.effective
+              var typedV = payRateIsTyped(r);
+              var status = r.effective === null
+                ? (r === cur ? "Original rates - current" : "Original rates - before " + (newer ? effLabel(newer) : ""))
+                : r === cur ? "Current since " + r.effective
                 : r.effective > today ? "Starts " + r.effective
-                : "Replaced " + (newer ? newer.effective : "") + " (was from " + r.effective + ")";
+                : "Replaced " + (newer ? effLabel(newer) : "") + " (was from " + r.effective + ")";
               return (<div key={r.id} style={{ padding: "8px 0", borderTop: "1px solid rgba(51,65,85,0.4)" }}>
                 <div style={{ fontSize: 12, fontWeight: 600, color: r === cur ? "#34d399" : "var(--text-muted)" }}>{status + (r.label ? " (" + r.label + ")" : "")}</div>
-                <div style={{ fontSize: 12, color: "var(--text-primary)", fontFamily: "JetBrains Mono", marginTop: 3, lineHeight: 1.5 }}>{rateSummary(r)}</div>
+                <div style={{ fontSize: 12, color: typedV ? "#f59e0b" : "var(--text-primary)", fontFamily: "JetBrains Mono", marginTop: 3, lineHeight: 1.5 }}>{typedV ? TYPED_NOTE : rateSummary(r)}</div>
                 <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                  <button onClick={function() { openRateForm(s, r); }} style={btn()}>Edit</button>
+                  {!typedV && <button onClick={function() { openRateForm(s, r); }} style={btn()}>Edit</button>}
                   <button onClick={function() { deleteRate(s, r); }} style={btn(danger)}>Delete</button>
                 </div>
               </div>);
