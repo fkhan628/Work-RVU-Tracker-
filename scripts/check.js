@@ -1419,25 +1419,301 @@ if (sb) {
     sb.rateInForce({ rates: [ORIG, Object.assign({}, ORIG, { id: "orig2" })] }, "2026-01-01").id === "orig2" && sb.rateInForce({ rates: [ORIG] }, "2000-01-01") === ORIG &&
     sb.rateInForce({ rates: [TV] }, "2026-09-30") === null && sb.rateInForce({ rates: [{ effective: "junk", stipend: 1 }] }, "2026-10-01") === null);
   const aRange = sb.payTotalInRange([TSHIFT, OSHIFT], "2026-01-01", "2027-01-01"), aMonths = sb.payMonthTotals([TSHIFT, OSHIFT], 2026, [SX2]);
-  check("reader: a typed shift is unpriced (null; counted, never summed); a legacy shift priced from an Original copy still prices",
-    sb.computeShiftPay(TSHIFT) === null && sb.computeShiftPay({ rates: TV, callHours: 12, events: [] }) === null && sb.computeShiftPay(OSHIFT).total === 1000 &&
-    aRange.shifts === 2 && aRange.total === 1000 && aMonths.unpriced === 1 && aMonths.total === 1000 && !!sb.cleanPayRate(ORIG, "x") && sb.cleanPayRate(ORIG, "x").effective === null,
+  check("typed shift pricing: a typed shift prices from its own type copy (here 150 min under a 3:00 threshold = the flat only); a typed VERSION inside a legacy-shaped shift never prices; a legacy shift priced from an Original copy still prices",
+    sb.computeShiftPay(TSHIFT).total === 100 && sb.computeShiftPay(TSHIFT).typed === true && sb.computeShiftPay({ rates: TV, callHours: 12, events: [] }) === null && sb.computeShiftPay(OSHIFT).total === 1000 &&
+    aRange.shifts === 2 && aRange.total === 1100 && aMonths.unpriced === 0 && aMonths.total === 1100 && !!sb.cleanPayRate(ORIG, "x") && sb.cleanPayRate(ORIG, "x").effective === null,
     JSON.stringify({ range: aRange, unpriced: aMonths.unpriced }));
   const legacyOct = Object.assign({}, OSHIFT, { id: "lo", date: "2026-10-10" });   // a legacy shift dated where the typed version is in force
   const aDraft = { id: "ad", siteId: "sx2", date: "2026-10-10", callHours: "24", note: "", events: [] };
   const aBuilt = sb.payShiftFromDraft(aDraft, SX2, null);
-  check("reader kind guard: a legacy shift is never stale against a typed version, a typed shift is never stale, re-price returns null; a draft dated under a typed version gets no rates (blocked, nothing saved); legacy vs legacy still works with an Original",
+  check("kind guard: a legacy shift is never stale against a typed version, an unchanged typed shift is not stale, re-price returns null; a draft dated under a typed version takes it and blocks until a type is picked (nothing saved); legacy vs legacy still works with an Original",
     sb.payShiftStale(legacyOct, SX2) === false && sb.payRepriceShift(legacyOct, SX2) === null && sb.payShiftStale(TSHIFT, SX2) === false && sb.payRepriceShift(TSHIFT, SX2) === null &&
     sb.payShiftStale(OSHIFT, Object.assign({}, SX2, { rates: [Object.assign({}, ORIG, { stipend: 999 })] })) === true &&
-    sb.payDraftRate(aDraft, SX2, null).rates === null && !aBuilt.shift && aBuilt.problems.some(p => p.code === "rates" && p.block) &&
+    sb.payRateIsTyped(sb.payDraftRate(aDraft, SX2, null).rates) && !aBuilt.shift && aBuilt.problems.some(p => p.code === "noType" && p.block && p.label === "Day or Night") &&
     sb.payDraftRate({ id: "bd", siteId: "sx2", date: "2026-09-10" }, SX2, null).from === "inForce",
     JSON.stringify(aBuilt.problems));
+  // ---- Typed (Day/Night) model, feature step 1 (made-up amounts; the
+  // preset's own figures are pinned further down once it carries the typed
+  // version) ----
+  const TN = TV.shiftTypes[1], TD = TV.shiftTypes[0];
+  const tsh = (callIns, type, extra) => Object.assign({ id: "t-" + (callIns || []).join("-"), date: "2026-10-05", siteId: "sx2", siteName: "SX2", rates: { id: "tv", effective: "2026-10-01", shiftType: type || TN }, callIns: callIns || [] }, extra || {});
+  const tp = (callIns, type, extra) => { const p = sb.computeShiftPay(tsh(callIns, type, extra)); return p ? p.total : null; };
+  const tline = (callIns, type) => { const p = sb.computeShiftPay(tsh(callIns, type)); return p ? p.lines.map(l => l.kind + ":" + l.amount + (l.kind === "callIn" ? "/" + l.paidMinutes + "/" + l.met : "")).join(" ") : "null"; };
+  check("typed pricing: flat + call-in by the ONE threshold rule (the trips are summed and tested once; every minute is paid once met), each line rounded once; a Day has no call-in line; a stipend line only when > 0; unreadable = null",
+    tp([]) === 100 && tp([120]) === 100 && tp([179]) === 100 && tp([180]) === 250 && tp([120, 60]) === 250 && tp([120, 30]) === 100 && tp([181]) === 250.83 && tp([200, 200]) === 433.33 &&
+    tline([120, 60]) === "flat:100 callIn:150/180/true" && tline([120, 30]) === "flat:100 callIn:0/0/false" && tline([], TD) === "flat:1000" &&
+    tp([45], Object.assign({}, TN, { callIn: { hourly: 50, thresholdMinutes: 0 } })) === 137.5 && tp([], Object.assign({}, TN, { callIn: { hourly: 50, thresholdMinutes: 0 } })) === 100 &&
+    tline([], Object.assign({}, TD, { flat: 100, stipend: 50.005, stipendLabel: "Trauma" })) === "flat:100 stipend:50.01" && tp([], Object.assign({}, TD, { flat: 100, stipend: 50.005 })) === 150.01 &&
+    sb.computeShiftPay(tsh([120], TN, { callIns: "x" })) === null && sb.computeShiftPay(tsh([], Object.assign({}, TN, { hours: 0 }))) === null && sb.computeShiftPay(tsh([90.5])) === null,
+    JSON.stringify([tp([181]), tp([200, 200]), tline([120, 60]), tline([120, 30])]));
+  const cis = sb.payCallInSummary([120, 120], TN.callIn), cis0 = sb.payCallInSummary([], TN.callIn), cisU = sb.payCallInSummary([170], TN.callIn);
+  check("payCallInSummary: trips, minutes, paidMinutes, met, threshold, hourly, amount",
+    JSON.stringify(cis) === JSON.stringify({ trips: 2, minutes: 240, paidMinutes: 240, met: true, threshold: 180, hourly: 50, amount: 200 }) &&
+    JSON.stringify(cis0) === JSON.stringify({ trips: 0, minutes: 0, paidMinutes: 0, met: false, threshold: 180, hourly: 50, amount: 0 }) &&
+    cisU.met === false && cisU.paidMinutes === 0 && cisU.minutes === 170 && sb.payCallInSummary([60], null).amount === 0, JSON.stringify(cis));
+  // Repair table (plan Appendix A), one mutation at a time.
+  const repTyped = (mut) => {
+    const v = JSON.parse(JSON.stringify(TV)); mut(v);
+    const st = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [{ id: "sx2", name: "SX2", weekendDays: [0, 6], casesEarnRVU: true, rates: [JSON.parse(JSON.stringify(ORIG)), v] }] });
+    const real = sb.showDataAlert, seen = []; let fx;
+    try { sb.showDataAlert = m => seen.push(m); fx = sb.repairData(st); } finally { sb.showDataAlert = real; }
+    const j2 = JSON.stringify(st), fx2 = sb.repairData(st);
+    return { n: st.paySites[0].rates.length, banner: seen.join(" | "), fixed: fx.join(","), v: st.paySites[0].rates[1], second: fx2.length === 0 && JSON.stringify(st) === j2 };
+  };
+  const DROP = [
+    ["bad date", v => { v.effective = "2026-13-01"; }], ["no types", v => { v.shiftTypes = []; }], ["types not a list", v => { v.shiftTypes = {}; }],
+    ["duplicate key", v => { v.shiftTypes[1].key = "day"; }], ["blank key", v => { v.shiftTypes[0].key = ""; }], ["blank label", v => { v.shiftTypes[0].label = " "; }],
+    ["hours 0", v => { v.shiftTypes[0].hours = 0; }], ["flat -1", v => { v.shiftTypes[0].flat = -1; }], ["flat text", v => { v.shiftTypes[0].flat = "abc"; }],
+    ["stipend -1", v => { v.shiftTypes[0].stipend = -1; }], ["stipendLabel a number", v => { v.shiftTypes[0].stipendLabel = 5; }],
+    ["callIn hourly text", v => { v.shiftTypes[1].callIn.hourly = "x"; }], ["threshold not whole", v => { v.shiftTypes[1].callIn.thresholdMinutes = 90.5; }], ["callIn a list", v => { v.shiftTypes[1].callIn = []; }],
+  ];
+  const dropMsg = lbl => "Call pay rate SX2 " + lbl + " was unreadable and removed - please re-enter it. Recorded shifts keep their own rates.";
+  const badDrop = DROP.filter(t => { const r = repTyped(t[1]); return !(r.n === 1 && r.banner.indexOf(dropMsg(t[0] === "bad date" ? "2026-13-01" : "2026-10-01")) !== -1 && r.second); });
+  check("typed version repair: each bad case drops ONLY that version with the banner naming it (" + DROP.length + " cases); the second pass is clean", badDrop.length === 0, badDrop.map(t => t[0] + " -> " + JSON.stringify(repTyped(t[1])).slice(0, 200)).join(" | "));
+  const rNum = repTyped(v => { v.shiftTypes[0].flat = "1000"; v.shiftTypes[1].callIn.thresholdMinutes = "180"; delete v.shiftTypes[0].stipend; delete v.shiftTypes[0].stipendLabel; delete v.shiftTypes[0].callIn; v.label = 7; });
+  const rOrig = repTyped(v => { v.effective = null; }), rKeep = repTyped(v => { v.extra = { k: 1 }; v.shiftTypes[1].note = "x"; v.shiftTypes[1].callIn.basis = "total"; });
+  check("typed version repair: numeric text converts, a missing stipend / stipendLabel / callIn fills in (0 / '' / null), a non-string label is removed - with a tag, no banner, then a fixed point; a null date is kept; unknown fields at every level are kept untouched",
+    rNum.n === 2 && rNum.banner === "" && /paySites\.1/.test(rNum.fixed) && rNum.second && rNum.v.shiftTypes[0].flat === 1000 && rNum.v.shiftTypes[0].stipend === 0 && rNum.v.shiftTypes[0].stipendLabel === "" &&
+    rNum.v.shiftTypes[0].callIn === null && rNum.v.shiftTypes[1].callIn.thresholdMinutes === 180 && rNum.v.label === undefined &&
+    rOrig.n === 2 && rOrig.fixed === "" && rOrig.banner === "" && rOrig.v.effective === null &&
+    rKeep.fixed === "" && rKeep.banner === "" && rKeep.v.extra.k === 1 && rKeep.v.shiftTypes[1].note === "x" && rKeep.v.shiftTypes[1].callIn.basis === "total",
+    JSON.stringify({ num: rNum.v, fixed: rNum.fixed }));
+  const repShift = (mut) => {
+    const s = JSON.parse(JSON.stringify(TSHIFT)); mut(s);
+    const st = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [JSON.parse(JSON.stringify(SX2))], payShifts: [s] });
+    const real = sb.showDataAlert, seen = []; let fx;
+    try { sb.showDataAlert = m => seen.push(m); fx = sb.repairData(st); } finally { sb.showDataAlert = real; }
+    const j2 = JSON.stringify(st), fx2 = sb.repairData(st);
+    return { n: st.payShifts.length, banner: seen.join(" | "), fixed: fx.join(","), s: st.payShifts[0], second: fx2.length === 0 && JSON.stringify(st) === j2 };
+  };
+  const SDROP = [["bad date", s => { s.date = "x"; }], ["bad type copy", s => { s.rates.shiftType.flat = -1; }], ["copy without a type", s => { delete s.rates.shiftType; s.rates.shiftTypes = TV.shiftTypes; }],
+    ["callIns not a list", s => { s.callIns = 5; }], ["a non-whole minute", s => { s.callIns = [90.5]; }], ["a negative minute", s => { s.callIns = [-1]; }]];
+  const badSDrop = SDROP.filter(t => { const r = repShift(t[1]); return !(r.n === 0 && r.banner.indexOf("Call pay shift " + (t[0] === "bad date" ? "x" : "2026-10-05") + " SX2 was unreadable and removed - please re-enter it.") !== -1); });
+  const sFill = repShift(s => { delete s.callIns; s.rates.shiftType.flat = "100"; s.cases = "2"; }), sCases = repShift(s => { s.cases = "x"; }), sKeep = repShift(s => { s.extra = 1; s.rates.shiftType.callIn.basis = "each"; });
+  check("typed shift repair: a bad date, type copy or call-in list drops the WHOLE shift with the banner (" + SDROP.length + " cases); missing callIns becomes [] and numeric text converts with a tag, no banner, then a fixed point; an unreadable case count alone goes with its notice; unknown fields kept",
+    badSDrop.length === 0 && sFill.n === 1 && sFill.banner === "" && /payShifts\.1/.test(sFill.fixed) && sFill.second && JSON.stringify(sFill.s.callIns) === "[]" && sFill.s.rates.shiftType.flat === 100 && sFill.s.cases === 2 &&
+    sCases.n === 1 && sCases.s.cases === undefined && /Case count for call shift 2026-10-05 SX2 was unreadable and removed/.test(sCases.banner) &&
+    sKeep.fixed === "" && sKeep.s.extra === 1 && sKeep.s.rates.shiftType.callIn.basis === "each",
+    badSDrop.map(t => t[0] + " -> " + JSON.stringify(repShift(t[1])).slice(0, 160)).join(" | "));
+  check("validateData stays true for garbage typed data (repairData, not validateData, drops it - so a bad version or shift never sends the whole store to recovery)",
+    sb.validateData(seedStore({ settings: { ratePerRVU: 55 }, paySites: [{ id: "g", name: "G", weekendDays: [], casesEarnRVU: true, rates: [{ id: "b", effective: "2026-10-01", shiftTypes: [{ key: "", hours: -1 }] }] }],
+      payShifts: [{ id: "gs", date: "2026-10-05", rates: { shiftType: { key: "x" } }, callIns: "nope" }] })) === true);
+  check("payHM / payFmtHM / payCiRowProblem: two boxes to whole minutes; one blank box is 0; both blank, a non-digit or minutes over 59 are refused with their codes",
+    sb.payHM("2", "00") === 120 && sb.payHM("", "45") === 45 && sb.payHM("2", "") === 120 && sb.payHM(" 1 ", " 5 ") === 65 && sb.payHM("2", "60") === null && sb.payHM("x", "0") === null && sb.payHM("", "") === null && sb.payHM("1.5", "0") === null &&
+    sb.payFmtHM(270) === "4:30" && sb.payFmtHM(0) === "0:00" && sb.payFmtHM(5) === "0:05" && sb.payFmtHM(1440) === "24:00" &&
+    sb.payCiRowProblem({ h: "", m: "" }) === "ciBlank" && sb.payCiRowProblem({ h: "2", m: "" }) === "" && sb.payCiRowProblem({ h: "a", m: "0" }) === "ciBad" && sb.payCiRowProblem({ h: "1", m: "75" }) === "ciMin" && sb.payCiRowProblem(null) === "ciBlank");
+  check("payMoney / payDateLabel / payVersionDateLabel / payTypePreview (made-up amounts)",
+    sb.payMoney(2773.6) === "$2,773.60" && sb.payMoney(0) === "$0.00" && sb.payMoney(1234567.891) === "$1,234,567.89" && sb.payMoney("abc") === "" && sb.payMoney(16.005) === "$16.01" &&
+    sb.payDateLabel("2026-10-01") === "Oct 1, 2026" && sb.payDateLabel("junk") === "" && sb.payVersionDateLabel({ effective: null }) === "Original" && sb.payVersionDateLabel({ effective: "2027-01-15" }) === "Jan 15, 2027" && sb.payVersionDateLabel(null) === "" &&
+    sb.payTypePreview(TD) === "Day: $1,000.00" && sb.payTypePreview(TN) === "Night: $100.00 + $50.00/hr when in 3:00+" &&
+    sb.payTypePreview(Object.assign({}, TN, { callIn: { hourly: 50, thresholdMinutes: 0 } })) === "Night: $100.00 + $50.00/hr" &&
+    sb.payTypePreview(Object.assign({}, TD, { stipend: 500, stipendLabel: "Trauma" })) === "Day: $1,000.00 + $500.00 Trauma" &&
+    sb.payTypePreview({ label: "Day", flat: "" }) === "Day: fill in the amounts" && sb.payTypePreview(null) === "Shift: fill in the amounts");
+  const DEFT = { id: "site-made", name: "Made", weekendDays: [0, 6], casesEarnRVU: true, rates: [ORIG, TV, Object.assign({}, RA, { id: "later", effective: "2027-01-01" })] };
+  check("payBuiltInVersion / payBuiltInFrom: the first DATED version (an Original is never it); payRateZero knows typed versions; payShiftCallInCount for both kinds",
+    sb.payBuiltInVersion(DEFT) === TV && sb.payBuiltInFrom(DEFT) === "2026-10-01" && sb.payBuiltInFrom({ rates: [ORIG] }) === "" && sb.payBuiltInVersion(null) === null &&
+    sb.payRateZero(TV) === false && sb.payRateZero({ shiftTypes: [{ key: "a", label: "A", hours: 1, flat: 0, stipend: 0, stipendLabel: "", callIn: null }] }) === true &&
+    sb.payRateZero({ shiftTypes: [{ key: "a", label: "A", hours: 1, flat: 0, stipend: 0, stipendLabel: "", callIn: { hourly: 0, thresholdMinutes: 0 } }] }) === true &&
+    sb.payRateZero({ shiftTypes: [{ key: "a", label: "A", hours: 1, flat: 0, stipend: 0, stipendLabel: "", callIn: { hourly: 1, thresholdMinutes: 0 } }] }) === false && sb.payRateZero({ shiftTypes: [] }) === false &&
+    sb.payShiftCallInCount(TSHIFT) === 2 && sb.payShiftCallInCount(OSHIFT) === 0 && sb.payShiftCallInCount(mkShift("cc", S1, "2026-03-10", [dEv()])) === 1 && sb.payShiftCallInCount(null) === 0);
+  const hand0 = (id, name, rates) => ({ id: id, name: name, weekendDays: [0, 6], casesEarnRVU: true, rates: rates });
+  const propo = Object.assign({}, RA, { id: "prop", effective: "2026-10-01", label: "Proposal" });
+  const seededLike = hand0("site-made", "Made", [propo]);
+  const planA = sb.payTypedPlan(seededLike, DEFT, []), appliedA = sb.payApplyTyped(seededLike, DEFT, planA);
+  const sepSite = hand0("m2", "Made", [Object.assign({}, RA, { id: "sep", effective: "2026-09-01" })]);
+  const planB = sb.payTypedPlan(sepSite, DEFT, []), appliedB = sb.payApplyTyped(sepSite, DEFT, planB);
+  const planC = sb.payTypedPlan(hand0("m3", "Made", [propo, Object.assign({}, RZ, { id: "z1", effective: "2026-11-01" }), Object.assign({}, RA, { id: "l1", effective: "2027-02-01" })]), DEFT, []);
+  const NO_PLAN = [
+    ["already typed", hand0("n1", "Made", [propo, TV])], ["has an Original", hand0("n2", "Made", [ORIG, propo])],
+    ["two versions on the start", hand0("n3", "Made", [propo, Object.assign({}, RA, { id: "p2", effective: "2026-10-01" })])],
+    ["no paying version in force", hand0("n4", "Made", [Object.assign({}, RZ, { id: "z0", effective: "2026-09-01" })])], ["no rates", hand0("n5", "Made", [])],
+    ["in force starts later", hand0("n6", "Made", [Object.assign({}, RA, { id: "nov", effective: "2026-11-01" })])],
+  ];
+  const storeA = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [JSON.parse(JSON.stringify(appliedA))] }), jsonA = JSON.stringify(storeA), fxA = sb.repairData(storeA);
+  check("payTypedPlan / payApplyTyped: the start-date version becomes the Original (values, id, label kept) and the typed version is appended (a fixed point; a second plan is null); an earlier version keeps its date (original ''); $0 versions from the start go and a later paying one is kept; a legacy def gives no plan; no plan for " + NO_PLAN.map(t => t[0]).join(", "),
+    !!planA && planA.original === "prop" && planA.remove.length === 0 && planA.later === "" && appliedA.rates.length === 2 && appliedA.rates[0].effective === null && appliedA.rates[0].id === "prop" && appliedA.rates[0].label === "Proposal" && appliedA.rates[0].stipend === RA.stipend &&
+    appliedA.rates[1].id === "tv" && JSON.stringify(appliedA.rates[1]) === JSON.stringify(TV) && appliedA.rates[1] !== TV && sb.payTypedPlan(appliedA, DEFT, []) === null && fxA.length === 0 && JSON.stringify(storeA) === jsonA &&
+    JSON.stringify(seededLike.rates[0]) === JSON.stringify(propo) && appliedA.weekendDays === seededLike.weekendDays && appliedA.casesEarnRVU === seededLike.casesEarnRVU &&
+    !!planB && planB.original === "" && appliedB.rates.length === 2 && appliedB.rates[0].effective === "2026-09-01" && appliedB.rates[1].id === "tv" && sb.rateInForce(appliedB, "2026-09-30").id === "sep" && sb.rateInForce(appliedB, "2026-10-01").id === "tv" &&
+    !!planC && JSON.stringify(planC.remove) === JSON.stringify(["z1"]) && planC.later === "2027-02-01" && planC.original === "prop" &&
+    NO_PLAN.every(t => sb.payTypedPlan(t[1], DEFT, []) === null) && sb.payTypedPlan(seededLike, { rates: [RA] }, []) === null && sb.payApplyTyped(seededLike, { rates: [RA] }, planA) === seededLike,
+    JSON.stringify({ a: planA, b: planB, c: planC, no: NO_PLAN.map(t => sb.payTypedPlan(t[1], DEFT, [])) }));
+  const jul = Object.assign({}, RA, { id: "jul", effective: "2026-07-01" }), siteJP = hand0("site-made", "Made", [jul, propo]);
+  const legOct = mkShift("lg1", Object.assign({}, siteJP, { rates: [propo] }), "2026-10-10"), legSep = mkShift("lg2", Object.assign({}, siteJP, { rates: [jul] }), "2026-09-20");
+  const planJP = sb.payTypedPlan(siteJP, DEFT, [legOct, legSep, TSHIFT]), appliedJP = sb.payApplyTyped(siteJP, DEFT, planJP);
+  check("payTypedPlan.needType and the flag rule: a legacy shift at a CURRENT site whose version in force is typed needs a type; earlier dates, typed shifts, other sites, a deleted site and a site with no typed version never do; payNeedsTypeDelta lists only NEWLY flagged shifts",
+    !!planJP && planJP.needType === 1 && planJP.original === "prop" &&
+    sb.payShiftNeedsType(legOct, [appliedJP]) === true && sb.payShiftNeedsType(legSep, [appliedJP]) === false && sb.payShiftNeedsType(TSHIFT, [appliedJP]) === false &&
+    sb.payShiftNeedsType(legOct, [siteJP]) === false && sb.payShiftNeedsType(legOct, []) === false && sb.payShiftNeedsType(legOct, [Object.assign({}, appliedJP, { id: "other" })]) === false &&
+    sb.payShiftNeedsType(legOct, [Object.assign({}, appliedJP, { deleted: true })]) === false && sb.payShiftNeedsType(null, [appliedJP]) === false &&
+    sb.payNeedsTypeCount([legOct, legSep, TSHIFT, Object.assign({}, legOct, { id: "lg3", date: "2026-12-01" })], [appliedJP]) === 2 && sb.payNeedsTypeCount([legOct], undefined) === 0 &&
+    JSON.stringify(sb.payNeedsTypeDelta(siteJP, appliedJP.rates, [legOct, legSep])) === JSON.stringify({ count: 1, from: "2026-10-10", to: "2026-10-10" }) &&
+    JSON.stringify(sb.payNeedsTypeDelta(appliedJP, appliedJP.rates, [legOct, legSep])) === JSON.stringify({ count: 0, from: "", to: "" }) &&
+    JSON.stringify(sb.payNeedsTypeDelta(appliedJP, [jul, Object.assign({}, TV, { effective: "2026-09-01" })], [legOct, legSep])) === JSON.stringify({ count: 1, from: "2026-09-20", to: "2026-09-20" }),
+    JSON.stringify({ plan: planJP }));
+  // ---- Drafts and writers, feature step 2 (made-up amounts) ----
+  const tdraft = (o) => Object.assign({ id: "td1", siteId: "sx2", date: "2026-10-05", callHours: "", hoursSet: false, note: "", events: [], types: ["night"], ciRows: [], id2: "td1-2", savedTrips: [] }, o || {});
+  const ctxT = { shifts: [], today: "2026-12-31", sites: [SX2] };
+  const codesT = r => r.problems.map(p => p.code + (p.block ? "!" : "") + (p.ev >= 0 ? "@" + p.ev : "") + (p.label ? "[" + p.label + "]" : "")).join(",");
+  const bNight0 = sb.payShiftsFromDraft(tdraft(), SX2, null, ctxT), bNight1 = sb.payShiftsFromDraft(tdraft({ ciRows: [{ h: "2", m: "00" }] }), SX2, null, ctxT);
+  const bNight3 = sb.payShiftsFromDraft(tdraft({ ciRows: [{ h: "1", m: "00" }, { h: "", m: "45" }, { h: "2", m: "" }] }), SX2, null, ctxT);
+  const bDay = sb.payShiftsFromDraft(tdraft({ types: ["day"], ciRows: [{ h: "2", m: "00" }] }), SX2, null, ctxT);
+  const legOrig = { id: "td1", date: "2026-10-05", siteId: "sx2", siteName: "SX2", callHours: 12, rates: Object.assign({}, ORIG), events: [], cases: 3, extra: { k: 1 } };
+  const bBoth = sb.payShiftsFromDraft(tdraft({ types: ["night", "day"], ciRows: [{ h: "3", m: "30" }], note: " both " }), SX2, legOrig, ctxT);
+  const bNone = sb.payShiftsFromDraft(tdraft({ types: [] }), SX2, null, ctxT), bMissing = sb.payShiftsFromDraft(tdraft({ types: ["holiday"] }), SX2, null, ctxT);
+  const bBlank = sb.payShiftsFromDraft(tdraft({ ciRows: [{ h: "", m: "" }] }), SX2, null, ctxT), bBad = sb.payShiftsFromDraft(tdraft({ ciRows: [{ h: "x", m: "0" }] }), SX2, null, ctxT), bMin = sb.payShiftsFromDraft(tdraft({ ciRows: [{ h: "1", m: "75" }] }), SX2, null, ctxT);
+  const bLong = sb.payShiftsFromDraft(tdraft({ ciRows: [{ h: "13", m: "00" }] }), SX2, null, ctxT), bFuture = sb.payShiftsFromDraft(tdraft(), SX2, null, { shifts: [], today: "2026-10-01", sites: [SX2] });
+  check("payShiftsFromDraft typed: Night with 0 / 1 / 3 call-ins (one blank box = 0); a Day ignores the rows and saves callIns []; both types = two shifts (the first keeps orig id / cases / unknown fields, the second gets id2 and no cases; one whole-cent total; no legacy keys); no pick or a key the version lacks = noType with the 'Day or Night' label; ci rows block with their codes and row index; over the shift length warns; future warns",
+    bNight0.shifts.length === 1 && JSON.stringify(bNight0.shifts[0].callIns) === "[]" && bNight0.total === 100 && bNight0.ratesFrom === "inForce" &&
+    bNight1.shifts.length === 1 && JSON.stringify(bNight1.shifts[0].callIns) === "[120]" && bNight1.total === 100 &&
+    bNight3.shifts.length === 1 && JSON.stringify(bNight3.shifts[0].callIns) === "[60,45,120]" && bNight3.total === 287.5 &&
+    bDay.shifts.length === 1 && JSON.stringify(bDay.shifts[0].callIns) === "[]" && bDay.shifts[0].rates.shiftType.key === "day" && bDay.total === 1000 && !("callHours" in bDay.shifts[0]) && !("events" in bDay.shifts[0]) &&
+    bBoth.shifts.length === 2 && bBoth.shifts[0].rates.shiftType.key === "day" && bBoth.shifts[0].id === "td1" && bBoth.shifts[0].cases === 3 && bBoth.shifts[0].extra.k === 1 && bBoth.shifts[0].note === "both" && JSON.stringify(bBoth.shifts[0].callIns) === "[]" &&
+    bBoth.shifts[1].rates.shiftType.key === "night" && bBoth.shifts[1].id === "td1-2" && bBoth.shifts[1].cases === undefined && bBoth.shifts[1].extra === undefined && JSON.stringify(bBoth.shifts[1].callIns) === "[210]" && bBoth.total === 1275 &&
+    !("callHours" in bBoth.shifts[0]) && !("events" in bBoth.shifts[0]) &&
+    bNone.shifts.length === 0 && codesT(bNone) === "noType![Day or Night]" && bMissing.shifts.length === 0 && codesT(bMissing) === "noType![Day or Night]" &&
+    codesT(bBlank) === "ciBlank!@0" && codesT(bBad) === "ciBad!@0" && codesT(bMin) === "ciMin!@0" && bLong.shifts.length === 1 && codesT(bLong) === "ciLong" && codesT(bFuture) === "future",
+    JSON.stringify({ n3: bNight3.shifts[0] && bNight3.shifts[0].callIns, both: bBoth.shifts.map(s => s.id + ":" + s.rates.shiftType.key), total: bBoth.total, none: codesT(bNone), blank: codesT(bBlank) }));
+  const tEdit = sb.payDraftFromShift(TSHIFT, SX2);
+  const keptT = sb.payShiftsFromDraft(tEdit, SX2, TSHIFT, ctxT);
+  const toDay = sb.payShiftsFromDraft(Object.assign({}, tEdit, { types: ["day"] }), SX2, TSHIFT, ctxT);
+  const tlDraft = Object.assign({}, tEdit, { date: "2026-09-10" });
+  const toLegacy = sb.payShiftsFromDraft(sb.payDraftRefresh(tlDraft, SX2, "", "", sb.payDraftRate(tlDraft, SX2, TSHIFT).rates), SX2, TSHIFT, ctxT);
+  check("typed edits: payDraftFromShift picks the one type and rows the call-ins; an unchanged edit rebuilds the shift byte-identically from its kept copy; Night -> Day takes the version in force and saves callIns []; a date onto legacy rates saves a legacy shift (callIns gone, legacy keys present, id kept)",
+    JSON.stringify(tEdit.types) === JSON.stringify(["night"]) && JSON.stringify(tEdit.ciRows) === JSON.stringify([{ h: "2", m: "00" }, { h: "0", m: "30" }]) && tEdit.id2 === "ts1-2" && tEdit.callHours === "" &&
+    keptT.shifts.length === 1 && keptT.ratesFrom === "kept" && JSON.stringify(keptT.shifts[0]) === JSON.stringify(TSHIFT) &&
+    toDay.shifts.length === 1 && toDay.ratesFrom === "inForce" && toDay.shifts[0].rates.shiftType.key === "day" && JSON.stringify(toDay.shifts[0].callIns) === "[]" && toDay.shifts[0].id === "ts1" &&
+    toLegacy.shifts.length === 1 && !sb.payShiftIsTyped(toLegacy.shifts[0]) && toLegacy.shifts[0].callHours === 24 && JSON.stringify(toLegacy.shifts[0].events) === "[]" && !("callIns" in toLegacy.shifts[0]) && toLegacy.shifts[0].id === "ts1" && toLegacy.shifts[0].rates.effective === null,
+    JSON.stringify({ kept: keptT.ratesFrom, keptEq: !!keptT.shifts[0] && JSON.stringify(keptT.shifts[0]) === JSON.stringify(TSHIFT), toLegacy: toLegacy.problems }));
+  // A deleted site's stand-in (callpay.js siteFor) has no rates: the typed
+  // shift's own copy stays the rate choice whatever is picked.
+  const standT = { id: "sx2", name: "SX2", weekendDays: [], rates: [], deleted: true };
+  const unpickedT = Object.assign({}, tEdit, { types: [] });
+  const unpickedR = sb.payDraftRate(unpickedT, standT, TSHIFT), unpickedB = sb.payShiftsFromDraft(unpickedT, standT, TSHIFT, ctxT), repickedB = sb.payShiftsFromDraft(tEdit, standT, TSHIFT, ctxT);
+  check("no typed version in force (a deleted site's stand-in, or a live site whose typed version is gone): a typed shift's kept copy is the rate choice whatever is picked - un-picking blocks with noType (never 'no rates'), re-picking rebuilds it byte-identically; at a live site with a typed version in force an un-pick falls to that version",
+    unpickedR.from === "kept" && sb.payRateIsTyped(unpickedR.rates) && unpickedB.shifts.length === 0 && codesT(unpickedB) === "noType![Night]" &&
+    repickedB.shifts.length === 1 && repickedB.ratesFrom === "kept" && JSON.stringify(repickedB.shifts[0]) === JSON.stringify(TSHIFT) &&
+    sb.payDraftRate(unpickedT, Object.assign({}, SX2, { rates: [ORIG] }), TSHIFT).from === "kept" && sb.payRateIsTyped(sb.payDraftRate(unpickedT, Object.assign({}, SX2, { rates: [ORIG] }), TSHIFT).rates) &&
+    sb.payDraftRate(unpickedT, SX2, TSHIFT).from === "inForce",
+    JSON.stringify({ from: unpickedR.from, codes: codesT(unpickedB) }));
+  const CONTRACT_T = [bNight0.shifts[0], bNight1.shifts[0], bNight3.shifts[0], bDay.shifts[0], bBoth.shifts[0], bBoth.shifts[1], toDay.shifts[0], toLegacy.shifts[0]];
+  const storeT = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [JSON.parse(JSON.stringify(SX2))], payShifts: JSON.parse(JSON.stringify(CONTRACT_T)) });
+  const beforeT = JSON.stringify(storeT.payShifts), fixedT = sb.repairData(storeT);
+  check("CONTRACT: every typed / converted shift the form writes passes repairData unchanged", CONTRACT_T.every(Boolean) && JSON.stringify(storeT.payShifts) === beforeT && fixedT.length === 0, fixedT.join(","));
+  const dayShift = bDay.shifts[0], nightShift = bNight1.shifts[0], flaggedSX = Object.assign({}, OSHIFT, { id: "fl", date: "2026-10-05" });
+  const dctx = others => ({ shifts: others, today: "2026-12-31", sites: [SX2] });
+  const pNightOnDay = sb.payShiftsFromDraft(tdraft({ id: "n2" }), SX2, null, dctx([dayShift])), pNightOnNight = sb.payShiftsFromDraft(tdraft({ id: "n3" }), SX2, null, dctx([nightShift]));
+  const pOnFlagged = sb.payShiftsFromDraft(tdraft({ id: "n4" }), SX2, null, dctx([flaggedSX])), pSetFlagged = sb.payShiftsFromDraft(tdraft({ id: "fl", id2: "fl-2" }), SX2, flaggedSX, dctx([flaggedSX]));
+  const pBothOnFlagged = sb.payShiftsFromDraft(tdraft({ id: "fl", id2: "fl-2", types: ["day", "night"] }), SX2, flaggedSX, dctx([flaggedSX]));
+  check("duplicates: Day + Night on one date is no warning; Night + Night warns dupType (label Night); a typed shift on a date where a shift still needs a type warns dupFlagged; setting that flagged shift itself (one or both types) warns nothing",
+    pNightOnDay.shifts.length === 1 && pNightOnDay.problems.length === 0 && codesT(pNightOnNight) === "dupType[Night]" && pNightOnNight.shifts.length === 1 &&
+    codesT(pOnFlagged) === "dupFlagged[Day or Night]" && pSetFlagged.shifts.length === 1 && pSetFlagged.problems.length === 0 && pBothOnFlagged.shifts.length === 2 && pBothOnFlagged.problems.length === 0,
+    JSON.stringify({ a: codesT(pNightOnDay), b: codesT(pNightOnNight), c: codesT(pOnFlagged), d: codesT(pSetFlagged), e: codesT(pBothOnFlagged) }));
+  const pBothFuture = sb.payShiftsFromDraft(tdraft({ id: "n5", types: ["day", "night"] }), SX2, null, { shifts: [], today: "2026-10-01", sites: [SX2] });
+  const pBothOnFlaggedNew = sb.payShiftsFromDraft(tdraft({ id: "n6", id2: "n6-2", types: ["day", "night"] }), SX2, null, dctx([flaggedSX]));
+  const pBothOnBoth = sb.payShiftsFromDraft(tdraft({ id: "n7", id2: "n7-2", types: ["day", "night"] }), SX2, null, dctx([dayShift, nightShift]));
+  check("a Day + Night pick reports each shift-level warning once (future, dupFlagged) while dupType stays per type",
+    codesT(pBothFuture) === "future" && pBothFuture.shifts.length === 2 && codesT(pBothOnFlaggedNew) === "dupFlagged[Day or Night]" && pBothOnFlaggedNew.shifts.length === 2 && codesT(pBothOnBoth) === "dupType[Day],dupType[Night]",
+    JSON.stringify({ f: codesT(pBothFuture), d: codesT(pBothOnFlaggedNew), t: codesT(pBothOnBoth) }));
+  const TV27 = { id: "tv27", effective: "2027-01-01", shiftTypes: [TD, Object.assign({}, TN, { callIn: { hourly: 60, thresholdMinutes: 180 } })] };
+  const SX27 = Object.assign({}, SX2, { rates: [ORIG, TV, TV27] });
+  const n26 = tsh([270], TN, { id: "n26", date: "2026-10-12" }), n27 = tsh([270], TN, { id: "n27", date: "2027-01-08" }), d27 = tsh([], TD, { id: "d27", date: "2027-01-08" });
+  const rp27 = sb.payRepriceShift(n27, SX27);
+  const SXnoKey = Object.assign({}, SX2, { rates: [ORIG, TV, { id: "tvnk", effective: "2027-01-01", shiftTypes: [TD] }] });
+  const rpStoreT = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [JSON.parse(JSON.stringify(SX27))], payShifts: [JSON.parse(JSON.stringify(rp27))] }), rpJT = JSON.stringify(rpStoreT), rpFxT = sb.repairData(rpStoreT);
+  check("typed stale / re-price: a later typed version makes stale only the shifts it changes (the 2027 Night, not the 2026 Night or the 2027 Day); re-price copies the version's type (id, date and callIns kept) and passes repairData; a missing key, a legacy version in force or a legacy shift under a typed version is never stale; payTypeDiffer ignores label and hours",
+    sb.payShiftStale(n27, SX27) === true && sb.payShiftStale(n26, SX27) === false && sb.payShiftStale(d27, SX27) === false && sb.payShiftStale(n27, SX2) === false &&
+    !!rp27 && rp27.id === "n27" && rp27.rates.id === "tv27" && rp27.rates.shiftType.callIn.hourly === 60 && JSON.stringify(rp27.callIns) === "[270]" && sb.computeShiftPay(rp27).total === 370 && sb.computeShiftPay(n27).total === 325 &&
+    rpFxT.length === 0 && JSON.stringify(rpStoreT) === rpJT && sb.payRepriceShift(n26, SX27) === null && sb.payShiftStale(n27, SXnoKey) === false && sb.payShiftStale(tsh([], TN, { date: "2026-09-10" }), SX2) === false &&
+    sb.payShiftStale(Object.assign({}, OSHIFT, { date: "2026-10-10" }), SX2) === false &&
+    sb.payTypeDiffer(TN, Object.assign({}, TN, { label: "Nite", hours: 10 })) === false && sb.payTypeDiffer(TN, Object.assign({}, TN, { flat: 101 })) === true && sb.payTypeDiffer(TN, Object.assign({}, TN, { callIn: null })) === true &&
+    sb.payTypeDiffer(TN, Object.assign({}, TN, { callIn: { hourly: 50, thresholdMinutes: 120 } })) === true && sb.payTypeDiffer(TD, Object.assign({}, TD, { stipend: 1 })) === true && sb.payTypeDiffer(null, TD) === true,
+    JSON.stringify({ rp27: rp27 && sb.computeShiftPay(rp27).total, n27: sb.computeShiftPay(n27).total, fx: rpFxT }));
+  check("payRepriceSummary: typed count, legacy length change and moved call-ins, before / after cents over both kinds",
+    JSON.stringify(sb.payRepriceSummary([{ before: n27, after: rp27 }, { before: base24, after: sb.payRepriceShift(base24, S1back) }])) === JSON.stringify({ lenChange: false, moved: 0, typed: 1, before: 132500, after: 277000 }) &&
+    sb.payRepriceSummary([{ before: baseWd, after: sb.payRepriceShift(baseWd, S1back) }]).lenChange === true && sb.payRepriceSummary(null).before === 0,
+    JSON.stringify(sb.payRepriceSummary([{ before: n27, after: rp27 }, { before: base24, after: sb.payRepriceShift(base24, S1back) }])));
+  const flDraft = sb.payDraftFromShift(flaggedSX, SX2);
+  const flWith = sb.payDraftFromShift(Object.assign({}, flaggedSX, { events: [{ date: "2026-10-05", cls: "wn", fee: true, hours: 2.5 }] }), SX2);
+  const usedSaved = sb.payDraftUseSaved(flWith);
+  check("flagged draft: nothing picked; savedTrips carry the legacy trips as whole minutes (2.5h = 150); payDraftUseSaved rows them (2 / 30) in a NEW draft; payDraftRate takes the typed version in force for a flagged legacy shift (never its kept copy) but keeps an unflagged legacy copy",
+    JSON.stringify(flDraft.types) === "[]" && JSON.stringify(flDraft.savedTrips) === "[]" && JSON.stringify(flWith.savedTrips) === JSON.stringify([{ date: "2026-10-05", minutes: 150 }]) &&
+    JSON.stringify(usedSaved.ciRows) === JSON.stringify([{ h: "2", m: "30" }]) && usedSaved !== flWith && JSON.stringify(flWith.ciRows) === "[]" &&
+    sb.payDraftRate(flDraft, SX2, flaggedSX).from === "inForce" && sb.payRateIsTyped(sb.payDraftRate(flDraft, SX2, flaggedSX).rates) &&
+    sb.payDraftRate(sb.payDraftFromShift(OSHIFT, SX2), SX2, OSHIFT).from === "kept");
+  const typedChoice = sb.payDraftRate(tdraft(), SX2, null).rates;
+  const reopenT = sb.payDraftReopenAsks(Object.assign({}, flWith, { events: [{ date: "2026-10-05", rel: "same", relSet: true, time: "", timeAuto: false, cls: "wd", clsSet: true, dn: "", fee: true, hours: "2" }] }), Object.assign({}, SX2, { weekendDays: [0, 1, 6] }), flaggedSX, "", "");
+  const ucTyped = sb.payDraftUseCurrent(tdraft({ types: ["night"], ciRows: [{ h: "1", m: "00" }] }), SX2, TSHIFT, true);
+  const refT = sb.payDraftRefresh(tdraft(), SX2, "", "", typedChoice);
+  check("draft guards for a typed rate choice: payDraftReopenAsks is [] (even with a weekend Day pick in the legacy events); payDraftUseCurrent changes only reprice; payDraftRefresh leaves the legacy fields alone; payAsksDayNight and payMidnightAsks never ask; payDefaultShiftHours is null",
+    JSON.stringify(reopenT) === "[]" && ucTyped.reprice === true && JSON.stringify(ucTyped.types) === JSON.stringify(["night"]) && JSON.stringify(ucTyped.ciRows) === JSON.stringify([{ h: "1", m: "00" }]) && ucTyped.callHours === "" &&
+    refT.callHours === "" && JSON.stringify(refT.events) === "[]" && sb.payAsksDayNight("2026-10-07", SX2, typedChoice) === false && sb.payMidnightAsks("2026-10-09", SX2, typedChoice) === false && sb.payDefaultShiftHours("2026-10-10", SX2, typedChoice) === null);
+  check("payDraftTypes: the picked keys the rate choice has, in version order; a key the version lacks drops out and the build then blocks with noType; payDraftId2 bumps past taken ids",
+    JSON.stringify(sb.payDraftTypes({ types: ["night", "day"] }, TV)) === JSON.stringify(["day", "night"]) && JSON.stringify(sb.payDraftTypes({ types: ["holiday", "night"] }, TV)) === JSON.stringify(["night"]) &&
+    JSON.stringify(sb.payDraftTypes({ types: ["night"] }, { id: "x", effective: "2026-10-01", shiftTypes: [TD] })) === "[]" && JSON.stringify(sb.payDraftTypes(null, TV)) === "[]" && JSON.stringify(sb.payDraftTypes({ types: ["night"] }, TSHIFT.rates)) === JSON.stringify(["night"]) &&
+    codesT(sb.payShiftsFromDraft(tdraft({ types: ["night"] }), Object.assign({}, SX2, { rates: [ORIG, { id: "dayonly", effective: "2026-10-01", shiftTypes: [TD] }] }), null, ctxT)) === "noType![Day]" &&
+    sb.payDraftId2("abc", [{ id: "abc-2" }, { id: "abc-3" }]) === "abc-4" && sb.payDraftId2("abc", []) === "abc-2");
+  const FORM = sb.payTypedFormFromVersion(TV), tvJson = JSON.stringify(TV);
+  const vOk = sb.payTypedVersionFromForm(FORM, "tv", SX2);
+  const formWith = (patch, tpatch) => { const f = JSON.parse(JSON.stringify(FORM)); Object.assign(f, patch || {}); if (tpatch) Object.assign(f.types[tpatch[0]], tpatch[1]); return f; };
+  const errOf = (f, id, site) => sb.payTypedVersionFromForm(f, id || "tv", site || SX2).errors.join(" | ");   // editing the version itself, so only the rule under test can fail
+  const vParse = sb.payTypedVersionFromForm(formWith({ effective: "2027-03-01" }, [1, { flat: " 291.23 ", hourly: "2,773.60", thrH: "", thrM: "" }]), "new", SX2);
+  // An edit keeps unknown fields on the version, a type and its callIn (the
+  // decisions file's additive-field example); the form's own fields win.
+  const vUnk = JSON.parse(JSON.stringify(TV)); vUnk.extra = { k: 1 }; vUnk.shiftTypes[1].note = "x"; vUnk.shiftTypes[1].callIn.basis = "total"; vUnk.label = "DN";
+  const sxUnk = Object.assign({}, SX2, { rates: [ORIG, vUnk] });
+  const vKeep = sb.payTypedVersionFromForm(sb.payTypedFormFromVersion(vUnk), "tv", sxUnk).version;
+  const fRen = sb.payTypedFormFromVersion(vUnk); fRen.label = ""; Object.assign(fRen.types[1], { label: "Nights", hourly: "60" });
+  const vRen = sb.payTypedVersionFromForm(fRen, "tv", sxUnk).version;
+  const unkStore = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [Object.assign({}, sxUnk, { rates: [ORIG, vRen] })] }), unkJ = JSON.stringify(unkStore), unkFx = sb.repairData(unkStore);
+  check("typed editor: an edit keeps unknown fields on the version, a type and its callIn (an untouched form round-trips byte-identically; a rename and a new $/hr keep them; a cleared label is removed); the result is a repairData fixed point",
+    !!vKeep && JSON.stringify(vKeep) === JSON.stringify(vUnk) && vKeep.label === "DN" && !!vRen && vRen.extra.k === 1 && vRen.shiftTypes[1].note === "x" && vRen.shiftTypes[1].callIn.basis === "total" &&
+    vRen.shiftTypes[1].label === "Nights" && vRen.shiftTypes[1].callIn.hourly === 60 && vRen.label === undefined && unkFx.length === 0 && JSON.stringify(unkStore) === unkJ,
+    JSON.stringify({ keep: vKeep, ren: vRen, fx: unkFx }));
+  const fromNew = sb.payNewTypedForm(TV);
+  check("payTypedVersionFromForm: the version's own form round-trips to an identical version (a fixed point); one error per rule; ' 291.23 ' and '2,773.60' parse, a blank threshold is 0:00; '12abc', '-1' and a blank length are refused; payNewTypedForm keeps the keys, blanks the date and label and never mutates its source",
+    !!vOk.version && JSON.stringify(vOk.version) === tvJson && vOk.errors.length === 0 &&
+    errOf(formWith({ effective: "" })) === "Pick the date these rates start." && errOf(formWith({ effective: "2026-10-01" }), "new") === "Another version already starts on Oct 1, 2026 - edit that one instead." &&
+    errOf(formWith({ effective: "", original: true })) === "This site already has Original rates - edit those instead." && errOf(formWith({ types: [] })) === "Add at least one shift type." &&
+    errOf(formWith({}, [0, { label: " " }])) === "Name every shift type." && errOf(formWith({}, [0, { label: "night" }])) === "Two shift types are both named Night." &&
+    errOf(formWith({}, [0, { hours: "" }])) === "Shift length must be more than 0 hours." && errOf(formWith({}, [0, { hours: "0" }])) === "Shift length must be more than 0 hours." &&
+    errOf(formWith({}, [0, { flat: "12abc" }])) === "Fill every amount with a number (0 is allowed)." && errOf(formWith({}, [0, { flat: "-1" }])) === "Fill every amount with a number (0 is allowed)." &&
+    errOf(formWith({}, [1, { hourly: "" }])) === "Fill every amount with a number (0 is allowed)." && errOf(formWith({}, [1, { thrM: "75" }])) === "Minutes must be 0 to 59." && errOf(formWith({}, [1, { thrH: "x" }])) === "Fill every amount with a number (0 is allowed)." &&
+    !!vParse.version && vParse.version.shiftTypes[1].flat === 291.23 && vParse.version.shiftTypes[1].callIn.hourly === 2773.6 && vParse.version.shiftTypes[1].callIn.thresholdMinutes === 0 && vParse.version.effective === "2027-03-01" && vParse.version.id === "new" &&
+    fromNew.effective === "" && fromNew.label === "" && fromNew.types.map(t => t.key).join() === "day,night" && fromNew.types[1].ci === true && fromNew.types[1].thrH === "3" && fromNew.types[1].thrM === "00" && JSON.stringify(TV) === tvJson &&
+    sb.payTypeFromForm(fromNew.types[1]).callIn.thresholdMinutes === 180 && sb.payAmountText("2,773.60") === 2773.6 && sb.payAmountText("12abc") === null && sb.payAmountText(" 5 ") === 5 && sb.payBlankTypedForm().types.length === 1 && /^t-/.test(sb.payBlankTypedForm().types[0].key),
+    JSON.stringify({ ok: vOk.errors, eq: !!vOk.version && JSON.stringify(vOk.version) === tvJson, dup: errOf(formWith({}, [0, { label: "night" }])), thr: errOf(formWith({}, [1, { thrM: "75" }])) }));
+  // ---- The Day / Night / Other split, feature step 3 (made-up) ----
+  const sDay = tsh([], TD, { id: "sp1", date: "2026-10-02" }), sN1 = tsh([120, 120], TN, { id: "sp2", date: "2026-10-03" }), sN2 = tsh([60], TN, { id: "sp3", date: "2026-10-04" });
+  const sN3 = tsh([150], { key: "t-x", label: "night", hours: 12, flat: 100, stipend: 0, stipendLabel: "", callIn: { hourly: 50, thresholdMinutes: 120 } }, { id: "sp5", date: "2026-10-07" });
+  const sHol = tsh([], { key: "t-h", label: "Holiday", hours: 12, flat: 500, stipend: 0, stipendLabel: "", callIn: null }, { id: "sp6", date: "2026-10-08" });
+  const sOth = mkShift("sp7", S1, "2026-10-09");
+  const SPL = [sDay, sN1, sN2, OSHIFT, flaggedSX, sN3, sHol, sOth], SITES_SP = [SX2, S1];
+  const octR = sb.payTotalInRange(SPL, "2026-10-01", "2026-11-01", null, SITES_SP), yrR = sb.payTotalInRange(SPL, "2026-01-01", "2027-01-01", null, SITES_SP);
+  const flOnly = sb.payTotalInRange(SPL, "2026-10-05", "2026-10-06", null, SITES_SP), legOnly = sb.payTotalInRange([sOth], "2026-10-01", "2026-11-01", null, SITES_SP), noSites = sb.payTotalInRange(SPL, "2026-10-01", "2026-11-01");
+  const twoN = sb.payTotalInRange(SPL, "2026-10-03", "2026-10-05", null, SITES_SP);
+  const splitOf = r => r.split.map(b => [b.key, b.label, b.shifts, b.total, b.callIns, b.inMin, b.ciShifts, b.metCount, b.threshold].join("|")).join(" ; ");
+  check("payTotalInRange split: buckets by type (Day, Night, other types, then Other = legacy-priced), merged by label case-folded and named by the newest shift, adding up to the total to the cent; a flagged shift is only needsType; mixed thresholds give null; only-flagged = 0 shifts; legacy-only = no split; without sites nothing is flagged",
+    octR.total === 3125 && octR.shifts === 6 && octR.needsType === 1 && octR.unpriced === 0 &&
+    splitOf(octR) === "day|Day|1|1000|0|0|0|0| ; night|night|3|625|4|450|3|2| ; t-h|Holiday|1|500|0|0|0|0| ; |Other|1|1000|0|0|0|0|" &&
+    octR.split.reduce((a, b) => a + Math.round(b.total * 100), 0) === Math.round(octR.total * 100) &&
+    yrR.total === 4125 && yrR.shifts === 7 && yrR.split.filter(b => b.key === "")[0].shifts === 2 && yrR.split.filter(b => b.key === "")[0].total === 2000 &&
+    flOnly.shifts === 0 && flOnly.total === 0 && flOnly.needsType === 1 && JSON.stringify(flOnly.split) === "[]" && JSON.stringify(legOnly.split) === "[]" && legOnly.total === 1000 &&
+    noSites.needsType === 0 && noSites.shifts === 7 && noSites.total === 4125 && twoN.split[0].threshold === 180 && twoN.split[0].metCount === 1 && twoN.split[0].ciShifts === 2,
+    JSON.stringify({ oct: splitOf(octR), tot: octR.total, two: splitOf(twoN) }));
+  const mtS = sb.payMonthTotals(SPL, 2026, SITES_SP), octM = mtS.months.filter(m => m.key === "2026-10")[0], sepM = mtS.months.filter(m => m.key === "2026-09")[0];
+  check("payMonthTotals: the year and each month carry split + needsType; a flagged shift stays in its month's list but out of its counts, total, call-ins and site rows",
+    mtS.needsType === 1 && mtS.shifts === 7 && mtS.total === 4125 && splitOf(mtS) === splitOf(yrR) && !!octM && octM.shifts === 6 && octM.needsType === 1 && octM.list.length === 7 && octM.list.some(s => s.id === "fl") &&
+    octM.total === 3125 && octM.callIns === 4 && splitOf(octM) === splitOf(octR) && octM.sites.every(st => st.shifts > 0) && !!sepM && sepM.split.length === 0 && sepM.needsType === 0 && sepM.shifts === 1,
+    JSON.stringify({ y: splitOf(mtS), oct: octM && splitOf(octM), sites: octM && octM.sites }));
   const ds = vm.runInContext("defState()", sb), ds2 = vm.runInContext("defState()", sb);
   check("new installs start with the built-in sites + marker (fresh copies)", ds.paySites.length === 2 && ds.settings.paySitesSeeded === true && ds.paySites[0] !== ds2.paySites[0]);
   // "Use built-in rates" (R1): a phone whose own same-named sites lack paying
   // rates gets the preset version on a confirmed tap. Names come from the
   // preset at run time; other rates are the made-up RA (paying) / RZ ($0).
-  const BI = vm.runInContext("DEFAULT_PAY_SITES", sb), B0 = BI[0], B1 = BI[1], FROM = B0.rates[0].effective;
+  // The built-in's start is its first DATED version (payBuiltInFrom /
+  // payBuiltInVersion), never `rates[0]`: Davenport's rates[0] is its Original.
+  const BI = vm.runInContext("DEFAULT_PAY_SITES", sb), B0 = BI[0], B1 = BI[1], FROM = sb.payBuiltInFrom(B0), B0V = sb.payBuiltInVersion(B0);
   const hand = (id, name, rates, wd) => ({ id: id, name: name, weekendDays: wd || [0, 6], casesEarnRVU: true, rates: rates || [] });
   const ver = (base, id, eff) => Object.assign({}, base, { id: id, effective: eff });
   const bf = (sites, def) => { const m = sb.payBuiltInFor(sites, def); return m ? m.by + ":" + (m.site ? m.site.id : "-") : "null"; };
@@ -1482,30 +1758,147 @@ if (sb) {
     const ok = fx.length === 0 && JSON.stringify(store) === json && sb.payBuiltInPlan(out, t[2]) === null &&
       effs.length === new Set(effs).size && keptPaying && out.casesEarnRVU === t[1].casesEarnRVU && JSON.stringify(t[1]) === before &&
       JSON.stringify(out.weekendDays) === JSON.stringify(plan.days ? t[2].weekendDays : t[1].weekendDays) &&
-      JSON.stringify(sb.rateInForce(out, FROM)) === JSON.stringify(t[2].rates[0]);
+      JSON.stringify(sb.rateInForce(out, FROM)) === JSON.stringify(sb.payBuiltInVersion(t[2]));
     if (!ok) applyBad.push(t[0] + " " + JSON.stringify({ fx: fx, effs: effs, keptPaying: keptPaying }));
   });
   check("payBuiltInPlan: " + PLAN_SHAPES.length + " phone shapes (paying amounts never touched; $0 versions from the start removed)", planBad.length === 0, planBad.join(" | "));
   check("payApplyBuiltIn: repairData fixed point, second apply a no-op, no duplicate dates, paying versions + casesEarnRVU kept, preset in force from the start",
     applyBad.length === 0, applyBad.join(" | "));
-  const idFree = hand(B0.id, B0.name, [Object.assign({}, RZ, { id: B0.rates[0].id, effective: "2026-11-01" })], B0.weekendDays.slice());
+  const idFree = hand(B0.id, B0.name, [Object.assign({}, RZ, { id: B0V.id, effective: "2026-11-01" })], B0.weekendDays.slice());
   const idFreeOut = sb.payApplyBuiltIn(idFree, B0, sb.payBuiltInPlan(idFree, B0));
-  const idTaken = hand("s8", B0.name, [ver(RA, B0.rates[0].id, "2027-01-01")]);
+  const idTaken = hand("s8", B0.name, [ver(RA, B0V.id, "2027-01-01")]);
   const idTakenOut = sb.payApplyBuiltIn(idTaken, B0, sb.payBuiltInPlan(idTaken, B0));
   check("payApplyBuiltIn rate ids: a removed $0 version frees the preset id; a taken id gets a new one",
-    idFreeOut.rates.length === 1 && idFreeOut.rates[0].id === B0.rates[0].id && JSON.stringify(idFreeOut.rates[0]) === JSON.stringify(B0.rates[0]) &&
-    idTakenOut.rates.length === 2 && idTakenOut.rates[1].id !== B0.rates[0].id && idTakenOut.rates[1].id.indexOf(B0.rates[0].id + "-") === 0);
+    idFreeOut.rates.length === 1 && idFreeOut.rates[0].id === B0V.id && JSON.stringify(idFreeOut.rates[0]) === JSON.stringify(B0V) &&
+    idTakenOut.rates.length === 2 && idTakenOut.rates[1].id !== B0V.id && idTakenOut.rates[1].id.indexOf(B0V.id + "-") === 0);
   const offerSites = [hand("s1", B0.name), hand("d9", B1.name + " East", [ver(RA, "v0", "2026-09-01")])];
   const offs = sb.payBuiltInOffers(offerSites);
   check("payBuiltInOffers: one offer per standing site without paying rates; a site with its own rates gets none",
     offs.length === 1 && offs[0].site === offerSites[0] && offs[0].def.id === B0.id && offs[0].by === "name" && sb.payBuiltInOffers([]).length === 0);
-  // Filled hand-made sites must price the owner's examples exactly like the preset.
+  // Filled hand-made sites must price the owner's examples exactly like the
+  // preset: Silvis legacy as before; an empty Davenport takes ONLY the typed
+  // Day/Night version (R1 adds payBuiltInVersion, never the Original).
   const fS = sb.payApplyBuiltIn(hand("s1", B0.name), B0, sb.payBuiltInPlan(hand("s1", B0.name), B0));
   const fD = sb.payApplyBuiltIn(hand("d1", B1.name), B1, sb.payBuiltInPlan(hand("d1", B1.name), B1));
-  const viaFilled = [work(fS, "2026-10-13", 24, "2026-10-13", "21:00", 2.5), work(fS, "2026-10-16", 24, "2026-10-17", "01:00", 1.5), work(fS, "2026-11-26", 24, "2026-11-26", "14:00", 3),
-    work(fD, "2026-10-14", 12, "2026-10-14", "20:00", 1), work(fD, "2026-10-15", 12, "2026-10-15", "10:00", 2), work(fD, "2026-10-17", 12, "2026-10-17", "11:00", 4)];
-  check("filled hand-made sites price the owner's worked examples exactly like the preset",
-    viaFilled.join(",") === WORKED.slice(0, 6).map(w => w[1]).join(","), viaFilled.join(","));
+  const viaFilled = [work(fS, "2026-10-13", 24, "2026-10-13", "21:00", 2.5), work(fS, "2026-10-16", 24, "2026-10-17", "01:00", 1.5), work(fS, "2026-11-26", 24, "2026-11-26", "14:00", 3)];
+  check("filled hand-made sites: Silvis prices the owner's worked examples exactly like the preset; an empty Davenport gets only the typed Day/Night version",
+    viaFilled.join(",") === WORKED.slice(0, 3).map(w => w[1]).join(",") && fD.rates.length === 1 && JSON.stringify(fD.rates[0]) === JSON.stringify(sb.payBuiltInVersion(B1)) && sb.payRateIsTyped(fD.rates[0]),
+    viaFilled.join(",") + " / " + fD.rates.length);
+  // ---- The preset's Day/Night figures (the owner's spec; the amounts are
+  // public under CLAUDE.md's built-in exception). Hand-built typed shifts
+  // priced from DAVT's own type copies; draft-built ones follow with the drafts. ----
+  const DNV = sb.payBuiltInVersion(DAVT), DAY = sb.payTypeByKey(DNV, "day"), NIGHT = sb.payTypeByKey(DNV, "night");
+  const dsh = (type, callIns, id, date) => ({ id: id || "dn-" + type.key + "-" + (callIns || []).join("-"), date: date || "2026-10-05", siteId: DAVT.id, siteName: DAVT.name, rates: { id: DNV.id, effective: DNV.effective, shiftType: JSON.parse(JSON.stringify(type)) }, callIns: callIns || [] });
+  const dpay = (type, callIns) => { const p = sb.computeShiftPay(dsh(type, callIns)); return p ? p.total.toFixed(2) : "null"; };
+  const dline = (callIns) => { const p = sb.computeShiftPay(dsh(NIGHT, callIns)); return p ? p.lines.map(l => l.kind + ":" + l.amount.toFixed(2)).join(" ") : "null"; };
+  const DNFIG = [ // [label, got, want]
+    ["Day", dpay(DAY, []), "2773.60"], ["Night, no call-in", dpay(NIGHT, []), "291.23"], ["Night 2:00", dpay(NIGHT, [120]), "291.23"], ["Night 2:59", dpay(NIGHT, [179]), "291.23"],
+    ["Night 3:00", dpay(NIGHT, [180]), "1019.30"], ["Night 4:30", dpay(NIGHT, [270]), "1383.34"], ["Night 2:00 + 2:00", dpay(NIGHT, [120, 120]), "1261.99"], ["Night 3:00 + 2:00", dpay(NIGHT, [180, 120]), "1504.68"],
+    ["Night 3:01", dpay(NIGHT, [181]), "1023.34"], ["Night 3:20 + 3:20", dpay(NIGHT, [200, 200]), "1909.16"], ["Night 3:30 + 1:00", dpay(NIGHT, [210, 60]), "1383.34"], ["Night 1:40 + 1:20", dpay(NIGHT, [100, 80]), "1019.30"],
+    ["Night 4:30 lines", dline([270]), "flat:291.23 callIn:1092.11"], ["Night 2:59 lines", dline([179]), "flat:291.23 callIn:0.00"], ["Day lines", (sb.computeShiftPay(dsh(DAY, [])) || { lines: [] }).lines.map(l => l.kind).join(), "flat"],
+  ];
+  const badDn = DNFIG.filter(f => f[1] !== f[2]);
+  const dayNight = sb.payTotalInRange([dsh(DAY, [], "d-a"), dsh(NIGHT, [], "d-b")], "2026-10-01", "2026-11-01");
+  check("Davenport Day/Night figures (" + DNFIG.length + "): Day 2,773.60; Night 291.23 under 3:00, 1,019.30 at 3:00, 1,383.34 at 4:30, two 2:00 trips 1,261.99, 3:00 + 2:00 1,504.68; Day + quiet Night 3,064.83; never a stipend line",
+    badDn.length === 0 && dayNight.total === 3064.83 && dayNight.shifts === 2 && [dsh(DAY, []), dsh(NIGHT, [270])].every(s => sb.computeShiftPay(s).lines.every(l => l.kind !== "stipend")),
+    badDn.map(f => f[0] + " -> " + f[1] + " want " + f[2]).join("; ") + " | " + JSON.stringify(dayNight));
+  // The same figures through the form's own writer (payShiftsFromDraft).
+  const ddraft = (types, rows, date) => ({ id: "dd-" + types.join("") + "-" + (rows || []).map(r => r.h + r.m).join("_"), siteId: DAVT.id, date: date || "2026-10-05", callHours: "", hoursSet: false, note: "", events: [], types: types, ciRows: rows || [], id2: "", savedTrips: [] });
+  const dtot = (types, rows, date) => { const b = sb.payShiftsFromDraft(ddraft(types, rows, date), DAVT, null, { shifts: [], today: "2026-12-31", sites: [DAVT] }); return b.shifts.length ? b.total.toFixed(2) : "blocked:" + b.problems.filter(p => p.block).map(p => p.code).join("+"); };
+  const DNDRAFT = [
+    ["Day 10-05", dtot(["day"], []), "2773.60"], ["Night, none", dtot(["night"], []), "291.23"], ["Night 2:00", dtot(["night"], [{ h: "2", m: "00" }]), "291.23"], ["Night 2:59", dtot(["night"], [{ h: "2", m: "59" }]), "291.23"],
+    ["Night 3:00", dtot(["night"], [{ h: "3", m: "00" }]), "1019.30"], ["Night 4:30", dtot(["night"], [{ h: "4", m: "30" }]), "1383.34"], ["Night 2:00 + 2:00", dtot(["night"], [{ h: "2", m: "00" }, { h: "2", m: "00" }]), "1261.99"],
+    ["Day + quiet Night", dtot(["day", "night"], []), "3064.83"], ["no type", dtot([], []), "blocked:noType"], ["a blank row", dtot(["night"], [{ h: "", m: "" }]), "blocked:ciBlank"], ["before Oct 1 = legacy rates (no hours yet)", dtot(["day"], [], "2026-09-30"), "blocked:hours"],
+  ];
+  const badDd = DNDRAFT.filter(f => f[1] !== f[2]);
+  const bothDN = sb.payShiftsFromDraft(ddraft(["day", "night"], []), DAVT, null, { shifts: [], today: "2026-12-31", sites: [DAVT] });
+  const dnStore = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: sb.defaultPaySites(), payShifts: JSON.parse(JSON.stringify(bothDN.shifts.concat([sb.payShiftsFromDraft(ddraft(["night"], [{ h: "4", m: "30" }]), DAVT, null, null).shifts[0]]))) });
+  const dnJ = JSON.stringify(dnStore), dnFx = sb.repairData(dnStore);
+  check("Davenport through the form's writer (" + DNDRAFT.length + "): the spec figures to the cent; Day + Night = two shifts (ids id and id-2); no pick / a blank row / pre-Oct hours block; every written shift passes repairData unchanged; no stipend line anywhere",
+    badDd.length === 0 && bothDN.shifts.length === 2 && bothDN.shifts[0].rates.shiftType.key === "day" && bothDN.shifts[1].rates.shiftType.key === "night" && bothDN.shifts[1].id === bothDN.shifts[0].id + "-2" &&
+    dnFx.length === 0 && JSON.stringify(dnStore) === dnJ && dnStore.payShifts.every(s => sb.computeShiftPay(s).lines.every(l => l.kind !== "stipend")),
+    badDd.map(f => f[0] + " -> " + f[1] + " want " + f[2]).join("; ") + " | " + dnFx.join(","));
+  const DN27 = { id: "dn27", effective: "2027-01-01", shiftTypes: [DAY, Object.assign({}, NIGHT, { callIn: { hourly: 250, thresholdMinutes: 180 } })] };
+  const DAVT27 = Object.assign({}, DAVT, { rates: DAVT.rates.concat([DN27]) });
+  check("built-in Davenport: the Original (Proposal) before Oct 1 2026, the Day/Night version from Oct 1, a 2027 test version from its date; Silvis still none before Oct 1",
+    sb.rateInForce(DAVT, "2026-09-30") === DAVT.rates[0] && DAVT.rates[0].effective === null && DAVT.rates[0].label === "Proposal" && !sb.payRateIsTyped(DAVT.rates[0]) &&
+    sb.rateInForce(DAVT, "2026-10-01") === DNV && sb.rateInForce(DAVT, "2026-12-31") === DNV && sb.rateInForce(DAVT27, "2027-01-01") === DN27 && sb.rateInForce(DAVT27, "2026-12-31") === DNV &&
+    sb.rateInForce(SIL, "2026-09-30") === null && sb.payBuiltInFrom(DAVT) === "2026-10-01" && sb.payBuiltInVersion(DAVT) === DNV && sb.payBuiltInFrom(SIL) === "2026-10-01");
+  // The 2027 re-price through the preset (plan B10; figures preset-derived).
+  const n27p = dsh(NIGHT, [270], "n27p", "2027-01-08"), rp27p = sb.payRepriceShift(n27p, DAVT27), n27q = dsh(NIGHT, [180], "n27q", "2027-01-08");
+  check("Davenport 2027 re-price through the preset: only 2027 Nights are stale against a $250/hr version; 4:30 goes 1,383.34 -> 1,416.23 and 3:00 -> 1,041.23; deleting the version re-prices back to 1,383.34",
+    sb.computeShiftPay(n27p).total === 1383.34 && sb.payShiftStale(n27p, DAVT27) === true && !!rp27p && rp27p.rates.id === "dn27" && sb.computeShiftPay(rp27p).total === 1416.23 &&
+    sb.computeShiftPay(sb.payRepriceShift(n27q, DAVT27)).total === 1041.23 && !sb.payShiftStale(dsh(NIGHT, [270], "n26p", "2026-10-12"), DAVT27) && !sb.payShiftStale(dsh(DAY, [], "d27p", "2027-01-08"), DAVT27) &&
+    sb.payShiftStale(rp27p, DAVT) === true && sb.computeShiftPay(sb.payRepriceShift(rp27p, DAVT)).total === 1383.34,
+    JSON.stringify({ rp: rp27p && sb.computeShiftPay(rp27p).total, q: sb.computeShiftPay(sb.payRepriceShift(n27q, DAVT27) || n27q).total }));
+  check("payTypePreview: the five pinned strings from the preset's types",
+    sb.payTypePreview(DAY) === "Day: $2,773.60" && sb.payTypePreview(NIGHT) === "Night: $291.23 + $242.69/hr when in 3:00+" &&
+    sb.payTypePreview(Object.assign({}, NIGHT, { callIn: { hourly: 242.69, thresholdMinutes: 0 } })) === "Night: $291.23 + $242.69/hr" &&
+    sb.payTypePreview(Object.assign({}, DAY, { stipend: 500, stipendLabel: "Trauma" })) === "Day: $2,773.60 + $500.00 Trauma" &&
+    sb.payTypePreview(Object.assign({}, DAY, { flat: "" })) === "Day: fill in the amounts");
+  // The offer on a phone seeded from the OLD preset (Proposal dated Oct 1):
+  // one tap gives exactly the new preset Davenport; a hand-made Jul 1 version
+  // (the baseline phone) keeps its date; the seeded site gets no R1 offer.
+  const oldDav = { id: DAVT.id, name: DAVT.name, weekendDays: DAVT.weekendDays.slice(), casesEarnRVU: DAVT.casesEarnRVU, rates: [Object.assign({}, DAVT.rates[0], { effective: "2026-10-01" })] };
+  const octLeg = mkShift("ol1", oldDav, "2026-10-10"), octLeg2 = mkShift("ol2", oldDav, "2026-10-17"), sepLeg = mkShift("sl", Object.assign({}, oldDav, { rates: [Object.assign({}, oldDav.rates[0], { id: "jul", effective: "2026-07-01" })] }), "2026-09-19");
+  const offs2 = sb.payTypedOffers([SIL, oldDav], [octLeg, octLeg2, sepLeg]);
+  const tapped = offs2.length === 1 ? sb.payApplyTyped(oldDav, offs2[0].def, offs2[0].plan) : null;
+  const julDav = Object.assign({}, oldDav, { rates: [Object.assign({}, oldDav.rates[0], { id: "jul", effective: "2026-07-01", label: "Made-up Jul", stipend: 3000 }), oldDav.rates[0]] });
+  const julOff = sb.payTypedOffers([julDav], []), julTap = julOff.length === 1 ? sb.payApplyTyped(julDav, julOff[0].def, julOff[0].plan) : null;
+  check("Use new Davenport rates: the old-preset Davenport is offered once (by id; original = Proposal; 2 shifts need a type) and the tap yields EXACTLY the new preset Davenport; no second offer; the seeded Davenport gets no R1 offer; a hand-made Jul 1 version keeps its date and still prices September",
+    offs2.length === 1 && offs2[0].by === "id" && offs2[0].plan.original === DAVT.rates[0].id && offs2[0].plan.needType === 2 && !!tapped && JSON.stringify(tapped) === JSON.stringify(DAVT) &&
+    sb.payTypedOffers([SIL, tapped], []).length === 0 && sb.payBuiltInOffers([SIL, tapped]).length === 0 && sb.payBuiltInOffers(sb.defaultPaySites()).length === 0 && sb.payTypedOffers(sb.defaultPaySites(), []).length === 0 &&
+    !!julTap && julTap.rates.map(r => r.id).join() === "jul," + DAVT.rates[0].id + "," + DNV.id && julTap.rates[1].effective === null && sb.rateInForce(julTap, "2026-09-30").id === "jul" && sb.rateInForce(julTap, "2026-10-01").id === DNV.id &&
+    sb.payNeedsTypeCount([octLeg, octLeg2, sepLeg], [tapped]) === 2 && sb.payNeedsTypeCount([octLeg, octLeg2, sepLeg], [oldDav]) === 0,
+    JSON.stringify({ offs: offs2.map(o => o.plan), tappedEq: !!tapped && JSON.stringify(tapped) === JSON.stringify(DAVT), jul: julTap && julTap.rates.map(r => r.id + ":" + r.effective) }));
+  const handDav = Object.assign({}, oldDav, { id: "h1" }), handDav2 = Object.assign({}, oldDav, { id: "h2", name: oldDav.name.toLowerCase() });
+  check("Use new Davenport rates: one same-named hand-made site is offered by name; two same-named sites (ambiguous) get no offer",
+    sb.payTypedOffers([SIL, handDav], []).length === 1 && sb.payTypedOffers([SIL, handDav], [])[0].by === "name" && sb.payTypedOffers([SIL, handDav, handDav2], []).length === 0);
+  // Before and after the tap on a baseline-shaped phone (Jul 1 made-up +
+  // Proposal Oct 1, Silvis): July, September and Silvis never change;
+  // October loses exactly the two Davenport shifts that now need a type.
+  const bShifts = [mkShift("b-jul", Object.assign({}, julDav, { rates: [julDav.rates[0]] }), "2026-07-15"), mkShift("b-sep", Object.assign({}, julDav, { rates: [julDav.rates[0]] }), "2026-09-19"),
+    mkShift("b-o1", Object.assign({}, julDav, { rates: [julDav.rates[1]] }), "2026-10-10"), mkShift("b-o2", Object.assign({}, julDav, { rates: [julDav.rates[1]] }), "2026-10-17"), mkShift("b-sil", SIL, "2026-10-13")];
+  const beforeSites = [SIL, julDav], afterSites = [SIL, julTap];
+  const tot = (sites, from, to) => sb.payTotalInRange(bShifts, from, to, null, sites);
+  const octB = tot(beforeSites, "2026-10-01", "2026-11-01"), octA = tot(afterSites, "2026-10-01", "2026-11-01");
+  check("before and after the tap: July, September and Silvis totals identical; October differs by exactly the two flagged Davenport shifts (needsType 2, only Silvis in its split); payMonthTotals agrees",
+    tot(beforeSites, "2026-07-01", "2026-08-01").total === tot(afterSites, "2026-07-01", "2026-08-01").total && tot(beforeSites, "2026-07-01", "2026-08-01").total === 3000 &&
+    tot(beforeSites, "2026-09-01", "2026-10-01").total === tot(afterSites, "2026-09-01", "2026-10-01").total && octB.needsType === 0 && octA.needsType === 2 &&
+    Math.round((octB.total - octA.total) * 100) === Math.round((sb.computeShiftPay(bShifts[2]).total + sb.computeShiftPay(bShifts[3]).total) * 100) &&
+    octA.total === sb.computeShiftPay(bShifts[4]).total && octA.split.length === 1 && octA.split[0].key === "" && octA.split[0].shifts === 1 && octB.split.length === 0 &&
+    sb.payMonthTotals(bShifts, 2026, afterSites).needsType === 2 && sb.payMonthTotals(bShifts, 2026, beforeSites).needsType === 0 && sb.payMonthTotals(bShifts, 2026, afterSites).total === tot(afterSites, "2026-01-01", "2027-01-01").total,
+    JSON.stringify({ before: octB, after: octA }));
+  // Setting one flagged shift (the form's path) prices it and lowers the count.
+  const setO1 = sb.payShiftsFromDraft(Object.assign(sb.payDraftFromShift(bShifts[2], julTap), { types: ["night"], ciRows: [{ h: "4", m: "30" }] }), julTap, bShifts[2], { shifts: bShifts, today: "2026-12-31", sites: afterSites });
+  const bAfterSet = bShifts.map(s => s.id === "b-o1" ? setO1.shifts[0] : s);
+  check("setting a flagged shift to Night 4:30 prices it 1,383.34 under its own id and drops the needs-type count from 2 to 1 in both totals",
+    setO1.shifts.length === 1 && setO1.shifts[0].id === "b-o1" && sb.computeShiftPay(setO1.shifts[0]).total === 1383.34 && setO1.problems.length === 0 &&
+    sb.payTotalInRange(bAfterSet, "2026-10-01", "2026-11-01", null, afterSites).needsType === 1 && sb.payMonthTotals(bAfterSet, 2026, afterSites).needsType === 1 && sb.payNeedsTypeCount(bAfterSet, afterSites) === 1,
+    JSON.stringify({ probs: setO1.problems, n: setO1.shifts.length }));
+  // loadData over a mixed store (typed shifts, flagged legacy shifts, an
+  // Original-priced shift, Silvis): no write, no banner, data untouched.
+  {
+    const realLS = sb.localStorage, realConsole = sb.console, realA = sb.showDataAlert;
+    let okMixed = false, infoM = {};
+    try {
+      const mem = {}, writes = [], banners = [];
+      sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null), setItem: (k, v) => { writes.push(k); mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+      sb.console = { log: () => {}, warn: () => {}, error: () => {} };
+      sb.showDataAlert = m => banners.push(String(m));
+      const SKM = vm.runInContext("SK", sb);
+      // julTap.rates[1] is the Proposal re-dated null: b-orig is priced from the Original.
+      const mixed = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: JSON.parse(JSON.stringify(afterSites)), payShifts: JSON.parse(JSON.stringify(bAfterSet.concat(bothDN.shifts, [mkShift("b-orig", Object.assign({}, julTap, { rates: [julTap.rates[1]] }), "2026-06-15")]))) });
+      const mixedJ = JSON.stringify(mixed);
+      mem[SKM] = mixedJ;
+      const lm = sb.loadData();
+      okMixed = writes.length === 0 && banners.length === 0 && JSON.stringify(lm.payShifts) === JSON.stringify(mixed.payShifts) && JSON.stringify(lm.paySites) === JSON.stringify(mixed.paySites) && mem[SKM] === mixedJ &&
+        sb.payNeedsTypeCount(lm.payShifts, lm.paySites) === 1 && lm.payShifts.length === mixed.payShifts.length && mixed.payShifts.length === 8 &&
+        mixed.payShifts.some(s => s.rates && s.rates.effective === null && !sb.payShiftIsTyped(s)) && mixed.payShifts.some(s => sb.payShiftIsTyped(s)) && new Set(mixed.payShifts.map(s => s.id)).size === mixed.payShifts.length;
+      infoM = { writes: writes.length, banners: banners.length, n: lm.payShifts.length, want: mixed.payShifts.length };
+    } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realA; }
+    check("loadData over a mixed store (typed, flagged legacy, Original-priced, Silvis) writes nothing, shows no banner and returns it unchanged", okMixed, JSON.stringify(infoM));
+  }
   check("payMissingBuiltIns: a site of any id already using a built-in's name blocks adding a same-named second site",
     sb.payMissingBuiltIns([hand(B0.id, B1.name)]).length === 0 && sb.payMissingBuiltIns([hand(B1.id, "  " + B0.name.toLowerCase())]).length === 0);
   // Weekend days added by "Use built-in rates" (hand-made site on Sat/Sun ->
@@ -1616,6 +2009,129 @@ if (sb) {
     check("callpay.js Use current rates: picks from payDraftReopenAsks, reopen = picks.length > 0 && confirm(...) in the tap, payDraftUseCurrent(..., reopen) in the setD updater, no reprice writes",
       !!ucFn && asksOk && confirmOk && useOk && calls("confirm").filter(c => within(c, ucFn)).length === 1 && repriceWrites === 0,
       JSON.stringify({ uc: !!ucFn, asks: asksOk, confirm: confirmOk, use: useOk, repriceWrites: repriceWrites }));
+  }
+  // ---- Day/Night feature gates (plan (e); AST where it matters) ----
+  // The Babel views may READ a typed shift or version, but the math and the
+  // typed keys belong to utils.js, so an older or newer build never meets a
+  // shape utils.js did not write.
+  {
+    const PLAIN_SET = ["crypto.js", "cpt-data.js", "utils.js", "styles.js"]; // index.html's plain array (pinned in 4c)
+    const RULE_FILES = jsFiles.filter(f => PLAIN_SET.indexOf(f) === -1);
+    const srcOf = {}, astOf = {};
+    jsFiles.forEach(f => { if (f === "cpt-data.js") return; srcOf[f] = fs.readFileSync(path.join(JS_DIR, f), "utf8"); try { astOf[f] = parser.parse(srcOf[f], AST_OPTS); } catch (e) { astOf[f] = null; } });
+    const prop = n => !n || n.type !== "MemberExpression" || !n.property ? "" : !n.computed ? n.property.name : n.property.type === "StringLiteral" ? n.property.value : "";
+    const within2 = (n, outer) => !!outer && n.start >= outer.start && n.end <= outer.end;
+    // (1) call-in math only in utils.js: outside it no * or / touches a rate
+    // amount or a minutes field, and nothing multiplies or divides by 60
+    // (payCallInSummary is the ONE rule; payHM reads the boxes).
+    const RATE_PROPS = ["hourly", "flat", "stipend", "thresholdMinutes", "paidMinutes", "minutes", "inMin", "callIns"];
+    const is60 = n => n && n.type === "NumericLiteral" && n.value === 60;
+    // An operand may hide behind wrappers - (x || 0), a ? b : c, Number(x),
+    // Math.round(x), String(x), !x, nested arithmetic: look through them.
+    const unwrapOp = (n, test) => {
+      for (;;) {
+        if (!n) return false;
+        if (test(n)) return true;
+        if (n.type === "LogicalExpression" || n.type === "BinaryExpression") return unwrapOp(n.left, test) || unwrapOp(n.right, test);
+        if (n.type === "ConditionalExpression") return unwrapOp(n.consequent, test) || unwrapOp(n.alternate, test);
+        if (n.type === "UnaryExpression") { n = n.argument; continue; }
+        if (n.type === "ParenthesizedExpression") { n = n.expression; continue; }
+        if (n.type === "SequenceExpression") { n = n.expressions[n.expressions.length - 1]; continue; }
+        if (n.type === "CallExpression" && n.arguments.length) {
+          if (n.callee.type === "MemberExpression" && n.callee.object.type === "Identifier" && n.callee.object.name === "Math") return n.arguments.some(a => unwrapOp(a, test));
+          if (n.callee.type === "Identifier" && /^(Number|parseFloat|parseInt|String|round2)$/.test(n.callee.name)) { n = n.arguments[0]; continue; }
+        }
+        return false;
+      }
+    };
+    // A file's plain aliases of such an operand (`var hr = t.hourly;`) count as the operand.
+    const aliasesOf = (ast, test) => { const s = {}; walk(ast.program, n => { if (n.type === "VariableDeclarator" && n.id.type === "Identifier" && n.init && unwrapOp(n.init, test)) s[n.id.name] = true; }); return s; };
+    const isRateOperand = n => (n.type === "MemberExpression" && RATE_PROPS.indexOf(prop(n)) !== -1) || is60(n);
+    const rateMathHits = ast => {
+      const al = aliasesOf(ast, isRateOperand), test = n => isRateOperand(n) || (n.type === "Identifier" && al[n.name] === true), hits = [];
+      walk(ast.program, n => {
+        if (((n.type === "BinaryExpression" && (n.operator === "*" || n.operator === "/")) || (n.type === "AssignmentExpression" && (n.operator === "*=" || n.operator === "/="))) &&
+            (unwrapOp(n.left, test) || unwrapOp(n.right, test))) hits.push(n.loc.start.line);
+      });
+      return hits;
+    };
+    const mathHits = [];
+    // directorships.js is out of scope: its time entries have their own
+    // `minutes` and hours x 60 (time sheets, not call pay; pinned by its own
+    // tests). Every other Babel file is held to the rule.
+    RULE_FILES.filter(f => f !== "directorships.js").forEach(f => { if (!astOf[f]) return; rateMathHits(astOf[f]).forEach(l => mathHits.push(f + ":" + l)); });
+    // The gate's own self-test: wrapped, compound-assigned and aliased forms are caught, plain counts are not.
+    const mathSelf = [["var a = r.hourly * 2;", 1], ["var a = Number(r.hourly) * h;", 1], ["var a = (t.minutes || 0) / 30;", 1], ["var a = Math.round(t.callIn.hourly * 100) / 100;", 2], ["var a = (c ? t.flat : 0) * 2;", 1], ["var a = h * 60;", 1],
+      ["var a = Math.max(0, t.minutes) / 30;", 1], ["x.hourly *= 2;", 1], ["var hr = t.hourly; var a = hr * h;", 1], ["var m = t.callIn.thresholdMinutes; var a = m / 30;", 1], ["var a = n.shifts * 2 + sum.before / 100;", 0], ["var a = l.hours / r.stipendHours;", 0]]
+      .filter(c => rateMathHits(parser.parse(c[0], AST_OPTS)).length !== c[1]);
+    check("Day/Night gate self-test: the call-in math gate sees through wrappers (Number, Math.* in any argument, || 0, ternaries), *= and /=, and same-file aliases, and ignores plain counts", mathSelf.length === 0, mathSelf.map(c => c[0]).join(" ; "));
+    check("Day/Night gate: call-in math only in utils.js (no * or / on a rate amount or minutes field, no x60 or /60, outside utils.js)", mathHits.length === 0, mathHits.join(", "));
+    // (2) the shiftType and callIns keys are written only in utils.js: no
+    // object key, member assignment or delete of either in a Babel file.
+    const TYPED_KEYS = ["shiftType", "callIns"];
+    const keyName = k => !k ? "" : k.type === "Identifier" ? k.name : k.type === "StringLiteral" ? k.value : "";
+    const keyHits = [];
+    RULE_FILES.forEach(f => { if (!astOf[f]) return; walk(astOf[f].program, n => {
+      if (n.type === "ObjectProperty" && TYPED_KEYS.indexOf(keyName(n.key)) !== -1) keyHits.push(f + ":" + n.loc.start.line);
+      if (n.type === "AssignmentExpression" && TYPED_KEYS.indexOf(prop(n.left)) !== -1) keyHits.push(f + ":" + n.loc.start.line);
+      if (n.type === "UnaryExpression" && n.operator === "delete" && TYPED_KEYS.indexOf(prop(n.argument)) !== -1) keyHits.push(f + ":" + n.loc.start.line);
+    }); });
+    check("Day/Night gate: the shiftType and callIns keys are written only in utils.js", keyHits.length === 0, keyHits.join(", "));
+    // (3) only utils.js calls showDataAlert (repairData's one banner).
+    const alertHits = [];
+    // Any mention (a call, an alias, a member) counts, so no file can smuggle a reference.
+    RULE_FILES.forEach(f => { if (!astOf[f]) return; walk(astOf[f].program, n => { if ((n.type === "Identifier" && n.name === "showDataAlert") || (n.type === "MemberExpression" && prop(n) === "showDataAlert")) alertHits.push(f + ":" + n.loc.start.line); }); });
+    check("Day/Night gate: only utils.js calls (or even names) showDataAlert", alertHits.length === 0, alertHits.join(", "));
+    // (4) no `.rates[0]` outside utils.js: a built-in's first DATED version
+    // is payBuiltInVersion / payBuiltInFrom (the Original now sits first).
+    const r0 = RULE_FILES.filter(f => /\.rates\s*\[\s*0\s*\]/.test(srcOf[f] || ""));
+    check("Day/Night gate: no `.rates[0]` outside utils.js", r0.length === 0, r0.join(", "));
+    // (5) callpay.js: rateSummary (legacy words) is called exactly once, as
+    // the legacy branch of versionSummary's `payRateIsTyped(v) ? ... : rateSummary(v)`.
+    const cpAst2 = astOf["callpay.js"];
+    let vsInit = null, condOk = false; const rsCalls = [];
+    if (cpAst2) walk(cpAst2.program, n => {
+      if (n.type === "VariableDeclarator" && n.id.type === "Identifier" && n.id.name === "versionSummary") vsInit = n.init;
+      if (n.type === "CallExpression" && n.callee.type === "Identifier" && n.callee.name === "rateSummary") rsCalls.push(n);
+    });
+    if (vsInit) walk(vsInit, n => { if (n.type === "ConditionalExpression" && n.test.type === "CallExpression" && n.test.callee.name === "payRateIsTyped" && n.alternate.type === "CallExpression" && n.alternate.callee.name === "rateSummary") condOk = true; });
+    check("Day/Night gate: callpay.js calls rateSummary once, on the legacy branch of versionSummary", !!vsInit && condOk && rsCalls.length === 1 && within2(rsCalls[0], vsInit), JSON.stringify({ vs: !!vsInit, cond: condOk, calls: rsCalls.length }));
+    // (6) dashboard.js: payTotalInRange gets data.paySites (a flagged shift is
+    // counted, never guessed) and BOTH call-pay render gates read
+    // callPay.needsType in an || with callPay.shifts, so the Home line still
+    // renders when a flagged shift is the only one in the window.
+    let dGates = 0, dSites = false;
+    const gt0 = (x, name) => x.type === "BinaryExpression" && x.operator === ">" && x.left.type === "MemberExpression" && x.left.object.type === "Identifier" && x.left.object.name === "callPay" && prop(x.left) === name && x.right.type === "NumericLiteral" && x.right.value === 0;
+    const orLeaves = x => x.type === "LogicalExpression" && x.operator === "||" ? orLeaves(x.left).concat(orLeaves(x.right)) : [x];
+    if (astOf["dashboard.js"]) walk(astOf["dashboard.js"].program, n => {
+      // A JSX render gate `{(... callPay.shifts > 0 || callPay.needsType > 0 ...) && <div>}`: one || chain holds both tests.
+      if (n.type === "JSXExpressionContainer" && n.expression && n.expression.type === "LogicalExpression" && n.expression.operator === "&&") {
+        let ok = false;
+        walk(n.expression.left, m => { if (m.type === "LogicalExpression" && m.operator === "||") { const l = orLeaves(m); if (l.some(x => gt0(x, "shifts")) && l.some(x => gt0(x, "needsType"))) ok = true; } });
+        if (ok) dGates++;
+      }
+      if (n.type === "CallExpression" && n.callee.type === "Identifier" && n.callee.name === "payTotalInRange" && n.arguments.length === 5 && n.arguments[4].type === "MemberExpression" && n.arguments[4].object.type === "Identifier" && n.arguments[4].object.name === "data" && prop(n.arguments[4]) === "paySites") dSites = true;
+    });
+    check("Day/Night gate: dashboard.js passes data.paySites to payTotalInRange and both call-pay render gates are `callPay.shifts > 0 || callPay.needsType > 0`", dGates === 2 && dSites, JSON.stringify({ gates: dGates, sites: dSites }));
+    // (7) every order compare of `effective` goes through payEffKey (a null
+    // date, the Original, sorts before any string only there).
+    const effHits = [], isEff = m => m.type === "MemberExpression" && prop(m) === "effective";
+    Object.keys(astOf).forEach(f => { if (!astOf[f]) return;
+      const al = aliasesOf(astOf[f], isEff), test = m => isEff(m) || (m.type === "Identifier" && al[m.name] === true);
+      walkStack(srcOf[f], (n, stack) => {
+        if (inTopFn(stack, f, ["payEffKey"])) return;
+        if (n.type === "BinaryExpression" && ["<", ">", "<=", ">="].indexOf(n.operator) !== -1 && (unwrapOp(n.left, test) || unwrapOp(n.right, test))) effHits.push(f + ":" + n.loc.start.line);
+        // localeCompare is an order compare too (and throws on the Original's null).
+        if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && prop(n.callee) === "localeCompare" && (unwrapOp(n.callee.object, test) || (n.arguments[0] && unwrapOp(n.arguments[0], test)))) effHits.push(f + ":" + n.loc.start.line);
+      });
+    });
+    check("Day/Night gate: every order compare of `effective` (direct, wrapped, aliased or localeCompare) goes through payEffKey", effHits.length === 0, effHits.join(", "));
+    // (8) the EYES counts above are unchanged by this work (pinned in 5f).
+    check("payBucketInLine: the shared time-in words; mixed thresholds name none; null is empty",
+      sb.payBucketInLine({ inMin: 1139, threshold: 180, metCount: 3, ciShifts: 8 }) === "18:59 in \u00B7 3:00+ on 3 of 8" &&
+      sb.payBucketInLine({ inMin: 150, threshold: null, metCount: 1, ciShifts: 2 }) === "2:30 in \u00B7 met the threshold on 1 of 2" &&
+      sb.payBucketInLine({ inMin: 0, threshold: 0, metCount: 1, ciShifts: 1 }) === "0:00 in \u00B7 0:00+ on 1 of 1" && sb.payBucketInLine(null) === "",
+      JSON.stringify([sb.payBucketInLine({ inMin: 1139, threshold: 180, metCount: 3, ciShifts: 8 }), sb.payBucketInLine({ inMin: 150, threshold: null, metCount: 1, ciShifts: 2 })]));
   }
   // ---- R2: the simple shift form's draft rules (pay math unchanged) ----
   const rif = (site, date) => sb.rateInForce(site, date);
@@ -1849,7 +2365,7 @@ if (sb) {
   // added under a kept $0 copy (equal fees, no question) re-asks after it.
   const zSil = hand("zs", B0.name, [ver(RZ, "z0", "2026-09-01")], B0.weekendDays.slice());
   const zThu = mkShift("zt", zSil, "2026-10-15", []);
-  const zSilNow = Object.assign({}, zSil, { rates: zSil.rates.concat([JSON.parse(JSON.stringify(B0.rates[0]))]) });
+  const zSilNow = Object.assign({}, zSil, { rates: zSil.rates.concat([JSON.parse(JSON.stringify(B0V))]) });
   const zd = sb.payDraftFromShift(zThu, zSilNow);
   const zKept = sb.payDraftRate(zd, zSilNow, zThu).rates;
   zd.events.push(sb.payDraftEvent(Object.assign(sb.payDraftTrip(zd.date, zSilNow, zKept), { hours: "2" }), zd.date, zSilNow, "", "", zKept));
@@ -1881,7 +2397,7 @@ if (sb) {
   // Moving a deleted site's shift to a LIVE site re-applies the normal rules
   // (the kept class is only a deleted-site memo, never an answer).
   const standOf = s => ({ id: s.siteId, name: s.siteName, weekendDays: [], rates: [], deleted: true });
-  const mine = hand("hm", B0.name + " (mine)", [JSON.parse(JSON.stringify(B0.rates[0]))], [0, 6]);
+  const mine = hand("hm", B0.name + " (mine)", [JSON.parse(JSON.stringify(B0V))], [0, 6]);
   const myFri = svd(mine, "hf", "2026-10-16", "24", [{ date: "2026-10-16", time: "21:00", cls: "wn", fee: true, hours: "2" }]);
   const timeEdit = (() => { const d = sb.payDraftFromShift(myFri, standOf(myFri)), r = sb.payDraftRate(d, standOf(myFri), myFri).rates;
     return sb.payDraftEvent(Object.assign({}, d.events[0], { time: "10:00" }), d.date, standOf(myFri), "", "", r).cls; })();
@@ -2034,7 +2550,7 @@ if (sb) {
   const entStore7 = ents => seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, entries: ents, paySites: [N7, C7] });
 
   check("7b constants: CALL_NO_CREDIT_FROM is the no-credit built-in's first rate date; CALL_SITE_OTHER is no built-in id",
-    sb.CALL_NO_CREDIT_FROM === "2026-10-01" && sb.isYMD(sb.CALL_NO_CREDIT_FROM) && !!BNC && !!BCR && BNC.rates[0].effective === sb.CALL_NO_CREDIT_FROM &&
+    sb.CALL_NO_CREDIT_FROM === "2026-10-01" && sb.isYMD(sb.CALL_NO_CREDIT_FROM) && !!BNC && !!BCR && sb.payBuiltInFrom(BNC) === sb.CALL_NO_CREDIT_FROM &&
     typeof sb.CALL_SITE_OTHER === "string" && sb.CALL_SITE_OTHER.length > 0 && BI.every(d => d.id !== sb.CALL_SITE_OTHER));
 
   const handNC = sb.payApplyNoCredit([hand("h", BNC.name)], ["h"])[0];

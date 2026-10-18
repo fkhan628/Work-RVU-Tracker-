@@ -157,7 +157,10 @@ function App() {
   const logDraft = useRef(null);
   // Log's save bar is pinned (LogProc reports it via setLogBar): lifts the undo toast above it.
   const [logBar, setLogBar] = useState(false);
-  var openCallPay = function(from) { setCallPayFrom(from === "log" || from === "dashboard" ? from : "settings"); setView("callpay"); };
+  // focus "rates" (Settings' "Call pay rates" button) scrolls Call Pay to
+  // its rates card once (one-shot ref, like backupFocus below).
+  const callPayFocus = useRef(false);
+  var openCallPay = function(from, focus) { setCallPayFrom(from === "log" || from === "dashboard" ? from : "settings"); callPayFocus.current = focus === "rates"; setView("callpay"); };
   // History's one-shot filter preset from a "Logged, no credit" line (memory
   // only; History reads it when it mounts, then clears it). range: an
   // inclusive { start, end } of "YYYY-MM-DD" strings, or null for all time.
@@ -190,7 +193,7 @@ function App() {
         {view === "history" && <ErrorBoundary name="History" onRetry={goHome} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} historyPreset={historyPreset} /></ErrorBoundary>}
         {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} openHistory={openHistory} backupFocus={backupFocus} openDirectorships={openDirectorships} /></ErrorBoundary>}
         {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
-        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} focus={callPayFocus} /></ErrorBoundary>}
         {view === "directorships" && <ErrorBoundary name="Directorships" onRetry={goHome} key="eb-dir">{typeof Directorships === "function"
           ? <Directorships data={data} upd={upd} onBack={function() { setView(dirFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} dirMonth={dirMonth} />
           : <div style={S.page}>Directorships did not load - reload the app.</div>}</ErrorBoundary>}

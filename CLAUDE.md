@@ -78,9 +78,15 @@ the per-file gates below. Run it after EVERY file change.
   any partner name — the repo is public and the roster is runtime user
   data only. The same goes for call-pay site names and rates (paySites),
   with ONE exception the owner chose on 2026-10-11: the built-in preset
-  DEFAULT_PAY_SITES in utils.js (two sites + their rates, public) and the
-  check.js test of the owner's worked examples against it. Any other
-  site or rate stays runtime user data.
+  DEFAULT_PAY_SITES in utils.js (two sites + their rates, public - this
+  covers Davenport's Original rates and its Day/Night shift types from
+  2026-10-01: Day $2,773.60 flat; Night $291.23 flat + $242.69/hr for time
+  in, paid only once the night's time in reaches 3:00, counted across the
+  night; no stipend) and the check.js tests that price through the preset:
+  the owner's worked examples, the spec's Day/Night figures and preview
+  strings, and figures computed from the preset (edge cases, previews, the
+  2027 re-price test). Any other site or rate stays runtime user data;
+  made-up test rates stay literal.
 - A second exception, chosen by the owner on 2026-10-15, is limited to
   the built-in DIRECTORSHIP_PRESET in utils.js and check.js's copy and
   worked-example tests of it. It allows exactly: the owner's own name,
@@ -143,7 +149,18 @@ the per-file gates below. Run it after EVERY file change.
   whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, the
   Dashboard's payTotalInRange (a separate line, never added to Comp),
   re-pricing payRatesDiffer/payShiftStale/payRepriceShift, the version-kind
-  readers payEffKey/payRateIsTyped/payShiftIsTyped, the shift
+  readers payEffKey/payRateIsTyped/payShiftIsTyped and the Day/Night
+  helpers (cleanPayTyped/payRateTypes/payTypeByKey; the ONE call-in rule
+  payCallInSummary with payHM/payFmtHM/payCiRowProblem; the labels
+  payTypePreview/payVersionDateLabel/payDateLabel/payShiftCallInCount/
+  payBucketInLine; payBuiltInFrom/payBuiltInVersion; the offer
+  payTypedOffers/payTypedPlan/payApplyTyped; the writer payShiftsFromDraft
+  with payDraftTypes/payDraftId2/payDraftUseSaved; the flags
+  payShiftNeedsType/payNeedsTypeCount/payNeedsTypeDelta;
+  payTypeDiffer/payRepriceSummary; the split paySplitNew/paySplitAdd/
+  paySplitOut; the editor's payAmountText/payNewTypeKey/
+  payTypedFormFromVersion/payNewTypedForm/payBlankTypedForm/
+  payTypeFromForm/payTypedVersionFromForm), the shift
   editor's "Use current rates" payDraftUseCurrent (its stipend-length rule;
   a Day/Night call-in on a day the site counts as weekend - listed by
   payDraftWeekendPicks - becomes a weekend call-in only when the user
@@ -155,8 +172,14 @@ the per-file gates below. Run it after EVERY file change.
   rule payCaseNoCredit/paySiteCreditNote with the site credit switch
   paySiteWithCredit/payCreditOffers/payApplyNoCredit/payCreditConfirm);
   callpay.js only holds state and passes "now" in. Built-in rates reach an
-  existing site ONLY through the user's confirmed "Use built-in rates" tap
-  (re-planned inside the updater); repairData never adds rates, amounts the
+  existing site ONLY through two confirmed taps, each re-planned inside the
+  updater: "Use built-in rates" (payBuiltInOffers/payApplyBuiltIn - the
+  preset's first DATED version, payBuiltInVersion/payBuiltInFrom, never
+  `rates[0]`) and "Use new Davenport rates" (payTypedOffers/payTypedPlan/
+  payApplyTyped: adds the built-in's typed version and re-dates the site's
+  start-date legacy version to null, the Original; it never re-prices -
+  recorded shifts keep their pay and the later ones are flagged instead);
+  repairData never adds rates, amounts the
   user typed are never changed, and casesEarnRVU is never touched by it.
   casesEarnRVU (false = call cases logged at the site from
   CALL_NO_CREDIT_FROM earn no wRVU credit) changes ONLY through
@@ -172,25 +195,38 @@ the per-file gates below. Run it after EVERY file change.
   output must pass repairData unchanged (check.js contract tests) -
   otherwise every load silently rewrites user data. utils.js must stay loadable in check.js's vm sandbox: a
   new top-level browser-API call needs a stub there, not a skipped test.
-- Day/Night rate versions (the reader, ASSET_V 37): a site's `rates` list
-  holds two kinds - LEGACY (the stipend / fee / hourly shape above) and
-  TYPED (`shiftTypes`; a typed shift's rate copy holds the one `shiftType`
-  it was priced with). `effective: null` is the site's Original rates:
-  cleanPayRate accepts it, rateInForce treats it as earlier than any date,
-  and every compare of version starts goes through payEffKey (never
-  `a.effective < b.effective`). This build only READS the typed shapes:
-  repairData keeps a typed version or a typed shift exactly as it is (no
-  check, no tag, no banner - the feature commit replaces this with the full
-  rules); computeShiftPay returns null for a typed shift (counted, never
-  summed); payDraftRate never chooses a typed version in force (the form
-  reports "no rates" instead of saving a shift it cannot price);
-  payShiftStale is false and payRepriceShift null whenever the shift copy or
-  the version in force is typed (re-pricing never crosses kinds - a typed
-  version inside a legacy shift would be dropped by an older build).
-  callpay.js: a typed version is a one-line placeholder with Delete only, a
-  typed shift row opens nothing but an explanation, a null date reads
-  "Original" (never "null"), and the version sort and the form's pre-fill
-  use payEffKey and skip typed versions.
+- Day/Night rate versions (reader ASSET_V 37, feature 38): a site's `rates`
+  list holds two kinds - LEGACY (the stipend / fee / hourly shape above) and
+  TYPED (`shiftTypes`: each `{ key, label, hours, flat, stipend,
+  stipendLabel, callIn: null | { hourly, thresholdMinutes } }`). A typed
+  shift stores `{ rates: { id, effective, label?, shiftType: the ONE type it
+  was priced with }, callIns: [whole minutes per trip] }` and never
+  callHours/events; the `shiftType`/`callIns` keys are written only in
+  utils.js (check.js gate). `effective: null` is the site's Original rates -
+  at most one per site and dates unique (the editor refuses a second):
+  cleanPayRate/cleanPayTyped accept it, rateInForce treats it as earlier
+  than any date, and every compare of version starts goes through payEffKey
+  (never `a.effective < b.effective`; check.js gate). Type keys are stable:
+  renaming a type keeps its key, so re-pricing (payShiftStale/
+  payRepriceShift with payTypeDiffer) finds the same key in the version in
+  force; re-pricing stays within one kind - never legacy to typed or back.
+  A legacy shift dated where a typed version is in force at its CURRENT
+  site "needs a type" (payShiftNeedsType): it is never guessed and never
+  summed - payTotalInRange/payMonthTotals count it only in needsType, every
+  total (Home, Totals year and months, Settings' card) shows that count,
+  and only the user resolves it in Call Pay's "Set Day or Night" form (one
+  shift, or a Day + Night pair through payShiftsFromDraft). Every total
+  shows the Day / Night / Other split (paySplitOut: buckets by type key,
+  merged by label, Day, Night, others, Other; whole cents; payBucketInLine
+  for the time-in line). Call-in math lives ONLY in utils.js
+  (payCallInSummary: a night's trips are summed and tested against the
+  threshold ONCE, every minute paid once met, the flat paid once; payHM
+  reads the two numeric boxes) - callpay.js and dashboard.js never multiply
+  or divide a rate (check.js gate). repairData: a bad typed version or typed
+  shift is dropped whole with one banner naming it, numeric text is
+  converted once, unknown fields are kept; the typed writer's output is a
+  repairData fixed point (contract tests). callpay.js: versionSummary is the
+  only caller of rateSummary (legacy branch); a null date reads "Original".
 - CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
   rankCPTMatches only reorders them (exact, prefix, usage, favorites,
   CPT order). Log and History both use it; check.js pins it.
@@ -236,7 +272,7 @@ the per-file gates below. Run it after EVERY file change.
 - Call cases and credit (7b): a case is no-credit only when it is Call,
   logged at a CURRENT site whose casesEarnRVU === false, and dated on/after
   CALL_NO_CREDIT_FROM ("2026-10-01", pinned by check.js to the no-credit
-  built-in's first rate date). payCaseNoCredit is that rule. Credit is
+  built-in's first DATED rate, payBuiltInFrom). payCaseNoCredit is that rule. Credit is
   decided when a case is WRITTEN (entryWithCall) and kept as the noCredit
   snapshot: an edit keeps it while Call/Private and site are unchanged and
   the date stays on the same side of the start; a later site change never
@@ -280,7 +316,11 @@ the per-file gates below. Run it after EVERY file change.
   and reaches each view that masks $ along with toggleComp. Masked $ goes
   through utils.js fmtDollar(v, showComp) (always passed showComp), a
   showComp ternary (Dashboard vs-goal and $/wRVU lines, Compare's rate
-  line), Call Pay's paid()/MASK or utils.js dirMoneyShown(v, showComp)
+  line), Call Pay's paid()/MASK/maskText() (with $ hidden Call Pay masks
+  every rate amount shown without being opened: the shift form's site
+  buttons and fee chips, pay lines and rows, the offer cards, the version
+  list, and the "Use built-in rates" confirm leaves amounts out; only an
+  opened rate edit form shows amounts) or utils.js dirMoneyShown(v, showComp)
   (Directorships and Home's Directorships line; cents, no locale), and
   each such view renders CompEye (app.js, hook-free) near its $ -
   Directorships' Review reuses its view's one eye. CompEye is shared

@@ -138,7 +138,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // the current period counts only shifts dated today or earlier.
   var cpFrom = selectedYear === "current" ? (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01") : selectedYear + "-01-01";
   var cpTo = (+cpFrom.slice(0, 4) + 1) + cpFrom.slice(4);
-  var callPay = payTotalInRange(data.payShifts || [], cpFrom, cpTo, isCurrent ? todayLocal() : null);
+  // Sites are passed so a shift that still needs Day or Night (payShiftNeedsType)
+  // is counted in needsType, never guessed into the total.
+  var callPay = payTotalInRange(data.payShifts || [], cpFrom, cpTo, isCurrent ? todayLocal() : null, data.paySites);
   // Directorship pay: the same window, its own line - never added to Comp.
   var dirPay = dirTotalInRange(data, cpFrom, cpTo, isCurrent ? todayLocal() : null);
   var dirLine = dirReminderLine(data, todayLocal(), dirHide);
@@ -271,14 +273,28 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>
     </div>
     {/* Quiet derived lines - no goals, no cards */}
-    {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0 || (dirList(data).length > 0 && dirPay.entries > 0)) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+    {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0 || callPay.needsType > 0 || (dirList(data).length > 0 && dirPay.entries > 0)) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
       {yeNC.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncRange); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
         <span>{"Logged, no credit (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncEnc + " encounter" + (ncEnc === 1 ? "" : "s")}</span>
         <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
-      {callPay.shifts > 0 &&<div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
-        <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
-        <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+      {/* Call pay: the total, then (only where the window has Day/Night or
+          flagged shifts - utils.js payTotalInRange.split) the per-type split,
+          one line per type that pays time in, and the amber needs-type count.
+          A flagged shift is never in the total, so the line also shows when
+          it is the only thing in the window. */}
+      {(callPay.shifts > 0 || callPay.needsType > 0) && <div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer" }}>
+        <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
+          <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}{callPay.shifts > 0
+            ? <span><span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
+            : <span style={{ color: "#f59e0b" }}>nothing counted yet</span>}</span>
+          <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+        </div>
+        {callPay.split.length > 0 && <div style={{ paddingLeft: 10, color: "var(--text-faint)", lineHeight: 1.6 }}>
+          {callPay.split.map(function(b, i) { return (<span key={b.key || "other"} style={{ whiteSpace: "nowrap" }}>{(i ? " \u00B7 " : "") + b.label + " " + b.shifts + " "}<span style={{ fontFamily: "JetBrains Mono" }}>{fmtDollar(b.total, showComp)}</span></span>); })}
+        </div>}
+        {callPay.split.filter(function(b) { return b.ciShifts > 0; }).map(function(b) { return (<div key={"in-" + (b.key || "other")} style={{ paddingLeft: 10, color: "var(--text-faint)", lineHeight: 1.6 }}>{b.label + "s: " + payBucketInLine(b)}</div>); })}
+        {callPay.needsType > 0 && <div style={{ paddingLeft: 10, color: "#f59e0b", lineHeight: 1.6 }}>{callPay.needsType + " shift" + (callPay.needsType === 1 ? " needs" : "s need") + " a type - not in the total"}</div>}
       </div>}
       {dirList(data).length > 0 && dirPay.entries > 0 && <div onClick={function() { if (openDirectorships) openDirectorships("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
         <span>{"Directorships (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{dirMoneyShown(dirPay.total, showComp)}</span></span>

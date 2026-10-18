@@ -680,16 +680,26 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 //   classifyPayEvent), casesEarnRVU: bool (false = call cases logged here
 //   dated CALL_NO_CREDIT_FROM or later earn no wRVU credit; changed only
 //   through paySiteWithCredit), rates: [RateVersion] }]
-// RateVersion: { id, effective: "YYYY-MM-DD", stipend, stipendHours,
-//   callInWeekday, callInWeekendHoliday, hourly, hourlyMinHours (numbers
-//   >= 0; stipendHours > 0 - it is the stipend period divisor),
+// RateVersion, LEGACY kind: { id, effective: "YYYY-MM-DD" | null (null =
+//   the site's Original rates, in force before every dated version), stipend,
+//   stipendHours, callInWeekday, callInWeekendHoliday, hourly, hourlyMinHours
+//   (numbers >= 0; stipendHours > 0 - it is the stipend period divisor),
 //   hourlyWeekdayDay: bool, label? }
+// RateVersion, TYPED kind (Day/Night): { id, effective: "YYYY-MM-DD" | null,
+//   label?, shiftTypes: [{ key (fixed for good), label, hours, flat, stipend,
+//   stipendLabel, callIn: null | { hourly, thresholdMinutes } }] } - the
+//   rules are with the typed helpers (cleanPayTyped) below.
 // payShifts: [{ id, date: "YYYY-MM-DD" (shift start), siteId, siteName,
 //   callHours, rates: RateVersion COPY (authoritative - like entry wRVU
 //   snapshots, pay never re-looks-up the site's current rates), events:
 //   [{ date, cls: "wd"|"wn"|"we"|"hol", fee: bool, hours, time? }], cases?,
 //   note? }] - note never holds patient info. events[].time is an optional
 //   "HH:MM" start, informational only: cls alone decides pay.
+//   A TYPED shift (priced by a Day/Night version) is { id, date, siteId,
+//   siteName, rates: { id, effective, label?, shiftType: the ONE type it was
+//   priced with }, callIns: [whole minutes, in logged order], cases?, note? }
+//   - no callHours and no events (a typed write deletes them, a legacy
+//   write deletes callIns).
 //   Every shift write goes through payShiftFromDraft (or payRepriceShift);
 //   a shift's rate copy changes only when its site/date is edited, the
 //   user taps "Use current rates" in the editor, or a confirmed re-price.
@@ -697,14 +707,24 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // by the owner's choice (2026-10-11; see CLAUDE.md). Loaded ONCE into an empty
 // call-pay store (repairData, marker settings.paySitesSeeded); after that they
 // are ordinary user data - rates change by adding dated versions in Call Pay.
-// Key order matches what repairData/cleanPayRate produce, so they load
-// without a repair rewrite (check.js asserts this and the worked examples).
+// Key order matches what repairData/cleanPayRate/cleanPayTyped produce, so
+// they load without a repair rewrite (check.js asserts this and the worked
+// examples). Davenport (owner, 2026-10-18): its earlier "Proposal" rates are
+// the Original (effective null), and from 2026-10-01 it pays per shift type -
+// Day $2,773.60 flat; Night $291.23 flat + $242.69/hr for time in the
+// hospital, paid only once the night's total time in reaches 3:00; no
+// stipend. A phone seeded from the older preset gets these through ONE
+// confirmed tap ("Use new Davenport rates", payTypedOffers), never repairData.
 var DEFAULT_PAY_SITES = [
   { id: "site-silvis", name: "Silvis", weekendDays: [0, 5, 6], casesEarnRVU: true, rates: [
     { id: "rate-silvis-2026-10", effective: "2026-10-01", stipend: 1500, stipendHours: 24, callInWeekday: 291, callInWeekendHoliday: 582, hourly: 125, hourlyMinHours: 0, hourlyWeekdayDay: true }
   ] },
   { id: "site-davenport", name: "Davenport", weekendDays: [0, 6], casesEarnRVU: false, rates: [
-    { id: "rate-davenport-2026-10", effective: "2026-10-01", label: "Proposal", stipend: 3189.65, stipendHours: 12, callInWeekday: 291.13, callInWeekendHoliday: 291.13, hourly: 242.69, hourlyMinHours: 3, hourlyWeekdayDay: false }
+    { id: "rate-davenport-2026-10", effective: null, label: "Proposal", stipend: 3189.65, stipendHours: 12, callInWeekday: 291.13, callInWeekendHoliday: 291.13, hourly: 242.69, hourlyMinHours: 3, hourlyWeekdayDay: false },
+    { id: "rate-davenport-2026-10-dn", effective: "2026-10-01", shiftTypes: [
+      { key: "day", label: "Day", hours: 12, flat: 2773.6, stipend: 0, stipendLabel: "", callIn: null },
+      { key: "night", label: "Night", hours: 12, flat: 291.23, stipend: 0, stipendLabel: "", callIn: { hourly: 242.69, thresholdMinutes: 180 } }
+    ] }
   ] }
 ];
 function defaultPaySites() { return JSON.parse(JSON.stringify(DEFAULT_PAY_SITES)); }
@@ -767,12 +787,24 @@ function payMissingBuiltIns(sites) {
     .map(function(s) { return s.name.trim().replace(/\s+/g, " ").toLowerCase(); });
   return DEFAULT_PAY_SITES.filter(function(def) { return payBuiltInFor(sites, def) === null && names.indexOf(def.name.toLowerCase()) === -1; });
 }
+// The built-in's first DATED version is its start: payBuiltInVersion is that
+// version (legacy or typed), payBuiltInFrom its date. An Original (null
+// date) is never it.
+function payBuiltInVersion(def) {
+  var best = null;
+  (def && Array.isArray(def.rates) ? def.rates : []).forEach(function(r) { if (r && isYMD(r.effective) && (!best || payEffKey(r) < payEffKey(best))) best = r; });
+  return best;
+}
+function payBuiltInFrom(def) { var v = payBuiltInVersion(def); return v ? v.effective : ""; }
+// $0 rates of either kind: every legacy amount 0, or every type's flat and
+// stipend 0 with no call-in hourly.
 function payRateZero(r) {
+  if (payRateIsTyped(r)) { var l = payRateTypes(r); return l.length > 0 && l.every(function(t) { return !!t && payNum(t.flat) === 0 && (t.stipend === undefined || payNum(t.stipend) === 0) && (!t.callIn || payNum(t.callIn.hourly) === 0); }); }
   return !!r && r.stipend === 0 && r.callInWeekday === 0 && r.callInWeekendHoliday === 0 && r.hourly === 0;
 }
 // $0 versions dated on/after the built-in start: they would shadow it.
 function payBuiltInDrops(site, from) {
-  return site.rates.filter(function(r) { return payRateZero(r) && typeof r.effective === "string" && r.effective >= from; });
+  return site.rates.filter(function(r) { return payRateZero(r) && typeof r.effective === "string" && payEffKey(r) >= from; });
 }
 // What "Use built-in rates" would do to one site, or null when a non-$0
 // version is in force on the built-in start date (then the site is never
@@ -781,8 +813,8 @@ function payBuiltInDrops(site, from) {
 // a hand-made site still on the default Sat/Sun weekend takes the preset's
 // weekend days (e.g. adds Friday).
 function payBuiltInPlan(site, def) {
-  if (!site || !Array.isArray(site.rates) || !def || !Array.isArray(def.rates) || !def.rates[0]) return null;
-  var from = def.rates[0].effective;
+  if (!site || !Array.isArray(site.rates) || !payBuiltInVersion(def)) return null;
+  var from = payBuiltInFrom(def);
   var drops = payBuiltInDrops(site, from);
   var left = site.rates.filter(function(r) { return drops.indexOf(r) === -1; });
   var inForce = rateInForce({ rates: left }, from);
@@ -798,10 +830,10 @@ function payBuiltInPlan(site, def) {
 // rewrite on load), weekend days only when plan.days. casesEarnRVU is never
 // touched here (only paySiteWithCredit changes it, on a confirmed tap).
 function payApplyBuiltIn(site, def, plan) {
-  var from = def.rates[0].effective;
+  var from = payBuiltInFrom(def);
   var drops = payBuiltInDrops(site, from);
   var rates = site.rates.filter(function(r) { return drops.indexOf(r) === -1; });
-  var add = JSON.parse(JSON.stringify(def.rates[0]));
+  var add = JSON.parse(JSON.stringify(payBuiltInVersion(def)));
   if (rates.some(function(r) { return !!r && r.id === add.id; })) add.id = add.id + "-" + Date.now().toString(36);
   var out = { ...site, rates: rates.concat([add]) };
   if (plan && plan.days) out.weekendDays = def.weekendDays.slice();
@@ -817,6 +849,75 @@ function payBuiltInOffers(sites) {
     if (plan) out.push({ def: def, site: m.site, by: m.by, plan: plan });
   });
   return out;
+}
+// "Use new Davenport rates" (one confirmed tap): a built-in whose first
+// dated version is TYPED is offered to the site that stands for it
+// (payBuiltInFor) while that site has no typed version and a PAYING legacy
+// version is in force on the start date. Never together with R1; never for
+// an ambiguous name, a site that already has an Original, or two versions
+// dated exactly on the start (the editor sorts those out). The plan:
+//   original: the id of the legacy version dated exactly on the start,
+//     which becomes the Original (effective null) with its values, id and
+//     label kept - "" when the version in force is dated earlier (it then
+//     keeps its date and keeps pricing the dates before the start);
+//   remove / removeDates: $0 versions dated from the start (the R1 rule);
+//   later: the site's next paying version after the start (kept);
+//   needType: how many recorded shifts would then need Day or Night.
+// repairData never does any of this; callpay.js re-plans inside the updater.
+function payTypedPlan(site, def, shifts) {
+  var v = payBuiltInVersion(def), from = payBuiltInFrom(def);
+  if (!site || !Array.isArray(site.rates) || !payRateIsTyped(v)) return null;
+  if (site.rates.some(function(r) { return payRateIsTyped(r) || (!!r && r.effective === null); })) return null;
+  var onStart = site.rates.filter(function(r) { return !!r && r.effective === from; });
+  if (onStart.length > 1) return null;
+  var inForce = rateInForce(site, from);
+  if (!inForce || payRateIsTyped(inForce) || payRateZero(inForce)) return null;
+  var drops = payBuiltInDrops(site, from);
+  var later = site.rates.map(function(r) { return r && !payRateZero(r) ? r.effective : null; }).filter(function(e) { return isYMD(e) && e > from; }).sort()[0] || "";
+  var out = { original: onStart.length === 1 && onStart[0] === inForce ? inForce.id : "", remove: drops.map(function(r) { return r.id; }), removeDates: drops.map(function(r) { return r.effective; }), later: later, needType: 0 };
+  if (Array.isArray(shifts)) out.needType = payNeedsTypeCount(shifts, [payApplyTyped(site, def, out)]);
+  return out;
+}
+// A NEW site object with the plan applied: $0 versions dropped, the start-
+// date version re-dated to null (same object otherwise), a deep copy of the
+// typed version appended (a fresh id if that id is taken). weekendDays and
+// casesEarnRVU are never touched.
+function payApplyTyped(site, def, plan) {
+  var v = payBuiltInVersion(def);
+  if (!site || !Array.isArray(site.rates) || !plan || !payRateIsTyped(v)) return site;
+  var rm = Array.isArray(plan.remove) ? plan.remove : [];
+  var rates = site.rates.filter(function(r) { return !r || rm.indexOf(r.id) === -1; }).map(function(r) { return r && plan.original && r.id === plan.original ? { ...r, effective: null } : r; });
+  var add = JSON.parse(JSON.stringify(v));
+  if (rates.some(function(r) { return !!r && r.id === add.id; })) add.id = add.id + "-" + Date.now().toString(36);
+  return { ...site, rates: rates.concat([add]) };
+}
+function payTypedOffers(sites, shifts) {
+  var out = [];
+  DEFAULT_PAY_SITES.forEach(function(def) {
+    if (!payRateIsTyped(payBuiltInVersion(def))) return;
+    var m = payBuiltInFor(sites, def);
+    if (!m || !m.site) return;
+    var plan = payTypedPlan(m.site, def, shifts);
+    if (plan) out.push({ def: def, site: m.site, by: m.by, plan: plan });
+  });
+  return out;
+}
+// A legacy shift that needs Day or Night: its site is a CURRENT site whose
+// version in force on the shift's date is typed. The type is never guessed;
+// such a shift is counted (needsType) and never summed until it is set.
+function payShiftNeedsType(shift, sites) {
+  if (!shift || typeof shift !== "object" || payShiftIsTyped(shift) || !isYMD(shift.date)) return false;
+  var site = paySiteById(sites, shift.siteId);
+  return !!site && payRateIsTyped(rateInForce(site, shift.date));
+}
+function payNeedsTypeCount(shifts, sites) { var n = 0; (Array.isArray(shifts) ? shifts : []).forEach(function(s) { if (payShiftNeedsType(s, sites)) n++; }); return n; }
+// Saving `rates` for `site` would NEWLY flag these recorded shifts (the
+// rates editor asks first): { count, from, to } over their dates.
+function payNeedsTypeDelta(site, rates, shifts) {
+  var now = site ? [site] : [], next = site ? [{ ...site, rates: Array.isArray(rates) ? rates : [] }] : [], dates = [];
+  (Array.isArray(shifts) ? shifts : []).forEach(function(s) { if (s && !payShiftNeedsType(s, now) && payShiftNeedsType(s, next)) dates.push(s.date); });
+  dates.sort();
+  return { count: dates.length, from: dates[0] || "", to: dates[dates.length - 1] || "" };
 }
 // Call cases and wRVU credit (7b). A CALL case logged at a current site whose
 // casesEarnRVU is false earns no wRVU credit when dated on/after
@@ -964,6 +1065,144 @@ function cleanPayRate(r, fallbackId) {
   if (typeof c.id !== "string" || !c.id) c.id = fallbackId;
   if (c.label !== undefined && typeof c.label !== "string") delete c.label;
   return c;
+}
+
+// --- Typed (Day/Night) rate versions: shapes, repair, pricing ---
+// Typed version: { id, effective: "YYYY-MM-DD" | null, label?, shiftTypes: [ShiftType, ...] }
+// ShiftType:     { key, label, hours, flat, stipend, stipendLabel,
+//                  callIn: null | { hourly, thresholdMinutes } }
+// Typed shift:   { id, date (the day the shift STARTS), siteId, siteName,
+//                  rates: { id, effective, label?, shiftType }, callIns: [whole
+//                  minutes, in logged order], cases?, note? } - no callHours,
+//                  no events.
+// `key` is fixed for good (renaming a type changes only its label): stale
+// checks, re-pricing and the totals split match by key. Pay = flat + stipend
+// (a line only when > 0) + call-in pay, each line rounded once. The call-in
+// rule is ONE rule (owner, 2026-10-18): the night's call-in minutes are
+// summed and tested against thresholdMinutes once - under it nothing is
+// paid, at or over it every minute is paid (there is no per-trip option).
+function payWholeMin(v) { var n = payNum(v); return n !== null && n % 1 === 0 ? n : null; }
+// A cleaned COPY of one shift type (unknown fields kept) or null: key and
+// label non-empty, hours > 0, flat >= 0, stipend >= 0 (missing = 0),
+// stipendLabel a string (missing = ""), callIn null or { hourly >= 0,
+// thresholdMinutes a whole number >= 0 }. Numeric text converts.
+function cleanPayTypeDef(t) {
+  if (!t || typeof t !== "object" || Array.isArray(t)) return null;
+  if (typeof t.key !== "string" || !t.key || typeof t.label !== "string" || !t.label.trim()) return null;
+  var c = { ...t };
+  var hours = payNum(t.hours); if (hours === null || !(hours > 0)) return null; c.hours = hours;
+  var flat = payNum(t.flat); if (flat === null) return null; c.flat = flat;
+  var stipend = t.stipend === undefined ? 0 : payNum(t.stipend); if (stipend === null) return null; c.stipend = stipend;
+  if (t.stipendLabel === undefined) c.stipendLabel = ""; else if (typeof t.stipendLabel !== "string") return null;
+  if (t.callIn === undefined || t.callIn === null) c.callIn = null;
+  else {
+    if (typeof t.callIn !== "object" || Array.isArray(t.callIn)) return null;
+    var hourly = payNum(t.callIn.hourly), thr = payWholeMin(t.callIn.thresholdMinutes);
+    if (hourly === null || thr === null) return null;
+    c.callIn = { ...t.callIn, hourly: hourly, thresholdMinutes: thr };
+  }
+  return c;
+}
+// A cleaned COPY of a typed version or null: a real date or null, at least
+// one type, unique keys, every type readable.
+function cleanPayTyped(r, fallbackId) {
+  if (!r || typeof r !== "object" || Array.isArray(r) || !Array.isArray(r.shiftTypes) || r.shiftTypes.length === 0 || payEffKey(r) === null) return null;
+  var c = { ...r }, keys = {}, types = [];
+  for (var i = 0; i < r.shiftTypes.length; i++) {
+    var t = cleanPayTypeDef(r.shiftTypes[i]);
+    if (!t || keys[t.key] === true) return null;
+    keys[t.key] = true; types.push(t);
+  }
+  c.shiftTypes = types;
+  if (typeof c.id !== "string" || !c.id) c.id = fallbackId;
+  if (c.label !== undefined && typeof c.label !== "string") delete c.label;
+  return c;
+}
+// A typed shift's own rate copy (the version's id, date and label plus the
+// ONE type it was priced with): a cleaned COPY or null.
+function cleanPayTypeCopy(r, fallbackId) {
+  if (!r || typeof r !== "object" || Array.isArray(r) || payEffKey(r) === null) return null;
+  var t = cleanPayTypeDef(r.shiftType);
+  if (!t) return null;
+  var c = { ...r, shiftType: t };
+  if (typeof c.id !== "string" || !c.id) c.id = fallbackId;
+  if (c.label !== undefined && typeof c.label !== "string") delete c.label;
+  return c;
+}
+// Call-in minutes: a list of whole minutes >= 0 (numeric text converts);
+// missing or null = none. null when unreadable.
+function payCleanCallIns(v) {
+  if (v === undefined || v === null) return [];
+  if (!Array.isArray(v)) return null;
+  var out = [];
+  for (var i = 0; i < v.length; i++) { var m = payWholeMin(v[i]); if (m === null) return null; out.push(m); }
+  return out;
+}
+// The type list of a typed version, or the one type of a typed shift's copy.
+function payRateTypes(r) { return r && Array.isArray(r.shiftTypes) ? r.shiftTypes : r && r.shiftType && typeof r.shiftType === "object" ? [r.shiftType] : []; }
+function payTypeByKey(r, key) { var l = payRateTypes(r); for (var i = 0; i < l.length; i++) { if (l[i] && l[i].key === key) return l[i]; } return null; }
+// The ONE call-in rule. minutes: the night's trips in whole minutes. Returns
+// { trips, minutes (all time in), paidMinutes, met, threshold, hourly,
+// amount } with amount = round2(paidMinutes / 60 x hourly).
+function payCallInSummary(minutes, callIn) {
+  var list = payCleanCallIns(minutes) || [], total = 0;
+  list.forEach(function(m) { total += m; });
+  var thr = callIn ? payWholeMin(callIn.thresholdMinutes) : null, hourly = callIn ? payNum(callIn.hourly) : null;
+  if (thr === null) thr = 0;
+  if (hourly === null) hourly = 0;
+  var met = list.length > 0 && total >= thr, paid = met ? total : 0;
+  return { trips: list.length, minutes: total, paidMinutes: paid, met: met, threshold: thr, hourly: hourly, amount: round2(paid / 60 * hourly) };
+}
+// Whole minutes from two numeric boxes (the iOS number pad has no ":"): one
+// blank box counts as 0; both blank, a non-digit, or minutes over 59 = null.
+function payHM(h, m) {
+  var hs = typeof h === "string" ? h.trim() : typeof h === "number" ? String(h) : "";
+  var ms = typeof m === "string" ? m.trim() : typeof m === "number" ? String(m) : "";
+  if (hs === "" && ms === "") return null;
+  if ((hs !== "" && !/^\d{1,3}$/.test(hs)) || (ms !== "" && !/^\d{1,2}$/.test(ms))) return null;
+  var mm = ms === "" ? 0 : +ms;
+  if (mm > 59) return null;
+  return (hs === "" ? 0 : +hs) * 60 + mm;
+}
+// Why a call-in row { h, m } cannot be read: "" (fine), "ciBlank", "ciBad"
+// or "ciMin" - the shift form's problem codes.
+function payCiRowProblem(row) {
+  var hs = row && typeof row.h === "string" ? row.h.trim() : "", ms = row && typeof row.m === "string" ? row.m.trim() : "";
+  if (hs === "" && ms === "") return "ciBlank";
+  if ((hs !== "" && !/^\d{1,3}$/.test(hs)) || (ms !== "" && !/^\d{1,2}$/.test(ms))) return "ciBad";
+  if (ms !== "" && +ms > 59) return "ciMin";
+  return "";
+}
+function payFmtHM(min) { var t = Math.round(payNum(min) || 0); return Math.floor(t / 60) + ":" + (t % 60 < 10 ? "0" : "") + (t % 60); }
+// Money and dates for the texts built here (no locale: a preview or a
+// confirm must read the same on every phone).
+function payMoney(v) {
+  var n = payNum(v);
+  if (n === null) return "";
+  var c = Math.round(parseFloat((n * 100).toPrecision(12)));
+  return "$" + String(Math.floor(c / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "." + (c % 100 < 10 ? "0" : "") + (c % 100);
+}
+var PAY_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+function payDateLabel(ymd) { return isYMD(ymd) ? PAY_MONTHS[+ymd.slice(5, 7) - 1] + " " + (+ymd.slice(8, 10)) + ", " + ymd.slice(0, 4) : ""; }
+// "Original" for a null date, else e.g. "Oct 1, 2026".
+function payVersionDateLabel(v) { return v && v.effective === null ? "Original" : v ? payDateLabel(v.effective) : ""; }
+// One-line preview of a shift type (the rates editor and the shift form).
+function payTypePreview(t) {
+  var c = cleanPayTypeDef(t), name = t && typeof t.label === "string" && t.label.trim() ? t.label.trim() : "Shift";
+  if (!c) return name + ": fill in the amounts";
+  var s = name + ": " + payMoney(c.flat);
+  if (c.stipend > 0) s += " + " + payMoney(c.stipend) + (c.stipendLabel ? " " + c.stipendLabel : "");
+  if (c.callIn) s += " + " + payMoney(c.callIn.hourly) + "/hr" + (c.callIn.thresholdMinutes > 0 ? " when in " + payFmtHM(c.callIn.thresholdMinutes) + "+" : "");
+  return s;
+}
+// Call-ins on a shift of either kind.
+function payShiftCallInCount(s) { return !s ? 0 : payShiftIsTyped(s) ? (Array.isArray(s.callIns) ? s.callIns.length : 0) : (Array.isArray(s.events) ? s.events.length : 0); }
+// The time-in line of a split bucket (paySplitOut), e.g. "18:59 in \u00B7 3:00+
+// on 3 of 8" - the same words on Home, the Totals year block and a month.
+function payBucketInLine(b) {
+  if (!b) return "";
+  var n = b.ciShifts || 0, met = b.metCount || 0;
+  return payFmtHM(b.inMin) + " in \u00B7 " + (typeof b.threshold === "number" ? payFmtHM(b.threshold) + "+ on " + met + " of " + n : "met the threshold on " + met + " of " + n);
 }
 
 // Repair-before-reject: coerce every field validateData requires to be numeric
@@ -1117,10 +1356,12 @@ function repairData(d) {
         cs.rates = [];
         if (s.rates !== undefined && !Array.isArray(s.rates)) droppedR.push(s.name + " (all rates)");
         (Array.isArray(s.rates) ? s.rates : []).forEach(function(r, ri) {
-          if (payRateIsTyped(r)) { cs.rates.push(r); return; }   // typed version: kept exactly as is (this build only reads it)
-          var cr = cleanPayRate(r, cs.id + "-r" + ri);
+          var rLbl = s.name + " " + (r && r.effective === null ? "original" : r && typeof r.effective === "string" ? r.effective : "#" + (ri + 1));
+          // A typed (Day/Night) version has its own rules (cleanPayTyped); a
+          // bad one drops with the same notice. Either kind may be the Original.
+          var cr = payRateIsTyped(r) ? cleanPayTyped(r, cs.id + "-r" + ri) : cleanPayRate(r, cs.id + "-r" + ri);
           if (cr) cs.rates.push(cr);
-          else droppedR.push(s.name + " " + (r && typeof r.effective === "string" ? r.effective : "#" + (ri + 1)));
+          else droppedR.push(rLbl);
         });
         if (JSON.stringify(cs) !== JSON.stringify(s)) fixed.push("paySites." + (si + 1));
         cleanS.push(cs);
@@ -1148,7 +1389,23 @@ function repairData(d) {
     } else {
       var droppedP = [], droppedC = [], cleanP = [];
       d.payShifts.forEach(function(p, pi) {
-        if (payShiftIsTyped(p)) { cleanP.push(p); return; }   // typed shift: kept exactly as is, unpriced here (this build only reads it)
+        if (payShiftIsTyped(p)) {
+          // A typed (Day/Night) shift: its date, its type copy and its call-in
+          // minutes must all read, or the whole shift drops (same notice).
+          var tl = (typeof p.date === "string" && p.date ? p.date : "#" + (pi + 1)) + (typeof p.siteName === "string" && p.siteName ? " " + p.siteName : "");
+          var tp = { ...p }, tok = isYMD(p.date);
+          if (tok) { tp.rates = cleanPayTypeCopy(p.rates, "rate-" + p.date); tok = !!tp.rates; }
+          if (tok) { tp.callIns = payCleanCallIns(p.callIns); tok = !!tp.callIns; }
+          if (!tok) { droppedP.push(tl); return; }
+          if (typeof tp.id !== "string" || !tp.id) tp.id = "shift-" + Date.now().toString(36) + "-" + pi;
+          if (typeof tp.siteId !== "string") tp.siteId = "";
+          if (typeof tp.siteName !== "string") tp.siteName = "";
+          if (tp.cases !== undefined) { var tcc = payNum(tp.cases); if (tcc === null) { delete tp.cases; droppedC.push(tl); } else tp.cases = tcc; }
+          if (tp.note !== undefined && typeof tp.note !== "string") delete tp.note;
+          if (JSON.stringify(tp) !== JSON.stringify(p)) fixed.push("payShifts." + (pi + 1));
+          cleanP.push(tp);
+          return;
+        }
         var isObj = !!p && typeof p === "object" && !Array.isArray(p);
         var label = (isObj && typeof p.date === "string" && p.date ? p.date : "#" + (pi + 1)) + (isObj && typeof p.siteName === "string" && p.siteName ? " " + p.siteName : "");
         var cp = isObj ? { ...p } : null;
@@ -1716,7 +1973,22 @@ function classifyPayEvent(ymd, time, weekendDays) {
 // Each line is rounded to the cent ONCE; total = sum of the rounded lines.
 function computeShiftPay(shift) {
   if (!shift || typeof shift !== "object") return null;
-  if (payShiftIsTyped(shift)) return null;   // a Day/Night shift: unpriced in this build (counted, never summed)
+  if (payShiftIsTyped(shift)) {
+    // Typed (Day/Night) branch: flat, stipend (a line only when > 0) and the
+    // call-in line (payCallInSummary - the ONE threshold rule), from the
+    // shift's own type copy. The legacy branch below is unchanged.
+    var tc = cleanPayTypeCopy(shift.rates, "x"), ci = payCleanCallIns(shift.callIns);
+    if (!tc || !ci) return null;
+    var t = tc.shiftType, tl = [{ kind: "flat", hours: t.hours, paid: true, amount: round2(t.flat) }];
+    if (t.stipend > 0) tl.push({ kind: "stipend", label: t.stipendLabel, paid: true, amount: round2(t.stipend) });
+    if (t.callIn) {
+      var cs = payCallInSummary(ci, t.callIn);
+      tl.push({ kind: "callIn", trips: cs.trips, minutes: cs.minutes, paidMinutes: cs.paidMinutes, met: cs.met, threshold: cs.threshold, hourly: cs.hourly, paid: cs.met, amount: cs.amount });
+    }
+    var tt = 0;
+    tl.forEach(function(l) { tt += l.amount; });
+    return { lines: tl, total: round2(tt), typed: true };
+  }
   var r = cleanPayRate(shift.rates, "x");
   var callHours = payNum(shift.callHours);
   var evs = (shift.events === undefined || shift.events === null) ? [] : shift.events;
@@ -1773,14 +2045,40 @@ function payStartBack(ymd, hhmm, hours) {
 // and its displays): the edited shift's own copy while its site and date are
 // unchanged ("kept"; draft.reprice - the editor's "Use current rates" -
 // skips it), else a COPY of the version in force on the draft date.
+// Typed shifts: the kept copy holds while the site, the date AND the picked
+// type (draft.types = [its key]) are unchanged. A FLAGGED legacy shift (a
+// typed version now in force for its date) always takes that version, so
+// setting Day or Night re-prices it. Either kind can come back.
 function payDraftRate(draft, site, orig) {
   var siteOk = !!site && typeof site.id === "string" && site.id !== "" && typeof site.name === "string";
   if (!draft || typeof draft !== "object") return { rates: null, from: "" };
-  if (orig && !draft.reprice && siteOk && orig.siteId === site.id && orig.date === draft.date && cleanPayRate(orig.rates, "x")) return { rates: { ...orig.rates }, from: "kept" };
-  // A typed (Day/Night) version in force is never chosen by this build: the
-  // form then reports "no rates" instead of saving a shift it cannot price.
-  if (siteOk && isYMD(draft.date)) { var rif = rateInForce(site, draft.date); if (rif && !payRateIsTyped(rif)) return { rates: { ...rif }, from: "inForce" }; }
+  var same = !!orig && !draft.reprice && siteOk && orig.siteId === site.id && orig.date === draft.date;
+  if (same && payShiftIsTyped(orig)) {
+    var picks = Array.isArray(draft.types) ? draft.types : [];
+    // Where no typed version is in force (a deleted site's stand-in, or a live
+    // site whose typed version was deleted or re-dated) the copy is the only
+    // typed source: kept whatever is picked, so an un-pick blocks with noType
+    // instead of turning the shift legacy. Otherwise kept only while the pick
+    // is the copy's own type.
+    if (cleanPayTypeCopy(orig.rates, "x") && (site.deleted === true || !payRateIsTyped(rateInForce(site, draft.date)) || (picks.length === 1 && picks[0] === orig.rates.shiftType.key))) return { rates: { ...orig.rates }, from: "kept" };
+  } else if (same && cleanPayRate(orig.rates, "x") && !payRateIsTyped(rateInForce(site, draft.date))) {
+    return { rates: { ...orig.rates }, from: "kept" };
+  }
+  if (siteOk && isYMD(draft.date)) { var rif = rateInForce(site, draft.date); if (rif) return { rates: { ...rif }, from: "inForce" }; }
   return { rates: null, from: "" };
+}
+// The draft's picked type keys that the rate choice has, in version order:
+// a key the version lacks drops out, so a type is never guessed.
+function payDraftTypes(d, rate) {
+  var picks = d && Array.isArray(d.types) ? d.types : [];
+  return payRateTypes(rate).map(function(t) { return t && t.key; }).filter(function(k) { return typeof k === "string" && picks.indexOf(k) !== -1; });
+}
+// The second shift's id for a Day + Night save: id + "-2", bumped while taken.
+function payDraftId2(id, shifts) {
+  var ids = {}, n = 2, out = String(id || "shift") + "-2";
+  (Array.isArray(shifts) ? shifts : []).forEach(function(s) { if (s && typeof s.id === "string") ids[s.id] = true; });
+  while (ids[out] === true) { n++; out = String(id || "shift") + "-" + n; }
+  return out;
 }
 // Is a date a weekend or holiday for this site? (decides the call-in fee)
 function payWeOrHol(ymd, site) {
@@ -1803,14 +2101,14 @@ function payDefaultShiftHours(ymd, site, rate) {
 // Never for a deleted site's stand-in: its weekend days are unknown, so the
 // form asks for the rate type itself instead.
 function payAsksDayNight(ymd, site, rate) {
-  if (site && site.deleted) return false;
+  if ((site && site.deleted) || payRateIsTyped(rate)) return false;
   return isYMD(ymd) && !payWeOrHol(ymd, site) && !(rate && rate.hourlyWeekdayDay === true);
 }
 // Ask "before or after midnight?" only where it changes the call-in fee:
 // the weekday and weekend/holiday fees differ AND the shift day and the
 // next day fall on different sides of that line (never for a deleted site).
 function payMidnightAsks(shiftDate, site, rate) {
-  if (!rate || !isYMD(shiftDate) || rate.callInWeekday === rate.callInWeekendHoliday || (site && site.deleted)) return false;
+  if (!rate || payRateIsTyped(rate) || !isYMD(shiftDate) || rate.callInWeekday === rate.callInWeekendHoliday || (site && site.deleted)) return false;
   return payWeOrHol(shiftDate, site) !== payWeOrHol(addDaysYMD(shiftDate, 1), site);
 }
 // Builds the shift the call-pay form saves - the ONLY writer of payShifts.
@@ -1836,6 +2134,7 @@ function payShiftFromDraft(draft, site, orig, ctx) {
   var dr = payDraftRate(draft, site, orig);
   var rates = dr.rates, ratesFrom = dr.from;
   if (siteOk && dateOk && !rates) add("rates", -1, true);
+  if (rates && payRateIsTyped(rates)) return payTypedShiftFromDraft(draft, site, orig, ctx, rates, ratesFrom, problems);
   var callHours = payNum(draft.callHours);
   if (callHours === null) add("hours", -1, true);
   else if (rates && callHours > Math.max(rates.stipendHours, PAY_LONG_SHIFT_HOURS)) add("overLength", -1, false);
@@ -1860,12 +2159,102 @@ function payShiftFromDraft(draft, site, orig, ctx) {
   if (problems.some(function(p) { return p.block; })) return { shift: null, problems: problems, ratesFrom: ratesFrom };
   var id = orig && typeof orig.id === "string" && orig.id ? orig.id : (typeof draft.id === "string" && draft.id ? draft.id : "shift-" + Date.now().toString(36));
   var shift = { ...(orig || {}), id: id, date: draft.date, siteId: site.id, siteName: site.name, callHours: callHours, rates: rates, events: events };
+  delete shift.callIns;   // a legacy write never carries the typed shape's key
   var note = typeof draft.note === "string" ? draft.note.trim() : "";
   if (note) shift.note = note; else delete shift.note;
   var pay = computeShiftPay(shift);
   if (!pay) { add("pay", -1, true); return { shift: null, problems: problems, ratesFrom: ratesFrom }; }
   if (pay.total === 0) add("payNothing", -1, false);
   return { shift: shift, problems: problems, ratesFrom: ratesFrom };
+}
+// The typed (Day/Night) branch of payShiftFromDraft. draft.type is the ONE
+// type key this shift takes (payShiftsFromDraft splits a Day + Night pick
+// into two drafts); draft.ciRows are the call-in boxes [{ h, m }], read only
+// for a type with a call-in rule (a Day always saves callIns: []). Problems
+// may carry a `label` for the form's text (noType: the version's type names
+// joined with "or"; dupType: the type's name). ctx.sites feeds the
+// dupFlagged warning; ctx.skipIds are the ids the duplicate checks ignore
+// (the edited shift and the other half of a Day + Night pair).
+function payTypedShiftFromDraft(draft, site, orig, ctx, rates, ratesFrom, problems) {
+  var add = function(code, ev, block, label) { var p = { code: code, ev: ev, block: block }; if (label) p.label = label; problems.push(p); };
+  var names = payRateTypes(rates).map(function(t) { return t && t.label; }).filter(Boolean);
+  var typeLabel = names.length > 1 ? names.slice(0, -1).join(", ") + " or " + names[names.length - 1] : names.join("");
+  var key = typeof draft.type === "string" ? draft.type : "";
+  var type = key ? payTypeByKey(rates, key) : null;
+  if (!type) add("noType", -1, true, typeLabel);
+  var callIns = [];
+  if (type && type.callIn) {
+    (Array.isArray(draft.ciRows) ? draft.ciRows : []).forEach(function(row, i) {
+      var pr = payCiRowProblem(row);
+      if (pr) { add(pr, i, true); return; }
+      var m = payHM(row.h, row.m);
+      if (m === null) { add("ciBad", i, true); return; }
+      callIns.push(m);
+    });
+    var sum = 0;
+    callIns.forEach(function(m) { sum += m; });
+    if (sum > type.hours * 60) add("ciLong", -1, false);
+  }
+  if (ctx && isYMD(draft.date)) {
+    if (isYMD(ctx.today) && draft.date > ctx.today) add("future", -1, false);
+    var skip = (Array.isArray(ctx.skipIds) ? ctx.skipIds : []).concat([orig && orig.id, draft.id, draft.id2]).filter(function(x) { return typeof x === "string" && x; });
+    var others = (Array.isArray(ctx.shifts) ? ctx.shifts : []).filter(function(s) { return s && s.siteId === site.id && s.date === draft.date && skip.indexOf(s.id) === -1; });
+    if (type && others.some(function(s) { return payShiftIsTyped(s) && s.rates.shiftType.key === type.key; })) add("dupType", -1, false, type.label);
+    if (others.some(function(s) { return payShiftNeedsType(s, ctx.sites); })) add("dupFlagged", -1, false, typeLabel);
+  }
+  if (problems.some(function(p) { return p.block; })) return { shift: null, problems: problems, ratesFrom: ratesFrom };
+  var id = orig && typeof orig.id === "string" && orig.id ? orig.id : (typeof draft.id === "string" && draft.id ? draft.id : "shift-" + Date.now().toString(36));
+  var copy = { id: rates.id, effective: rates.effective };
+  if (typeof rates.label === "string") copy.label = rates.label;
+  copy.shiftType = JSON.parse(JSON.stringify(type));
+  var shift = { ...(orig || {}), id: id, date: draft.date, siteId: site.id, siteName: site.name, rates: copy, callIns: callIns };
+  delete shift.callHours; delete shift.events;   // the legacy shape's keys never ride on a typed shift
+  var note = typeof draft.note === "string" ? draft.note.trim() : "";
+  if (note) shift.note = note; else delete shift.note;
+  var pay = computeShiftPay(shift);
+  if (!pay) { add("pay", -1, true); return { shift: null, problems: problems, ratesFrom: ratesFrom }; }
+  if (pay.total === 0) add("payNothing", -1, false);
+  return { shift: shift, problems: problems, ratesFrom: ratesFrom };
+}
+// Every shift the form saves, through payShiftFromDraft: one for a legacy
+// draft; for a typed draft one per picked type (draft.types), in version
+// order. The FIRST keeps orig (its id, cases, note and unknown fields); the
+// SECOND is a fresh record with id draft.id2 and no cases, and the two skip
+// each other (and the edited shift) in the duplicate checks. Returns
+// { shifts, problems, ratesFrom, total } - total is a whole-cent sum; an
+// empty shifts list means a blocking problem.
+function payShiftsFromDraft(draft, site, orig, ctx) {
+  var rate = payDraftRate(draft, site, orig).rates;
+  if (!payRateIsTyped(rate)) {
+    var one = payShiftFromDraft(draft, site, orig, ctx);
+    var p1 = one.shift ? computeShiftPay(one.shift) : null;
+    return { shifts: one.shift ? [one.shift] : [], problems: one.problems, ratesFrom: one.ratesFrom, total: p1 ? p1.total : 0 };
+  }
+  var keys = payDraftTypes(draft, rate), out = [], problems = [], ratesFrom = "", cents = 0;
+  var ctx2 = ctx ? { ...ctx, skipIds: [orig && orig.id, draft && draft.id, draft && draft.id2] } : ctx;
+  if (!keys.length) {
+    var b0 = payShiftFromDraft({ ...draft, type: "" }, site, orig, ctx2);
+    return { shifts: [], problems: b0.problems, ratesFrom: b0.ratesFrom, total: 0 };
+  }
+  keys.forEach(function(k, i) {
+    var d = { ...draft, type: k };
+    if (i > 0) { d.id = typeof draft.id2 === "string" && draft.id2 ? draft.id2 : String(draft.id) + "-2"; }
+    var b = payShiftFromDraft(d, site, i === 0 ? orig : null, ctx2);
+    ratesFrom = b.ratesFrom || ratesFrom;
+    // Shift-level warnings (future, dupFlagged, payNothing) are the same for
+    // every picked type: reported once. dupType carries its own type's label.
+    b.problems.forEach(function(p) { if (p.ev !== -1 || !problems.some(function(q) { return q.ev === -1 && q.code === p.code && q.label === p.label; })) problems.push(p); });
+    if (b.shift) { out.push(b.shift); var p = computeShiftPay(b.shift); if (p) cents += Math.round(p.total * 100); }
+  });
+  if (problems.some(function(p) { return p.block; })) return { shifts: [], problems: problems, ratesFrom: ratesFrom, total: 0 };
+  return { shifts: out, problems: problems, ratesFrom: ratesFrom, total: cents / 100 };
+}
+// "Use saved call-ins" on a flagged shift: its legacy trips (savedTrips,
+// from payDraftFromShift) become call-in rows. A NEW draft.
+function payDraftUseSaved(d) {
+  if (!d || typeof d !== "object") return d;
+  var rows = (Array.isArray(d.savedTrips) ? d.savedTrips : []).map(function(t) { var m = payWholeMin(t && t.minutes); return m === null ? null : { h: String(Math.floor(m / 60)), m: String(m % 60).padStart(2, "0") }; }).filter(Boolean);
+  return { ...d, ciRows: rows };
 }
 // ---- Shift-form draft logic (pure; callpay.js only holds the state) ----
 // A draft call-in is { date, rel: "same"|"next"|"other" (or "" while the
@@ -1937,6 +2326,12 @@ function payDraftTrip(shiftDate, site, rate) {
 // rules as above, so moving the shift to a live site re-applies the normal
 // rules (a weekend day wins, the quiet rule, an unanswered question re-asks).
 function payDraftFromShift(s, site) {
+  // A typed shift: its one type picked, its call-ins as rows; the legacy
+  // fields stay blank (a site/day change onto legacy rates fills them).
+  if (payShiftIsTyped(s)) {
+    return { id: s.id, siteId: s.siteId, date: s.date, callHours: "", hoursSet: false, note: s.note || "", events: [],
+      types: [s.rates.shiftType.key], ciRows: (Array.isArray(s.callIns) ? s.callIns : []).map(function(m) { return { h: String(Math.floor(m / 60)), m: String(m % 60).padStart(2, "0") }; }), id2: String(s.id) + "-2", savedTrips: [] };
+  }
   var wdays = site && Array.isArray(site.weekendDays) ? site.weekendDays : [];
   var nextDay = addDaysYMD(s.date, 1);
   var gone = !!(site && site.deleted);
@@ -1961,6 +2356,10 @@ function payDraftFromShift(s, site) {
       } else if (auto !== e.cls) ne.clsSet = true;
       return ne;
     }) };
+  // The typed fields: nothing picked (a type is never guessed), and the saved
+  // trips as whole minutes for "Use saved call-ins" (a flagged shift).
+  d.types = []; d.ciRows = []; d.id2 = String(s.id) + "-2";
+  d.savedTrips = (s.events || []).map(function(e) { var h = payNum(e && e.hours); return { date: e && e.date, minutes: h === null ? 0 : Math.round(h * 60) }; });
   return d;
 }
 // Undo for call-pay shifts (app.js doUndo type "pay"): drop the ids in
@@ -1994,10 +2393,26 @@ function payRatesDiffer(a, b) {
 // KIND GUARD: a typed (Day/Night) shift, or a typed version in force, is
 // never stale here - a re-price must never put a typed version into a legacy
 // shift (an older build would then drop that shift) or the other way round.
+// Two shift types price differently when flat, stipend or the call-in rule
+// (hourly, threshold) differ; key, label and hours do not matter.
+function payTypeDiffer(a, b) {
+  if (!a || !b) return true;
+  if (a.flat !== b.flat || a.stipend !== b.stipend || !!a.callIn !== !!b.callIn) return true;
+  return !!a.callIn && (a.callIn.hourly !== b.callIn.hourly || a.callIn.thresholdMinutes !== b.callIn.thresholdMinutes);
+}
 function payShiftStale(shift, site) {
-  if (!shift || !site || shift.siteId !== site.id || payRateIsTyped(shift.rates)) return false;
+  if (!shift || !site || shift.siteId !== site.id) return false;
   var rif = rateInForce(site, shift.date);
-  return !!rif && !payRateIsTyped(rif) && payRatesDiffer(shift.rates, rif);
+  if (!rif) return false;
+  if (payShiftIsTyped(shift)) {
+    // A typed shift re-prices only to the SAME key in a typed version; a
+    // missing key, or a legacy version in force, is left to the editor.
+    if (!payRateIsTyped(rif) || !Array.isArray(rif.shiftTypes)) return false;
+    var t = payTypeByKey(rif, shift.rates.shiftType.key);
+    return !!t && payTypeDiffer(shift.rates.shiftType, t);
+  }
+  if (payRateIsTyped(shift.rates) || payRateIsTyped(rif)) return false;
+  return payRatesDiffer(shift.rates, rif);
 }
 // The shift re-priced at the version in force for its date - a NEW object
 // with a COPY of that version (never shared with the site). The same length
@@ -2009,6 +2424,12 @@ function payShiftStale(shift, site) {
 function payRepriceShift(shift, site) {
   if (!payShiftStale(shift, site)) return null;
   var rif = rateInForce(site, shift.date);
+  if (payShiftIsTyped(shift)) {
+    var copy = { id: rif.id, effective: rif.effective };
+    if (typeof rif.label === "string") copy.label = rif.label;
+    copy.shiftType = JSON.parse(JSON.stringify(payTypeByKey(rif, shift.rates.shiftType.key)));
+    return { ...shift, siteName: site.name, rates: copy };
+  }
   var old = shift.rates, h = shift.callHours;
   if (old && h === payDefaultShiftHours(shift.date, site, old)) h = payDefaultShiftHours(shift.date, site, rif);
   else if (old && h === old.stipendHours) h = rif.stipendHours;
@@ -2049,6 +2470,9 @@ function payDraftUseCurrent(d, site, orig, reopen) {
   return nd;
 }
 function payDraftReopenAsks(d, site, orig, today, nowHM) {
+  // Use current rates onto a typed (Day/Night) version: the legacy call-ins
+  // are not priced, so the weekend question would be pointless.
+  if (payRateIsTyped(site && d && typeof d === "object" ? rateInForce(site, d.date) : null)) return [];
   var picks = payDraftWeekendPicks(d, site);
   if (!picks.length) return picks;
   var cents = function(reopen) {
@@ -2080,6 +2504,91 @@ function payReclassShift(shift, oldDays, newDays, from) {
   });
   return changed ? { ...shift, events: evs } : null;
 }
+// For the re-price confirm: what re-pricing these [{ before, after }] pairs
+// (either kind) does - { lenChange, moved (legacy call-ins moved to the
+// weekend fee), typed (typed shifts among them), before, after } in cents.
+function payRepriceSummary(pairs) {
+  var out = { lenChange: false, moved: 0, typed: 0, before: 0, after: 0 };
+  (Array.isArray(pairs) ? pairs : []).forEach(function(p) {
+    var x = p && p.before, r = p && p.after;
+    if (!x || !r) return;
+    if (payShiftIsTyped(x)) out.typed++;
+    else {
+      if (r.callHours !== x.callHours) out.lenChange = true;
+      (Array.isArray(r.events) ? r.events : []).forEach(function(e, i) { if (Array.isArray(x.events) && x.events[i] && e.cls !== x.events[i].cls) out.moved++; });
+    }
+    var pb = computeShiftPay(x), pa = computeShiftPay(r);
+    out.before += pb ? Math.round(pb.total * 100) : 0;
+    out.after += pa ? Math.round(pa.total * 100) : 0;
+  });
+  return out;
+}
+// --- The typed rates editor's form (strings as typed; parsed ONCE on Save) ---
+// form: { effective: "YYYY-MM-DD" | "", original: bool (the Original has no
+// date), label, types: [{ key, label, hours, flat, stipend, stipendLabel,
+// ci: bool, hourly, thrH, thrM }] }. Amounts: commas stripped, then the
+// whole string must be a number (payNum) - "12abc" is refused, not read as 12.
+function payAmountText(s) { return payNum(typeof s === "string" ? s.replace(/,/g, "") : s); }
+function payNewTypeKey() { return "t-" + Date.now().toString(36) + Math.floor(Math.random() * 1296).toString(36); }
+function payTypedFormFromVersion(v) {
+  var types = payRateTypes(v).map(function(t) {
+    return { key: t.key, label: t.label, hours: String(t.hours), flat: String(t.flat), stipend: String(t.stipend), stipendLabel: t.stipendLabel || "", ci: !!t.callIn,
+      hourly: t.callIn ? String(t.callIn.hourly) : "", thrH: t.callIn ? String(Math.floor(t.callIn.thresholdMinutes / 60)) : "", thrM: t.callIn ? String(t.callIn.thresholdMinutes % 60).padStart(2, "0") : "" };
+  });
+  return { effective: v && isYMD(v.effective) ? v.effective : "", original: !!v && v.effective === null, label: v && typeof v.label === "string" ? v.label : "", types: types };
+}
+// "+ Add new rates" from the latest typed version: keys and values copied,
+// the date and label blank (the user picks the start).
+function payNewTypedForm(src) { var f = payTypedFormFromVersion(src); f.effective = ""; f.original = false; f.label = ""; return f; }
+function payBlankTypedForm() { return { effective: "", original: false, label: "", types: [{ key: payNewTypeKey(), label: "", hours: "", flat: "", stipend: "", stipendLabel: "", ci: false, hourly: "", thrH: "", thrM: "" }] }; }
+// One form type parsed (null amounts where the text is not a number).
+function payTypeFromForm(ft) {
+  var f = ft || {};
+  var t = { key: typeof f.key === "string" ? f.key : "", label: typeof f.label === "string" ? f.label.trim() : "", hours: payAmountText(f.hours), flat: payAmountText(f.flat),
+    stipend: f.stipend === "" || f.stipend === undefined ? 0 : payAmountText(f.stipend), stipendLabel: typeof f.stipendLabel === "string" ? f.stipendLabel.trim() : "", callIn: null };
+  if (f.ci) t.callIn = { hourly: payAmountText(f.hourly), thresholdMinutes: (f.thrH || "") === "" && (f.thrM || "") === "" ? 0 : payHM(f.thrH || "", f.thrM || "") };
+  return t;
+}
+// { version | null, errors: [text] }. The version passes repairData unchanged.
+function payTypedVersionFromForm(form, id, site) {
+  var errors = [], f = form || {}, types = Array.isArray(f.types) ? f.types : [], others = site && Array.isArray(site.rates) ? site.rates.filter(function(r) { return !!r && r.id !== id; }) : [];
+  if (!f.original && !isYMD(f.effective)) errors.push("Pick the date these rates start.");
+  if (!f.original && isYMD(f.effective) && others.some(function(r) { return r.effective === f.effective; })) errors.push("Another version already starts on " + payDateLabel(f.effective) + " - edit that one instead.");
+  if (f.original && others.some(function(r) { return r.effective === null; })) errors.push("This site already has Original rates - edit those instead.");
+  if (!types.length) errors.push("Add at least one shift type.");
+  var parsed = types.map(payTypeFromForm);
+  if (parsed.some(function(t) { return !t.label; })) errors.push("Name every shift type.");
+  var seen = {}, dupName = "";
+  parsed.forEach(function(t) { var k = t.label.toLowerCase(); if (k && seen[k] === true) dupName = dupName || t.label; seen[k] = true; });
+  if (dupName) errors.push("Two shift types are both named " + dupName + ".");
+  if (parsed.some(function(t) { return !(t.hours > 0); })) errors.push("Shift length must be more than 0 hours.");
+  var thrBad = false, thrMin = false;
+  types.forEach(function(ft) {
+    if (!ft || !ft.ci) return;
+    var h = ft.thrH || "", m = ft.thrM || "";
+    if (h === "" && m === "") return;   // blank = 0:00, paid from the first minute
+    var pr = payCiRowProblem({ h: h, m: m });
+    if (pr === "ciMin") thrMin = true; else if (pr) thrBad = true;
+  });
+  if (parsed.some(function(t) { return t.flat === null || t.stipend === null || (t.callIn && t.callIn.hourly === null); }) || thrBad) errors.push("Fill every amount with a number (0 is allowed).");
+  if (thrMin) errors.push("Minutes must be 0 to 59.");
+  if (errors.length) return { version: null, errors: errors };
+  // An edit keeps the unknown fields of the stored version, of each type (by
+  // key) and of its callIn, as the legacy editor and repairData do; the
+  // form's own fields win.
+  var old = site && Array.isArray(site.rates) ? site.rates.filter(function(r) { return !!r && r.id === id && payRateIsTyped(r); })[0] : null;
+  var v = { ...(old || {}), id: typeof id === "string" && id ? id : "rate-" + Date.now().toString(36), effective: f.original ? null : f.effective };
+  var lbl = typeof f.label === "string" ? f.label.trim() : "";
+  if (lbl) v.label = lbl; else delete v.label;
+  v.shiftTypes = parsed.map(function(t) {
+    var ot = old ? payTypeByKey(old, t.key) : null, nt = { ...(ot || {}), ...t };
+    if (t.callIn && ot && ot.callIn && typeof ot.callIn === "object" && !Array.isArray(ot.callIn)) nt.callIn = { ...ot.callIn, ...t.callIn };
+    return nt;
+  });
+  var clean = cleanPayTyped(v, v.id);
+  if (!clean) return { version: null, errors: ["Check the values."] };
+  return { version: clean, errors: [] };
+}
 // Display name per siteId - ONE rule for the Totals split and every shift
 // row: a current site shows its CURRENT name; a deleted site shows the name
 // stored on its NEWEST shift (latest date, then most recently added).
@@ -2095,19 +2604,60 @@ function paySiteNames(shifts, sites) {
   Object.keys(cur).forEach(function(k) { out[k] = cur[k]; });
   return out;
 }
+// --- The Day / Night / Other split (one accumulator for every total) ---
+// Buckets by type key ("" = legacy-priced "Other"), each { key, label,
+// shifts, total, callIns, inMin (all time in), ciShifts (shifts whose type
+// pays call-ins), metCount (of those, nights that reached their threshold),
+// threshold (the minutes shared by every such shift, or null when they
+// differ) }. A bucket is named by its NEWEST shift; buckets whose labels
+// match case-folded merge. Order: Day, Night, other types, then Other. The
+// split is empty when the range has no typed or flagged shift. A FLAGGED
+// shift (payShiftNeedsType) is counted only in needsType - never in shifts,
+// total or any bucket. Sums are whole cents, so the buckets add up exactly.
+function paySplitNew() { return { buckets: {}, order: [], any: false }; }
+function paySplitAdd(acc, s, p, flagged) {
+  if (flagged || payShiftIsTyped(s)) acc.any = true;
+  if (flagged || !p) return;
+  var typed = payShiftIsTyped(s), key = typed ? s.rates.shiftType.key : "";
+  var b = acc.buckets[key];
+  if (!b) { b = acc.buckets[key] = { key: key, label: typed ? s.rates.shiftType.label : "Other", labelDate: typed ? s.date : "", shifts: 0, cents: 0, callIns: 0, inMin: 0, ciShifts: 0, metCount: 0, thresholds: [] }; acc.order.push(key); }
+  if (typed && s.date >= b.labelDate) { b.label = s.rates.shiftType.label; b.labelDate = s.date; }
+  b.shifts++; b.cents += Math.round(p.total * 100); b.callIns += payShiftCallInCount(s);
+  var ci = typed ? p.lines.filter(function(l) { return l.kind === "callIn"; })[0] : null;
+  if (ci) { b.inMin += ci.minutes; b.ciShifts++; if (ci.met) b.metCount++; if (b.thresholds.indexOf(ci.threshold) === -1) b.thresholds.push(ci.threshold); }
+}
+function paySplitOut(acc) {
+  if (!acc.any) return [];
+  var byLabel = {}, merged = [];
+  acc.order.forEach(function(k) {
+    var b = acc.buckets[k], lk = b.key === "" ? "" : "t:" + b.label.trim().toLowerCase(), m = byLabel[lk];
+    if (!m) { byLabel[lk] = b; merged.push(b); return; }
+    m.shifts += b.shifts; m.cents += b.cents; m.callIns += b.callIns; m.inMin += b.inMin; m.ciShifts += b.ciShifts; m.metCount += b.metCount;
+    b.thresholds.forEach(function(t) { if (m.thresholds.indexOf(t) === -1) m.thresholds.push(t); });
+    if (b.labelDate > m.labelDate) { m.label = b.label; m.labelDate = b.labelDate; }
+  });
+  var rank = function(b) { var l = b.label.trim().toLowerCase(); return b.key === "" ? 3 : l === "day" ? 0 : l === "night" ? 1 : 2; };
+  merged.sort(function(a, b) { return rank(a) - rank(b) || acc.order.indexOf(a.key) - acc.order.indexOf(b.key); });
+  return merged.map(function(b) { return { key: b.key, label: b.label, shifts: b.shifts, total: b.cents / 100, callIns: b.callIns, inMin: b.inMin, ciShifts: b.ciShifts, metCount: b.metCount, threshold: b.thresholds.length === 1 ? b.thresholds[0] : null }; });
+}
 // Call pay between two YYYY-MM-DD bounds by SHIFT date: from <= date < to,
 // and (when upTo is given, e.g. today for a YTD line) date <= upTo. Whole-
-// cent sum; an unpriceable shift is counted but never summed. String-date
-// bounds, so a fiscal year starting on any day works.
-function payTotalInRange(shifts, from, to, upTo) {
-  var cents = 0, count = 0;
+// cent sum; an unpriceable shift is counted but never summed; a shift that
+// needs Day or Night (payShiftNeedsType against `sites`; without sites
+// nothing is flagged) is only counted in needsType. String-date bounds, so
+// a fiscal year starting on any day works. Returns { total, shifts,
+// unpriced, needsType, split }.
+function payTotalInRange(shifts, from, to, upTo, sites) {
+  var cents = 0, count = 0, unpriced = 0, needsType = 0, acc = paySplitNew();
   (Array.isArray(shifts) ? shifts : []).forEach(function(s) {
     if (!s || !isYMD(s.date) || s.date < from || s.date >= to || (upTo && s.date > upTo)) return;
+    if (payShiftNeedsType(s, sites)) { needsType++; paySplitAdd(acc, s, null, true); return; }
     count++;
     var p = computeShiftPay(s);
-    if (p) cents += Math.round(p.total * 100);
+    if (p) cents += Math.round(p.total * 100); else unpriced++;
+    paySplitAdd(acc, s, p, false);
   });
-  return { total: cents / 100, shifts: count };
+  return { total: cents / 100, shifts: count, unpriced: unpriced, needsType: needsType, split: paySplitOut(acc) };
 }
 // Calendar years that have call-pay shifts, newest first ("YYYY" strings).
 function payShiftYears(shifts) {
@@ -2120,41 +2670,45 @@ function payShiftYears(shifts) {
 // summed in whole cents so sites add up exactly to each month and months to
 // the year. Sites show their CURRENT name; a deleted site keeps the name
 // stored on its shifts (deleted: true). A shift that can't be priced is
-// counted (unpriced) but never summed. Returns { total, shifts, callIns,
-// unpriced, months: [{ key: "YYYY-MM", total, shifts, callIns, unpriced,
-// sites: [{ key, name, deleted, total, shifts }], list: [shift, newest
-// first] }] } with months newest first.
+// counted (unpriced) but never summed. A shift that needs Day or Night
+// (payShiftNeedsType) stays in its month's list but is counted only in
+// needsType. Returns { total, shifts, callIns, unpriced, needsType, split,
+// months: [{ key: "YYYY-MM", total, shifts, callIns, unpriced, needsType,
+// split, sites: [{ key, name, deleted, total, shifts }], list: [shift,
+// newest first] }] } with months newest first.
 function payMonthTotals(shifts, year, sites) {
   var y = String(year);
   var current = {};
   (Array.isArray(sites) ? sites : []).forEach(function(s) { if (s && typeof s.id === "string") current[s.id] = true; });
   var names = paySiteNames(shifts, sites);
-  var months = {}, cents = 0, count = 0, callIns = 0, unpriced = 0;
+  var months = {}, cents = 0, count = 0, callIns = 0, unpriced = 0, needsType = 0, yAcc = paySplitNew();
   (Array.isArray(shifts) ? shifts : []).forEach(function(s, idx) {
     if (!s || !isYMD(s.date) || s.date.slice(0, 4) !== y) return;
     var mk = s.date.slice(0, 7);
-    var m = months[mk] || (months[mk] = { key: mk, cents: 0, shifts: 0, callIns: 0, unpriced: 0, sites: {}, list: [] });
+    var m = months[mk] || (months[mk] = { key: mk, cents: 0, shifts: 0, callIns: 0, unpriced: 0, needsType: 0, acc: paySplitNew(), sites: {}, list: [] });
+    m.list.push({ s: s, i: idx });
+    if (payShiftNeedsType(s, sites)) { m.needsType++; needsType++; paySplitAdd(m.acc, s, null, true); paySplitAdd(yAcc, s, null, true); return; }
     var p = computeShiftPay(s);
     var c = p ? Math.round(p.total * 100) : 0;
-    var n = Array.isArray(s.events) ? s.events.length : 0;
+    var n = payShiftCallInCount(s);
     var sk = typeof s.siteId === "string" && s.siteId ? s.siteId : "name:" + (s.siteName || "");
     var deleted = !Object.prototype.hasOwnProperty.call(current, s.siteId);
     var site = m.sites[sk] || (m.sites[sk] = { key: sk, name: (s.siteId && names[s.siteId]) || s.siteName || "Deleted site", deleted: deleted, cents: 0, shifts: 0 });
     m.shifts++; m.callIns += n; site.shifts++;
     if (p) { m.cents += c; site.cents += c; cents += c; } else { m.unpriced++; unpriced++; }
     count++; callIns += n;
-    m.list.push({ s: s, i: idx });
+    paySplitAdd(m.acc, s, p, false); paySplitAdd(yAcc, s, p, false);
   });
   var out = Object.keys(months).sort().reverse().map(function(mk) {
     var m = months[mk];
     return {
-      key: mk, total: m.cents / 100, shifts: m.shifts, callIns: m.callIns, unpriced: m.unpriced,
+      key: mk, total: m.cents / 100, shifts: m.shifts, callIns: m.callIns, unpriced: m.unpriced, needsType: m.needsType, split: paySplitOut(m.acc),
       sites: Object.keys(m.sites).map(function(k) { var st = m.sites[k]; return { key: st.key, name: st.name, deleted: st.deleted, total: st.cents / 100, shifts: st.shifts }; })
         .sort(function(a, b) { return b.total - a.total || (a.name < b.name ? -1 : a.name > b.name ? 1 : 0); }),
       list: m.list.sort(function(a, b) { return a.s.date < b.s.date ? 1 : a.s.date > b.s.date ? -1 : b.i - a.i; }).map(function(x) { return x.s; })
     };
   });
-  return { total: cents / 100, shifts: count, callIns: callIns, unpriced: unpriced, months: out };
+  return { total: cents / 100, shifts: count, callIns: callIns, unpriced: unpriced, needsType: needsType, split: paySplitOut(yAcc), months: out };
 }
 // Re-derive everything that follows the site/date: default hours on call
 // (until the user picks them - payDefaultShiftHours: 24h on a weekend day or
@@ -2164,6 +2718,7 @@ function payMonthTotals(shifts, year, sites) {
 // force does.
 function payDraftRefresh(d, site, today, nowHM, rate) {
   var nd = { ...d };
+  if (payRateIsTyped(rate)) return nd;   // a typed rate choice: the legacy fields are left alone
   if (!nd.hoursSet) { var rif = rate || (site ? rateInForce(site, nd.date) : null); if (rif) nd.callHours = String(payDefaultShiftHours(nd.date, site, rif)); }
   nd.events = (nd.events || []).map(function(e) { return payDraftEvent(e, nd.date, site, today, nowHM, rate); });
   return nd;

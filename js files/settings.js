@@ -786,6 +786,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   // inert, so it is neither counted nor badged "custom".
   const ovr = data.rvuOverrides || {};
   const overrideCount = Object.keys(ovr).filter(k => ovr[k]).length;
+  // Call shifts logged before Day/Night rates that still need a type (utils.js
+  // payShiftNeedsType) - shown on the Call Pay card, set only in Call Pay.
+  const payNeedsType = payNeedsTypeCount(data.payShifts || [], data.paySites || []);
 
   return (<div style={S.page}>
     <div style={S.header}><h1 style={S.title}>Settings</h1></div>
@@ -1001,8 +1004,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}>
       <div style={S.cardLabel}>Call Pay</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Call stipends, call-in fees and hourly pay per site, in dollars. Kept separate from wRVUs and Comp.</div>
-      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}</div>
+      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}{payNeedsType > 0 ? <span style={{ color: "#f59e0b" }}>{" \u00B7 " + payNeedsType + " need" + (payNeedsType === 1 ? "s" : "") + " a type"}</span> : null}</div>
       <button onClick={function() { if (openCallPay) openCallPay("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
+      <button onClick={function() { if (openCallPay) openCallPay("settings", "rates"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Call pay rates</button>
     </div>
 
     {/* Directorships (directorships.js): list, editor, signature. Guarded -
