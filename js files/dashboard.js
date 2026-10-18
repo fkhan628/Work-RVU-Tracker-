@@ -19,15 +19,19 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // on every view switch, so a backup saved in More is picked up on return.
   var [backupStamp, setBackupStamp] = useState(readBackupStamp);
 
-  // Calculate year boundaries based on selection
+  // Calculate year boundaries based on selection. LOCAL midnights
+  // (localDateYMD): new Date("YYYY-MM-DD") is UTC midnight - the evening
+  // before in US time zones - which ran the pace day count one day high
+  // every evening. A cleared Year Start ("") takes the same fallback as the
+  // call-pay and no-credit windows below instead of an Invalid Date.
   var yearBounds = useMemo(function() {
     if (selectedYear === "current") {
-      var ys = new Date(settings.yearStart);
+      var ys = localDateYMD(isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01");
       var ye = new Date(ys); ye.setFullYear(ye.getFullYear() + 1);
       return { start: ys, end: ye, isCurrent: true, label: currentFiscalYear };
     }
-    var ys = new Date(selectedYear + "-01-01");
-    var ye = new Date(parseInt(selectedYear) + 1 + "-01-01");
+    var ys = localDateYMD(selectedYear + "-01-01");
+    var ye = localDateYMD((parseInt(selectedYear, 10) + 1) + "-01-01");
     var isCurrent = now >= ys && now < ye;
     return { start: ys, end: ye, isCurrent: isCurrent, label: selectedYear };
   }, [selectedYear, settings.yearStart, currentFiscalYear]);
@@ -38,7 +42,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
 
   // Institution data filtered to selected year
   const instYTD = instData.filter(function(d) {
-    var dDate = new Date(d.month + "-01");
+    var dDate = localDateYMD(d.month + "-01");
     return dDate >= ys && dDate < yearBounds.end;
   });
   const instTotal = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
@@ -61,7 +65,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Use institution if available, otherwise tracked
   const tRVU = hasInst ? instTotal : trackedRVU;
   const tComp = tRVU * settings.ratePerRVU;
-  const dp = Math.max(1, Math.floor((effectiveNow - ys) / 86400000));
+  const dp = Math.max(1, localDaysBetween(ys, effectiveNow));
 
   // Monthly chart - for current year show last 6 months, for past years show all 12
   const months = [];
@@ -161,7 +165,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var prevYearRVU = useMemo(function() {
     var prevStart = new Date(ys); prevStart.setFullYear(prevStart.getFullYear() - 1);
     var prevEnd = new Date(ys);
-    var prevInst = instData.filter(function(d) { var dDate = new Date(d.month + "-01"); return dDate >= prevStart && dDate < prevEnd; });
+    var prevInst = instData.filter(function(d) { var dDate = localDateYMD(d.month + "-01"); return dDate >= prevStart && dDate < prevEnd; });
     var prevInstTotal = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
     var prevInstWork = prevInst.reduce(function(s, d) { return s + (d.workRVU || 0); }, 0);
     var prevInstSplit = prevInst.reduce(function(s, d) { return s + (d.splitRVU || 0); }, 0);

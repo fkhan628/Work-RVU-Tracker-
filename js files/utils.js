@@ -591,6 +591,22 @@ function localYMD(d) {
   return d.getFullYear() + "-" + m + "-" + day;
 }
 function todayLocal() { return localYMD(new Date()); }
+// Local-midnight Date for a "YYYY-MM-DD" key (an Invalid Date for anything
+// else). new Date("YYYY-MM-DD") parses as UTC midnight - the evening before
+// in US time zones - so a bare date key becomes a Date through here (a
+// wall-clock time is key + a local "T" time, never "Z" or an offset).
+function localDateYMD(ymd) {
+  if (!isYMD(ymd)) return new Date(NaN);
+  var p = ymd.split("-");
+  return new Date(+p[0], +p[1] - 1, +p[2]);
+}
+// Whole calendar days from Date a's local day to Date b's (NaN for an
+// Invalid Date). Counting local days - not flooring the milliseconds -
+// keeps a DST change from moving the day boundary off midnight.
+function localDaysBetween(a, b) {
+  var da = new Date(a.getFullYear(), a.getMonth(), a.getDate()), db = new Date(b.getFullYear(), b.getMonth(), b.getDate());
+  return Math.round((db - da) / 86400000);
+}
 // Strict "YYYY-MM-DD" check via LOCAL parts (rejects 2026-02-30 etc.).
 function isYMD(s) {
   if (typeof s !== "string" || !/^\d{4}-\d{2}-\d{2}$/.test(s)) return false;
@@ -1834,6 +1850,52 @@ function payRepriceShift(shift, site) {
   if (old && h === payDefaultShiftHours(shift.date, site, old)) h = payDefaultShiftHours(shift.date, site, rif);
   else if (old && h === old.stipendHours) h = rif.stipendHours;
   return { ...shift, siteName: site.name, callHours: h, rates: { ...rif } };
+}
+// The shift editor's "Use current rates": the draft re-takes the version in
+// force for its date (reprice; a stipend-length shift takes the new stipend
+// length, as payRepriceShift does). payDraftWeekendPicks lists its saved
+// weekday/night call-ins on a day the site counts as a weekend day (Use
+// built-in rates can add Friday): payDraftFromShift reopens them as picks,
+// so a rate refresh alone keeps their weekday fee. With reopen === true (the
+// user confirmed in callpay.js) they re-open as automatic and the refresh
+// makes them weekend call-ins, as a call-in logged on that day now would
+// be. For a day "Use built-in rates" added, that is the bulk re-price's
+// payReclassShift result; the editor also covers older weekend days and
+// dates before the built-in start, because the user is asked first.
+// Without reopen every pick stays, so a deliberate Day/Night choice is
+// never thrown away unasked. Weekend and holiday classes never change;
+// each call-in is judged by its OWN date (a next-day call-in included).
+// payDraftReopenAsks: the picks worth asking about - [] when re-opening
+// would only change the label, not the pay (both ways priced exactly as
+// the editor saves; a draft that cannot be priced yet still asks).
+function payDraftWeekendPicks(d, site) {
+  var wdays = site && !site.deleted && Array.isArray(site.weekendDays) ? site.weekendDays : [];
+  var out = [];
+  (d && typeof d === "object" && Array.isArray(d.events) ? d.events : []).forEach(function(e, i) {
+    if (e && typeof e === "object" && e.clsSet && (e.cls === "wd" || e.cls === "wn") && classifyPayEvent(e.date, e.time || "", wdays) === "we") out.push(i);
+  });
+  return out;
+}
+function payDraftUseCurrent(d, site, orig, reopen) {
+  if (!d || typeof d !== "object") return d;
+  var nd = { ...d, reprice: true };
+  var rif = site ? rateInForce(site, nd.date) : null;
+  if (rif && orig && orig.rates && +nd.callHours === orig.rates.stipendHours) nd.callHours = String(rif.stipendHours);
+  var picks = reopen === true ? payDraftWeekendPicks(nd, site) : [];
+  nd.events = (Array.isArray(nd.events) ? nd.events : []).map(function(e, i) { return picks.indexOf(i) !== -1 ? { ...e, clsSet: false } : e; });
+  return nd;
+}
+function payDraftReopenAsks(d, site, orig, today, nowHM) {
+  var picks = payDraftWeekendPicks(d, site);
+  if (!picks.length) return picks;
+  var cents = function(reopen) {
+    var nd = payDraftUseCurrent(d, site, orig, reopen);
+    var built = payShiftFromDraft(payDraftRefresh(nd, site, today, nowHM, payDraftRate(nd, site, orig).rates), site, orig);
+    var p = built.shift ? computeShiftPay(built.shift) : null;
+    return p ? Math.round(p.total * 100) : null;
+  };
+  var keep = cents(false), open = cents(true);
+  return keep === null || open === null || keep !== open ? picks : [];
 }
 // After "Use built-in rates" ADDED weekend days to a site (oldDays ->
 // newDays), a recorded weekday call-in ("wd"/"wn") dated on or after `from`

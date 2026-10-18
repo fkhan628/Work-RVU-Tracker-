@@ -65,6 +65,40 @@ jsFiles.forEach(f => {
     });
     check("no optional chaining in " + f, opt === 0, opt + " occurrence(s)");
     check("no export in " + f, exp === 0, exp + " occurrence(s)");
+    // 3b. UTC date-key tripwire: new Date("YYYY-MM-DD") (or Date.parse) is UTC
+    // midnight - the evening before in US time zones; it ran Home's pace day
+    // count a day high every evening. A SYNTACTIC check of the shapes this
+    // repo has shipped: a string literal, template or "+" chain whose string
+    // pieces hold no "T" time (a bare key, x + "-01"), or end in "Z" or an
+    // offset (UTC again), and a member named like a date key (x.date,
+    // x.month, x.yearStart, x.effective, also as x["..."]). A key + a local
+    // "T" time ("T12:00:00", ymd + "T" + hm) and plain number math pass. It
+    // cannot see a key held in a plain variable (new Date(ymd)) - the
+    // CLAUDE.md date rule still applies.
+    const KEY_PROPS = ["date", "month", "yearStart", "effective"];
+    const propName = m => m.computed ? (m.property.type === "StringLiteral" ? m.property.value : "") : (m.property && m.property.name) || "";
+    // String pieces of a literal, a template or a "+" chain, in order; null
+    // when the argument holds none (a Date, a number, ts + 86400000).
+    const strPieces = e => {
+      if (e.type === "StringLiteral") return [e.value];
+      if (e.type === "TemplateLiteral") return e.quasis.map(q => q.value.cooked);
+      if (e.type === "BinaryExpression" && e.operator === "+") { const l = strPieces(e.left), r = strPieces(e.right); return l || r ? (l || []).concat(r || []) : null; }
+      return null;
+    };
+    const keyArg = a => {
+      if (a.type === "MemberExpression") return KEY_PROPS.indexOf(propName(a)) !== -1;
+      const p = strPieces(a);
+      if (!p) return false;
+      const txt = p.join("");
+      return txt.indexOf("T") === -1 || /(Z|[+-]\d{2}:?\d{2})\s*$/.test(txt);
+    };
+    let utcParse = [];
+    if (f !== "cpt-data.js") walk(ast.program, n => {
+      const isNewDate = n.type === "NewExpression" && n.callee && n.callee.name === "Date" && n.arguments.length === 1;
+      const isParse = n.type === "CallExpression" && n.callee && n.callee.type === "MemberExpression" && n.callee.object.name === "Date" && propName(n.callee) === "parse" && n.arguments.length === 1;
+      if ((isNewDate || isParse) && keyArg(n.arguments[0])) utcParse.push(n.loc.start.line);
+    });
+    check("no UTC date-key parse (new Date(\"YYYY-MM-DD\")) in " + f, utcParse.length === 0, "line(s) " + utcParse.join(", ") + " - a date key becomes a Date through localDateYMD");
   }
 });
 
@@ -903,6 +937,35 @@ if (sb) {
   const badAdd = ADD.filter(c => sb.addDaysYMD(c[0], c[1]) !== c[2]);
   check("addDaysYMD rollovers + bad input (" + ADD.length + " cases)", badAdd.length === 0, badAdd.map(c => c[0] + "+" + c[1] + " -> " + sb.addDaysYMD(c[0], c[1])).join("; "));
   check("ymdWeekday from local parts", sb.ymdWeekday("2026-10-10") === 6 && sb.ymdWeekday("2026-10-11") === 0 && sb.ymdWeekday("2026-02-30") === -1);
+  const ldy = sb.localDateYMD("2026-01-01"), ldyDst = sb.localDateYMD("2026-03-08");   // DST-day midnight: asserted in the pinned zone below
+  check("localDateYMD: local midnight from local parts (never UTC); junk is an Invalid Date",
+    ldy.getFullYear() === 2026 && ldy.getMonth() === 0 && ldy.getDate() === 1 && ldy.getHours() === 0 && ldy.getMinutes() === 0 &&
+    ldyDst.getMonth() === 2 && ldyDst.getDate() === 8 &&
+    [ "2026-02-30", "2026-1-01", "2026-01", "", undefined, null, 20260101 ].every(v => isNaN(sb.localDateYMD(v).getTime())));
+  // The same helpers in a PINNED US zone (a child node with TZ set), so the
+  // test means something on any machine - in UTC a UTC parse looks right.
+  // localDaysBetween counts calendar days across both DST changes (a
+  // floored millisecond count drops a day from 00:00 to 01:00 after March).
+  {
+    const uAst = parser.parse(utils, { sourceType: "script" });
+    const fnSrc = ["isYMD", "localDateYMD", "localDaysBetween"].map(name => {
+      const n = uAst.program.body.filter(s => s.type === "FunctionDeclaration" && s.id.name === name)[0];
+      return n ? utils.slice(n.start, n.end) : "";
+    });
+    const probe = fnSrc.join("\n") + "\nvar j1 = localDateYMD(\"2026-01-01\"), j2 = localDateYMD(\"2026-03-08\");\nconsole.log(JSON.stringify([j1.getMonth(), j1.getDate(), j1.getHours(), j2.getDate(), j2.getHours(), " +
+      "localDaysBetween(j1, new Date(2026, 0, 1, 23, 59)), localDaysBetween(j1, new Date(2026, 0, 2, 0, 0)), localDaysBetween(j1, new Date(2026, 2, 9, 0, 30)), " +
+      "localDaysBetween(j1, new Date(2026, 10, 1, 23, 30)), localDaysBetween(j1, localDateYMD(\"2027-01-01\")), localDaysBetween(localDateYMD(\"2028-01-01\"), localDateYMD(\"2029-01-01\"))]));";
+    let tzOut = "";
+    try { tzOut = require("child_process").execFileSync(process.execPath, ["-e", probe], { env: Object.assign({}, process.env, { TZ: "America/Chicago" }), encoding: "utf8" }).trim(); }
+    catch (e) { tzOut = "error: " + e.message; }
+    check("localDateYMD / localDaysBetween in America/Chicago: local midnight, whole days across both DST changes",
+      fnSrc.every(Boolean) && tzOut === JSON.stringify([0, 1, 0, 8, 0, 0, 1, 67, 304, 365, 366]), tzOut);
+  }
+  const floorDays = ["dashboard.js", "analytics.js"].filter(f => /Math\.floor\(\([^()]*-[^()]*\)\s*\/\s*86400000\)/.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));
+  check("Home and Trends count year days with localDaysBetween (no floored millisecond day counts)", floorDays.length === 0, floorDays.join(", "));
+  check("localDaysBetween: same day 0, next local day 1, Invalid Date NaN",
+    sb.localDaysBetween(new Date(2026, 4, 1, 0, 0), new Date(2026, 4, 1, 23, 59)) === 0 && sb.localDaysBetween(new Date(2026, 4, 1, 23, 59), new Date(2026, 4, 2, 0, 1)) === 1 &&
+    isNaN(sb.localDaysBetween(sb.localDateYMD(""), new Date(2026, 4, 1))));
   check("localHM pads hours/minutes", sb.localHM(new Date(2026, 0, 1, 0, 0)) === "00:00" && sb.localHM(new Date(2026, 0, 1, 7, 5)) === "07:05" && sb.localHM(new Date(2026, 0, 1, 23, 59)) === "23:59");
   const DSD = [["2026-10-11", "06:59", "2026-10-10"], ["2026-10-11", "07:00", "2026-10-11"], ["2027-01-01", "00:10", "2026-12-31"], ["2026-10-11", "", "2026-10-11"], ["junk", "08:00", ""]];
   const badDsd = DSD.filter(c => sb.payDefaultShiftDate(c[0], c[1]) !== c[2]);
@@ -1251,6 +1314,90 @@ if (sb) {
     rcl("2026-10-02", { date: "2026-10-03", time: "01:00", cls: "we" }) === null && rcl("2026-10-08", { date: "2026-10-08", time: "21:00", cls: "wn" }) === null &&
     rcl("2026-09-25", { date: "2026-09-25", time: "21:00", cls: "wn" }) === null &&
     sb.payReclassShift(fri, NEW, NEW, FROM) === null && sb.payReclassShift(null, OLD, NEW, FROM) === null);
+  // The shift editor's "Use current rates" (utils.js payDraftUseCurrent, then
+  // the refresh callpay.js runs). Confirmed (reopen), it reaches the bulk
+  // re-price + reclass result: the reopened Friday call-in (pinned as a
+  // "pick" because the site's weekend days changed) becomes a weekend
+  // call-in at the same pay. Declined, every pick is kept (new rates only).
+  const viaUseCur = (shift, site, reopen) => {
+    const dd = sb.payDraftUseCurrent(sb.payDraftFromShift(shift, site), site, shift, reopen);
+    const nd = sb.payDraftRefresh(dd, site, "", "", sb.payDraftRate(dd, site, shift).rates);
+    return sb.payShiftFromDraft(nd, site, shift).shift;
+  };
+  const friEd = viaUseCur(fri, zFilled, true), friKept = viaUseCur(fri, zFilled, false), friDefault = viaUseCur(fri, zFilled);
+  const tlShift = mkShift("tz", zSite, "2026-10-09", [dEv({ date: "2026-10-09", time: "", cls: "wd", hours: "1" })]);
+  const tlEd = viaUseCur(tlShift, zFilled, true), tlBulk = sb.payReclassShift(sb.payRepriceShift(tlShift, zFilled), OLD, NEW, FROM);
+  // A next-day call-in: Thursday's shift, called in at 00:30 on Friday. Its
+  // OWN date decides (a version using the shift date would keep it Night).
+  const ndShift = mkShift("nz", zSite, "2026-10-01", [dEv({ date: "2026-10-02", time: "00:30", cls: "wn", hours: "1" })]);
+  const ndEd = viaUseCur(ndShift, zFilled, true), ndBulk = sb.payReclassShift(sb.payRepriceShift(ndShift, zFilled), OLD, NEW, FROM);
+  const reopened = sb.payDraftFromShift(fri, zFilled);
+  check("payDraftUseCurrent: confirmed, Use current rates moves a Friday call-in (same-day, timeless, next-day) on a day Use built-in rates added to weekend, like the bulk re-price (same class, hours, rates, pay)",
+    reopened.events[0].clsSet === true && !!friEd && friEd.events[0].cls === "we" && friEd.callHours === friFix.callHours &&
+    JSON.stringify(friEd.rates) === JSON.stringify(friFix.rates) && sb.computeShiftPay(friEd).total === sb.computeShiftPay(friFix).total &&
+    !!tlEd && tlEd.events[0].cls === "we" && !!tlBulk && tlBulk.events[0].cls === "we" && sb.computeShiftPay(tlEd).total === sb.computeShiftPay(tlBulk).total &&
+    !!ndEd && ndEd.events[0].cls === "we" && ndEd.events[0].date === "2026-10-02" && !!ndBulk && sb.computeShiftPay(ndEd).total === sb.computeShiftPay(ndBulk).total &&
+    JSON.stringify(fri) === friBefore,
+    JSON.stringify({ clsSet: reopened.events[0].clsSet, ed: friEd && friEd.events[0].cls, edTotal: friEd && sb.computeShiftPay(friEd).total, bulk: sb.computeShiftPay(friFix).total,
+      tl: tlEd && [tlEd.events[0].cls, sb.computeShiftPay(tlEd).total, tlBulk && sb.computeShiftPay(tlBulk).total], nd: ndEd && [ndEd.events[0].cls, sb.computeShiftPay(ndEd).total, ndBulk && sb.computeShiftPay(ndBulk).total] }));
+  check("payDraftUseCurrent: declined (or not asked), the saved Day/Night pick stays and only the rates change",
+    !!friKept && friKept.events[0].cls === "wn" && JSON.stringify(friKept.rates) === JSON.stringify(friFix.rates) &&
+    !!friDefault && friDefault.events[0].cls === "wn" && sb.computeShiftPay(friKept).total === sb.computeShiftPay(friDefault).total && sb.computeShiftPay(friKept).total < sb.computeShiftPay(friEd).total,
+    JSON.stringify({ kept: friKept && friKept.events[0].cls, def: friDefault && friDefault.events[0].cls }));
+  const ucEv = (o) => Object.assign({ date: "2026-10-02", rel: "same", relSet: true, time: "21:00", timeAuto: false, cls: "wn", clsSet: true, dn: "", fee: true, hours: "2" }, o);
+  const ucDr = (evs, date) => ({ id: "u", siteId: "sz", date: date || evs[0].date, callHours: "24", hoursSet: true, events: evs });
+  const ucList = [ucEv({ date: "2026-10-08" }), ucEv({ date: "2026-12-25", cls: "wd", time: "10:00" }), ucEv({ date: "2026-10-03", cls: "we" }), ucEv({ clsSet: false }), ucEv({ cls: "hol" }), ucEv({}), ucEv({ date: "2026-10-02", time: "00:30" })];
+  const ucPicks = sb.payDraftWeekendPicks(ucDr(ucList, "2026-10-01"), zFilled);
+  const ucOn = sb.payDraftUseCurrent(ucDr(ucList, "2026-10-01"), zFilled, null, true).events.map(e => e.clsSet);
+  const ucDraft = ucDr([ucEv({})]), ucDraftJson = JSON.stringify(ucDraft), ucRes = sb.payDraftUseCurrent(ucDraft, zFilled, null, true);
+  check("payDraftWeekendPicks / payDraftUseCurrent: only Day/Night picks on a weekend day (by the call-in's own date) are listed and, confirmed, re-open; holidays, weekend, other days, automatic, deleted and site-less are kept; input never mutated",
+    JSON.stringify(ucPicks) === "[5,6]" && JSON.stringify(ucOn) === JSON.stringify([true, true, true, false, true, false, false]) &&
+    sb.payDraftWeekendPicks(ucDr([ucEv({})]), null).length === 0 && sb.payDraftWeekendPicks(ucDr([ucEv({})]), Object.assign({}, zFilled, { deleted: true })).length === 0 &&
+    sb.payDraftUseCurrent(ucDr([ucEv({})]), zFilled, null, "yes").events[0].clsSet === true &&
+    ucRes.reprice === true && ucRes.events[0].clsSet === false && JSON.stringify(ucDraft) === ucDraftJson && sb.payDraftUseCurrent(null, zFilled, null, true) === null,
+    JSON.stringify({ picks: ucPicks, on: ucOn }));
+  // Ask only when the answer changes the pay: Silvis pays a weekend call-in
+  // more (asked); Davenport pays a Saturday night and a weekend call-in the
+  // same (the pick stays silently - no pay question that changes nothing).
+  const davSat = mkShift("ds", DAV, "2026-10-10", [dEv({ date: "2026-10-10", time: "21:00", cls: "wn", hours: "2" })]);
+  const davDraft = sb.payDraftFromShift(davSat, DAV), friDraft = sb.payDraftFromShift(fri, zFilled), friDraftJson = JSON.stringify(friDraft);
+  const askFri = sb.payDraftReopenAsks(friDraft, zFilled, fri, "", ""), askDav = sb.payDraftReopenAsks(davDraft, DAV, davSat, "", "");
+  check("payDraftReopenAsks: asks only when re-opening changes the pay (Silvis Friday yes, Davenport Saturday night vs weekend no); input never mutated",
+    JSON.stringify(askFri) === "[0]" && sb.payDraftWeekendPicks(davDraft, DAV).length === 1 && askDav.length === 0 &&
+    sb.payDraftReopenAsks(ucDr([ucEv({ date: "2026-10-08" })]), zFilled, null, "", "").length === 0 && JSON.stringify(friDraft) === friDraftJson,
+    JSON.stringify({ fri: askFri, dav: askDav }));
+  // callpay.js holds no second copy of the rule (AST, so a comment or a
+  // string cannot satisfy it): inside useCurrentRates, picks comes from
+  // payDraftReopenAsks, reopen is exactly `picks.length > 0 && confirm(...)`
+  // with confirm() run in the tap itself (not inside a nested function such
+  // as the setD updater), and payDraftUseCurrent - called once in the file -
+  // gets that reopen inside the setD updater. callpay.js never writes a
+  // reprice flag itself.
+  {
+    const cpSrc = fs.readFileSync(path.join(JS_DIR, "callpay.js"), "utf8");
+    const cpAst = parser.parse(cpSrc, { sourceType: "script", plugins: ["jsx"] });
+    const calls = name => { const out = []; walk(cpAst.program, n => { if (n.type === "CallExpression" && n.callee.type === "Identifier" && n.callee.name === name) out.push(n); }); return out; };
+    let ucFn = null;
+    walk(cpAst.program, n => { if (n.type === "VariableDeclarator" && n.id.name === "useCurrentRates") ucFn = n.init; });
+    const within = (n, outer) => !!outer && n.start >= outer.start && n.end <= outer.end;
+    const nested = [];
+    if (ucFn) walk(ucFn.body, n => { if (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression") nested.push(n); });
+    const decl = name => { let d = null; if (ucFn) walk(ucFn.body, n => { if (n.type === "VariableDeclarator" && n.id.name === name) d = n.init; }); return d; };
+    const picksInit = decl("picks"), reopenInit = decl("reopen");
+    const confirmOk = !!reopenInit && reopenInit.type === "LogicalExpression" && reopenInit.operator === "&&" &&
+      reopenInit.left.type === "BinaryExpression" && reopenInit.left.operator === ">" && reopenInit.left.left.type === "MemberExpression" &&
+      reopenInit.left.left.object.name === "picks" && reopenInit.left.left.property.name === "length" && reopenInit.left.right.value === 0 &&
+      reopenInit.right.type === "CallExpression" && reopenInit.right.callee.name === "confirm" && !nested.some(f => within(reopenInit.right, f));
+    const useCalls = calls("payDraftUseCurrent"), setDs = calls("setD").filter(c => within(c, ucFn));
+    const useOk = useCalls.length === 1 && setDs.length === 1 && setDs[0].arguments[0] && /Function/.test(setDs[0].arguments[0].type) && within(useCalls[0], setDs[0].arguments[0]) &&
+      useCalls[0].arguments[3] && useCalls[0].arguments[3].type === "Identifier" && useCalls[0].arguments[3].name === "reopen";
+    const asksOk = !!picksInit && picksInit.type === "CallExpression" && picksInit.callee.name === "payDraftReopenAsks" && calls("payDraftWeekendPicks").length === 0;
+    let repriceWrites = 0;
+    walk(cpAst.program, n => { if ((n.type === "ObjectProperty" && ((n.key.name || n.key.value) === "reprice")) || (n.type === "AssignmentExpression" && n.left.type === "MemberExpression" && n.left.property.name === "reprice")) repriceWrites++; });
+    check("callpay.js Use current rates: picks from payDraftReopenAsks, reopen = picks.length > 0 && confirm(...) in the tap, payDraftUseCurrent(..., reopen) in the setD updater, no reprice writes",
+      !!ucFn && asksOk && confirmOk && useOk && calls("confirm").filter(c => within(c, ucFn)).length === 1 && repriceWrites === 0,
+      JSON.stringify({ uc: !!ucFn, asks: asksOk, confirm: confirmOk, use: useOk, repriceWrites: repriceWrites }));
+  }
   // ---- R2: the simple shift form's draft rules (pay math unchanged) ----
   const rif = (site, date) => sb.rateInForce(site, date);
   const keptD = { id: "k1", siteId: SIL.id, date: "2026-10-13", callHours: "24", events: [] };
@@ -1391,10 +1538,8 @@ if (sb) {
     badSeq.map(t => t[0] + " -> " + runSeq(t[1], t[2]).callHours).join("; "));
   // Bulk re-price and the editor's "Use current rates" give the same hours.
   const viaEditor = (shift, site) => {
-    const dd = Object.assign({}, sb.payDraftFromShift(shift, site), { reprice: true });
-    const rif2 = sb.rateInForce(site, shift.date);
-    if (rif2 && shift.rates && +dd.callHours === shift.rates.stipendHours) dd.callHours = String(rif2.stipendHours); // callpay.js useCurrentRates
-    const nd = sb.payDraftRefresh(dd, site, "", "", sb.payDraftRate(dd, site, shift).rates);
+    const dd = sb.payDraftUseCurrent(sb.payDraftFromShift(shift, site), site, shift); // callpay.js useCurrentRates (hours rule; no reopen)
+    const nd =sb.payDraftRefresh(dd, site, "", "", sb.payDraftRate(dd, site, shift).rates);
     return sb.payShiftFromDraft(nd, site, shift).shift.callHours;
   };
   const R10 = Object.assign({}, rif(DAV, "2026-10-14"), { id: "dav10", effective: "2026-10-05", stipend: 2500, stipendHours: 10 });

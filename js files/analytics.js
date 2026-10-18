@@ -100,8 +100,8 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   var ytdRVU = ytdEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
 
   // Pace calculations
-  var daysPassed = Math.max(1, Math.floor((now - yearStartDate) / 86400000));
-  var daysInYear = Math.floor((yearEndDate - yearStartDate) / 86400000);
+  var daysPassed = Math.max(1, localDaysBetween(yearStartDate, now));
+  var daysInYear = localDaysBetween(yearStartDate, yearEndDate);
   var daysRemaining = Math.max(0, daysInYear - daysPassed);
   var monthsRemaining = Math.max(0.5, daysRemaining / 30.44);
   var expectedRVU = goal > 0 ? (goal * daysPassed / daysInYear) : 0;

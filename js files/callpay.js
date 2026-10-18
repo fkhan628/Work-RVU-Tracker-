@@ -409,16 +409,29 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo }) {
     if (showUndo) showUndo({ type: "pay", remove: [], restore: stale, message: "Re-priced " + plural(stale.length, "shift") + " - " + site.name });
     dropOffer(site.id);
   };
-  // Editor: re-take the version in force for this date (a full-length shift
-  // takes the new shift length, like a bulk re-price).
+  // Editor: re-take the version in force for this date, like a bulk
+  // re-price (utils.js payDraftUseCurrent: a full-length shift takes the new
+  // shift length). A call-in set to Day/Night on a day the site counts as a
+  // weekend day (e.g. Friday after "Use built-in rates") becomes a weekend
+  // call-in only if the user confirms - it may be a deliberate pick - and
+  // the question comes only when the answer changes the pay
+  // (payDraftReopenAsks). confirm() runs in this tap, never in the updater.
   var useCurrentRates = function() {
+    if (!draft) return;
+    // Asked only when the answer changes the pay (payDraftReopenAsks).
+    var site0 = siteFor(draft.siteId), picks = payDraftReopenAsks(draft, site0, editOrig, todayLocal(), nowHM());
+    var one = picks.length === 1, siteName = site0 ? site0.name : "This site";
+    var clsName = function(i) { return draft.events[i].cls === "wd" ? "Day" : "Night"; };
+    var reopen = picks.length > 0 && confirm(one
+      ? siteName + " counts " + dayLabel(draft.events[picks[0]].date) + " as a weekend day, but this call-in is set to " + clsName(picks[0]) +
+        ".\n\nMake it a weekend call-in, as a call-in logged on that day now would be? Cancel keeps " + clsName(picks[0]) + " (the new rates apply either way)."
+      : siteName + " counts these days as weekend days, but the call-ins are set to a weekday rate type:\n\n" +
+        picks.map(function(i) { return dayLabel(draft.events[i].date) + " - " + clsName(i); }).join("\n") +
+        "\n\nMake them weekend call-ins, as call-ins logged on those days now would be? Cancel keeps their rate types (the new rates apply either way).");
     setD(function(x) {
-      var nx = { ...x, reprice: true };
-      var rif = rateInForce(siteFor(x.siteId), x.date);
-      if (rif && editOrig && editOrig.rates && +x.callHours === editOrig.rates.stipendHours) nx.callHours = String(rif.stipendHours);
       // Every call-in is re-derived under the new rate, exactly like a
       // site/day change - a question that now matters re-opens and blocks.
-      return refresh(nx);
+      return refresh(payDraftUseCurrent(x, siteFor(x.siteId), editOrig, reopen));
     });
   };
   var staleTag = function(s) {

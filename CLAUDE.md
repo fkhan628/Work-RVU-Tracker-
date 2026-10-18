@@ -88,7 +88,15 @@ the per-file gates below. Run it after EVERY file change.
 - All date math from LOCAL parts: `todayLocal()`/`localYMD()`, month keys
   as "YYYY-MM" strings, weekday via `new Date(y, m-1, d)`. NEVER
   `new Date("YYYY-MM-DD")` (parses UTC midnight) and never `toISOString`
-  for calendar math. Excel serials: epoch 1899-12-30 via local parts
+  for calendar math: a date key becomes a Date through utils.js
+  `localDateYMD` (or, for a wall-clock time, key + a local "T" time such
+  as "T12:00:00" - never "Z" or an offset), and whole days between two
+  Dates come from `localDaysBetween` (never a floored millisecond
+  difference - DST moves its day boundary off midnight). check.js 3b is a
+  syntactic tripwire for the shipped UTC shapes (a literal, "+" chain or
+  template with no "T" time or ending in "Z"/an offset,
+  x.date/x.month/x.yearStart/x.effective, also via Date.parse); it cannot
+  see a key held in a plain variable. Excel serials: epoch 1899-12-30 via local parts
   (compare.js excelDateToYM); `XLSX.read` runs with cellDates OFF so that
   helper is the only serial conversion path.
 - New top-level store field: add it to defState, loadData AND Settings
@@ -113,7 +121,13 @@ the per-file gates below. Run it after EVERY file change.
   payWeOrHol, payReclassShift, payUndoApply, the
   whole-cent month totals payShiftYears/payMonthTotals/paySiteNames, the
   Dashboard's payTotalInRange (a separate line, never added to Comp),
-  re-pricing payRatesDiffer/payShiftStale/payRepriceShift, and the built-in
+  re-pricing payRatesDiffer/payShiftStale/payRepriceShift, the shift
+  editor's "Use current rates" payDraftUseCurrent (its stipend-length rule;
+  a Day/Night call-in on a day the site counts as weekend - listed by
+  payDraftWeekendPicks - becomes a weekend call-in only when the user
+  confirms, so a deliberate pick is never dropped unasked; the question
+  comes only when the answer changes the pay, payDraftReopenAsks, and its
+  confirm() runs in the tap, never in the setD updater), and the built-in
   rates fill-in payBuiltInFor/payMissingBuiltIns/payRateZero/
   payBuiltInPlan/payApplyBuiltIn/payBuiltInOffers, and the call-case credit
   rule payCaseNoCredit/paySiteCreditNote with the site credit switch
