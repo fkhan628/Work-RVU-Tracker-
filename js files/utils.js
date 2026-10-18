@@ -716,6 +716,23 @@ function payWillSeed(d) {
   var empty = function(v) { return v === undefined || (Array.isArray(v) && v.length === 0); };
   return !!d && !!d.settings && typeof d.settings === "object" && d.settings.paySitesSeeded !== true && empty(d.paySites) && empty(d.payShifts);
 }
+// Built-in directorships - the owner's three medical directorships, made
+// public by the owner's choice (2026-10-15; see CLAUDE.md): his name, the
+// organization names, the clinic remit address, the GL number, the hourly
+// rates and the monthly hour caps. Loaded silently into a store whose
+// `directorships` field is MISSING (fresh install, pre-feature store,
+// pre-change backup); an EMPTY list means the user removed them and is never
+// re-seeded. After seeding, stored data is the source of truth.
+var DIRECTORSHIP_PRESET = [
+  { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.5 },
+  { id: "trauma", name: "Trauma Medical Director", shortName: "Trauma", org: "MercyOne Genesis Silvis - Illini", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.25 },
+  { id: "wound", name: "Wound Care Program Director", shortName: "Wound", org: "Select Specialty Hospital - Quad Cities", form: "select", printName: "Faraz Khan, MD", rate: 215, maxHours: 8,
+    selectHeader: { hospital: "Select Specialty Hospital - Quad Cities", programType: "Wound Care", physicianName: "Faraz Khan, MD", contractingParty: "MercyOne Genesis Health Group",
+      remitAddress: ["1228 E Rusholme St. Suite 3020", "Davenport, IA 52803"], glNo: "150-6700-64931", hospitalNo: "" } }
+];
+function defaultDirectorships() { return JSON.parse(JSON.stringify(DIRECTORSHIP_PRESET)); }
+// Missing = never seeded (repairData seeds it); [] = the user removed them.
+function dirWillSeed(d) { return !!d && typeof d === "object" && d.directorships === undefined; }
 // "Use built-in rates": a phone whose own same-named sites lack paying
 // rates (e.g. sites typed in before the preset existed) gets the preset's
 // version on ONE confirmed tap in Call Pay. These helpers are pure; callpay.js
@@ -864,7 +881,7 @@ function paySiteCreditNote(site, ymd) {
   if (!isYMD(ymd)) return "no wRVU credit from " + fmt(CALL_NO_CREDIT_FROM);
   return callNoCreditDate(ymd) ? "no wRVU credit" : "credited before " + fmt(CALL_NO_CREDIT_FROM);
 }
-const defState = () => ({ entries: [], settings: { ...defSettings(), paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: defaultPaySites(), payShifts: [], dataVersion: DATA_VERSION });
+const defState = () => ({ entries: [], settings: { ...defSettings(), paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: defaultPaySites(), payShifts: [], directorships: defaultDirectorships(), dirEntries: [], dirHandoff: {}, dirSignatureEnc: null, dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -1155,6 +1172,124 @@ function repairData(d) {
       d.payShifts = cleanP;
     }
   }
+  // Directorships. MISSING directorships = never seeded -> the preset,
+  // silently (fresh install, pre-feature store, pre-change backup); an EMPTY
+  // list means the user removed them and is never re-seeded. Repair never
+  // drops an entry over its range or its category (hours must never fall
+  // off a pay form; the form blocks until it is edited) - only an entry
+  // whose directorship, date or minutes are unreadable, and LOUDLY.
+  var dirJoin = function(list) { return list.slice(0, 5).join(", ") + (list.length > 5 ? " and " + (list.length - 5) + " more" : ""); };
+  var dirLbl = function(s) { s = String(s); return s.length > 40 ? s.slice(0, 39) + "." : s; };
+  var dirNames = {};
+  if (d && typeof d === "object") {
+    if (d.directorships === undefined) { d.directorships = defaultDirectorships(); fixed.push("directorships-seeded"); }
+    else if (!Array.isArray(d.directorships)) {
+      d.directorships = []; fixed.push("directorships");
+      lossMsgs.push("Directorships were unreadable and have been reset - tap Restore built-in directorships in Settings. Logged hours are kept.");
+    } else {
+      var dDrop = [], dDropIds = [], dNums = [], dHdr = [], dSeen = {}, cleanD = [];
+      d.directorships.forEach(function(x, xi) {
+        var ok = dirPlainObj(x) && typeof x.name === "string" && x.name.trim() !== "" && (x.form === "genesis" || x.form === "select");
+        if (!ok) { dDrop.push(dirLbl(dirPlainObj(x) && typeof x.name === "string" && x.name.trim() ? x.name.trim() : "#" + (xi + 1))); dDropIds.push(dirPlainObj(x) && typeof x.id === "string" ? x.id : ""); return; }
+        var before = JSON.stringify(x), c = { ...x }, nm = dirLbl(x.name.trim());
+        // A ":" in an id is fine (every key parser splits at the LAST ":");
+        // renewing it would orphan its entries and hand-offs.
+        if (typeof c.id !== "string" || !c.id.trim() || dSeen[c.id] === true) c.id = dirNewId() + "-" + xi;
+        dSeen[c.id] = true;
+        ["rate", "maxHours"].forEach(function(k) {
+          var v = payNum(c[k]);
+          if (v === null) { c[k] = 0; dNums.push(nm + " " + (k === "rate" ? "rate" : "max hours")); } else c[k] = v;
+        });
+        ["shortName", "org", "printName", "emplNo", "costCtr"].forEach(function(k) {
+          if (c[k] === undefined || typeof c[k] === "string") return;
+          c[k] = typeof c[k] === "number" && isFinite(c[k]) ? String(c[k]) : "";
+        });
+        if (c.selectHeader !== undefined) {
+          if (!dirPlainObj(c.selectHeader)) { delete c.selectHeader; dHdr.push(nm); }
+          else {
+            var h = { ...c.selectHeader };
+            ["hospital", "programType", "physicianName", "contractingParty", "glNo", "hospitalNo"].forEach(function(k) {
+              if (h[k] === undefined || typeof h[k] === "string") return;
+              h[k] = typeof h[k] === "number" && isFinite(h[k]) ? String(h[k]) : "";
+            });
+            var ra = h.remitAddress;
+            if (typeof ra === "string") h.remitAddress = [ra, ""];
+            else if (Array.isArray(ra)) {
+              var rs = ra.map(function(v) { return typeof v === "string" ? v : typeof v === "number" && isFinite(v) ? String(v) : ""; });
+              if (rs.length !== 2 || rs.some(function(v, i) { return v !== ra[i]; })) h.remitAddress = [rs[0] || "", rs.slice(1).filter(function(v) { return v !== ""; }).join(", ")];
+            } else if (ra !== undefined) h.remitAddress = ["", ""];
+            c.selectHeader = h;
+          }
+        }
+        if (JSON.stringify(c) !== before) fixed.push("directorships." + (xi + 1));
+        dirNames[c.id] = c.shortName && typeof c.shortName === "string" ? c.shortName : c.name.trim();
+        cleanD.push(c);
+      });
+      if (dDrop.length) {
+        // Three cases: the id is still held by a kept directorship (its hours
+        // stay there); a dropped BUILT-IN comes back with its hours through
+        // Restore; any other cannot be reattached (re-adding makes a new id).
+        fixed.push("directorships-dropped");
+        var biIds = {}, dropDup = [], dropBI = [], dropOther = [];
+        DIRECTORSHIP_PRESET.forEach(function(p) { biIds[p.id] = true; });
+        dDrop.forEach(function(l, i) { var id = dDropIds[i]; (id && dSeen[id] === true ? dropDup : id && biIds[id] === true ? dropBI : dropOther).push(l); });
+        var one = function(list, a, b) { return list.length === 1 ? a : b; };
+        if (dropDup.length) lossMsgs.push("Directorship" + one(dropDup, " ", "s ") + dirJoin(dropDup) + " " + one(dropDup, "was", "were") + " unreadable and removed. " + one(dropDup, "It", "They") + " shared an id with a directorship you still have, so " + one(dropDup, "its", "their") + " logged hours stay on that one - check them in Directorships and don't re-log them.");
+        if (dropBI.length) lossMsgs.push("Directorship" + one(dropBI, " ", "s ") + dirJoin(dropBI) + " " + one(dropBI, "was", "were") + " unreadable and removed - tap Restore in Settings > Directorships to bring " + one(dropBI, "it", "them") + " back with " + one(dropBI, "its", "their") + " logged hours. Don't add " + one(dropBI, "it", "them") + " again by hand.");
+        if (dropOther.length) lossMsgs.push("Directorship" + one(dropOther, " ", "s ") + dirJoin(dropOther) + " " + one(dropOther, "was", "were") + " unreadable and removed. " + one(dropOther, "Its", "Their") + " logged hours are kept but can't be reattached - add " + one(dropOther, "it", "them") + " again in Settings and re-log those hours.");
+      }
+      if (dNums.length) lossMsgs.push("Directorship numbers were unreadable and cleared - re-enter them in Settings > Directorships: " + dirJoin(dNums) + ".");
+      if (dHdr.length) lossMsgs.push("The Select form details for " + dirJoin(dHdr) + " were unreadable and removed - re-enter them in Settings > Directorships.");
+      d.directorships = cleanD;
+    }
+    if (d.dirEntries !== undefined) {
+      if (!Array.isArray(d.dirEntries)) {
+        d.dirEntries = []; fixed.push("dirEntries");
+        lossMsgs.push("Directorship time entries were unreadable and have been reset - please re-enter them in Directorships.");
+      } else {
+        var eDrop = [], eSeen = {}, cleanE = [];
+        d.dirEntries.forEach(function(e, ei) {
+          var isObj = dirPlainObj(e);
+          var mins = isObj ? payNum(e.minutes) : null;
+          if (!isObj || typeof e.dirId !== "string" || !e.dirId || !isYMD(e.date) || mins === null) {
+            eDrop.push(dirLbl(isObj && typeof e.dirId === "string" && e.dirId ? (dirNames[e.dirId] || e.dirId) + (typeof e.date === "string" ? " " + e.date : "") : "#" + (ei + 1)));
+            return;
+          }
+          var before = JSON.stringify(e), c = { ...e };
+          c.minutes = Math.round(mins);
+          if (typeof c.id !== "string" || !c.id || eSeen[c.id]) c.id = dirEntryId(ei);
+          eSeen[c.id] = true;
+          if (typeof c.category !== "string") c.category = "";
+          if (typeof c.detail !== "string") c.detail = typeof c.detail === "number" && isFinite(c.detail) ? String(c.detail) : "";
+          if (JSON.stringify(c) !== before) fixed.push("dirEntries." + (ei + 1));
+          cleanE.push(c);
+        });
+        if (eDrop.length) { fixed.push("dirEntries-dropped"); lossMsgs.push("Directorship time " + (eDrop.length === 1 ? "entry " : "entries ") + dirJoin(eDrop) + " " + (eDrop.length === 1 ? "was" : "were") + " unreadable and removed - please re-enter " + (eDrop.length === 1 ? "it" : "them") + " in Directorships."); }
+        d.dirEntries = cleanE;
+      }
+    }
+    if (d.dirHandoff !== undefined) {
+      if (!dirPlainObj(d.dirHandoff)) {
+        d.dirHandoff = {}; fixed.push("dirHandoff");
+        lossMsgs.push("Directorship hand-off records were unreadable and have been reset - use Mark handed off for any month already saved to Drive.");
+      } else {
+        var hDrop = [];
+        Object.keys(d.dirHandoff).forEach(function(k) {
+          var v = d.dirHandoff[k];
+          if (/^(.+):(\d{4})-(0[1-9]|1[0-2])$/.test(k) && dirPlainObj(v) && isYMD(v.date) && typeof v.entriesHash === "string" && v.entriesHash) return;
+          hDrop.push(dirLbl(k)); delete d.dirHandoff[k];
+        });
+        if (hDrop.length) { fixed.push("dirHandoff-dropped"); lossMsgs.push("Hand-off record" + (hDrop.length === 1 ? " " : "s ") + dirJoin(hDrop) + " " + (hDrop.length === 1 ? "was" : "were") + " unreadable and removed - use Mark handed off if " + (hDrop.length === 1 ? "that month was" : "those months were") + " already saved to Drive."); }
+      }
+    }
+    if (d.dirSignatureEnc !== undefined && d.dirSignatureEnc !== null) {
+      var se = d.dirSignatureEnc;
+      if (!(dirPlainObj(se) && typeof se.ct === "string" && se.ct && typeof se.salt === "string" && se.salt && typeof se.iv === "string" && se.iv)) {
+        d.dirSignatureEnc = null; fixed.push("dirSignatureEnc");
+        lossMsgs.push("Your saved signature was unreadable and was removed - draw it again in Settings > Directorships.");
+      }
+    }
+  }
   // entries[].noCredit is true or absent. false is dropped silently (it
   // already means credited); any other value is dropped LOUDLY - the case
   // stays credited, exactly as creditedRVU already counted it, so no total
@@ -1208,7 +1343,9 @@ function loadData() {
     raw = localStorage.getItem(SK);
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
-    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, templates: s.templates || [], paySites: s.paySites || [], payShifts: s.payShifts || [], dataVersion: s.dataVersion || DATA_VERSION };
+    var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, templates: s.templates || [], paySites: s.paySites || [], payShifts: s.payShifts || [], directorships: s.directorships, dirEntries: s.dirEntries || [], dirHandoff: s.dirHandoff || {}, dirSignatureEnc: s.dirSignatureEnc || null, dataVersion: s.dataVersion || DATA_VERSION };
+    // directorships passes through RAW: missing = never seeded (repairData
+    // seeds the preset), [] = the user removed them (never re-seeded).
     // Legacy field: carried through so repairData can run the one-time
     // reconMonths -> institutionData migration, after which it is deleted.
     if (s.reconMonths !== undefined) d.reconMonths = s.reconMonths;
@@ -2006,6 +2143,633 @@ function payDraftRefresh(d, site, today, nowHM, rate) {
   return nd;
 }
 
+// =======================================
+// --- Directorships ---
+// Monthly directorship hours and their signed time sheets (directorships.js
+// holds only state and rendering; every rule is here, pure and tested by
+// check.js). Store fields: directorships, dirEntries, dirHandoff,
+// dirSignatureEnc. Babel files read them ONLY through dirList /
+// dirEntriesOf / dirHandoffOf / dirHasSignature / dirSignatureLoad.
+// Calendar math is integer math on "YYYY-MM-DD" / "YYYY-MM" strings - no
+// Date parsing, no UTC. The caller passes "today" in.
+// =======================================
+var DIR_MONTH_NAMES = ["January", "February", "March", "April", "May", "June", "July", "August", "September", "October", "November", "December"];
+var DIR_MAX_ENTRY_MIN = 1440;
+var DIR_QUICK_MIN = [15, 30, 45, 60, 90, 120];
+var DIR_DETAIL_MAX = 60;
+var DIR_DETAIL_HINT = "meeting or topic only - no patient information";
+var DIR_PAY_CODE = "DFEE";
+var DIR_GENESIS_TITLE = "MONTHLY ACTIVITY LOG/TIMESHEET";
+var DIR_GENESIS_SUBTITLE = "MEDICAL DIRECTOR SERVICES";
+var DIR_GENESIS_CERT = "CERTIFICATION: By signing this document, the below listed individuals hereby affirm and attest that the Services and the number of hours recorded for such Services set forth herein were performed by Physician as Medical Director and that Physician fully performed all designated duties required during this month.";
+var DIR_GENESIS_FOOTER = "Medical Director Time Sheet 5/18/2020";
+var DIR_SELECT_TITLE = "PROGRAM DIRECTOR TIME REPORT";
+var DIR_SELECT_ATTEST = "I hereby attest and certify to the validity and accuracy of the information reported for reimbursement of services rendered.";
+var DIR_SELECT_MORE = "If additional space is needed, please attach another sheet.";
+// Row definitions. `key` is STORED data (dirEntries[].category) - never
+// rename one (check.js pins the list). `text` prints exactly.
+var DIR_GENESIS_ROWS = [
+  { key: "g_guidelines", label: "Guidelines/protocols", text: "Develop/review guidelines or protocols:" },
+  { key: "g_oversee", label: "Oversee services", text: "Oversee department provision of services:" },
+  { key: "g_orientation", label: "Orientation/CEU", text: "Orientation or CEU development:" },
+  { key: "g_dept_ed", label: "Staff education/training", text: "Department/professional education & training:" },
+  { key: "g_community_ed", label: "Community education", text: "Community education development/presentation:" },
+  { key: "g_policy", label: "Policy/procedure", text: "Policy/procedure development, review, education, enforcement:" },
+  { key: "g_safety", label: "Patient safety", text: "Patient safety call/initiatives:" },
+  { key: "g_goals", label: "Goal development", text: "Departmental goal development:" },
+  { key: "g_budget", label: "Budget planning", text: "Departmental budget planning & discussion:" },
+  { key: "g_strategic", label: "Strategic planning", text: "Departmental strategic planning activity:" },
+  { key: "g_quality", label: "Quality plan review", text: "Quality management plan review:" },
+  { key: "g_ur", label: "UR/chart review", text: "Utilization Review/medical records chart review:" },
+  { key: "g_supplies", label: "Supplies/facilities/equipment", text: "Evaluate/review supplies, facilities, equipment needs:" },
+  { key: "g_rules", label: "Rules/regulations/standards", text: "Review of rules, regulations, standards, etc:" },
+  { key: "g_research", label: "Research/patient care issues", text: "Research, planning, recommendations, patient care issues:" },
+  { key: "g_idg", label: "IDG meeting (Hospice)", text: "IDG meeting (Hospice MD only):" },
+  { key: "g_other", label: "Other", text: "Other (details)", detail: true, slots: 3, pre: "Other:", post: "", flagName: "Other" },
+  { key: "g_meeting", label: "Meeting with...", text: "Meeting with ____ to discuss", detail: true, slots: 4, pre: "Meeting with", post: "to discuss", flagName: "Meeting" }
+];
+var DIR_SELECT_ROWS = [
+  { key: "s_policies", label: "Policies/protocols & scheduling", text: "Assist Hospital in formulating and implementing policies, procedures and clinical protocols for the treatment of patients at Hospital who need services under the Program and, along with the Medical Director of Hospital (the \"Medical Director\"), supervise the scheduling and rendering of such services to those patients." },
+  { key: "s_qa_risk", label: "QA & risk management policies", text: "Assist the Medical Director in formulating and implementing policies for Hospital's quality assurance and risk management programs." },
+  { key: "s_liaison", label: "Liaison with medical staff/admin", text: "Develop and maintain ongoing dialogue, and act as liaison, among the medical personnel of Hospital and administrators of Hospital (including the Medical Director) concerning the functioning of the Program." },
+  { key: "s_outreach", label: "Community outreach & education", text: "Assist Hospital in community outreach and education regarding Hospital's services, including, but not limited to, speaking engagements, written articles and interaction with physicians on staff and outside the immediate area to promote Hospital's programs." },
+  { key: "s_committees", label: "Committees & reports to Medical Director", text: "Participate in ad hoc and standing committees of Hospital's medical staff, prepare reports to the Medical Director with respect to the Program and cooperate with the administrators of Hospital, all as necessary to carry out the obligations of the Corporation/Program Director in accordance with this document." },
+  { key: "s_staff_ed", label: "Clinical education/training of staff", text: "Participate in clinical education and training of Hospital's employees." },
+  { key: "s_outcomes", label: "Monitor & report patient progress/outcomes", text: "Monitor and report on the medical progress and outcomes of patients treated under the Program." },
+  { key: "s_meetings", label: "MEC/OIC/admin meetings", text: "Attend MEC or OIC meetings or other Hospital administration meeting(s) as requested by Hospital's CEO." },
+  { key: "s_travel", label: "Supplementary Services (travel)", text: "Supplementary Services (when Physician is requested to travel away from Hospital to serve on committees, make presentations and/or attend meetings.) PROVIDE DESCRIPTION OF SERVICES:", detail: true },
+  { key: "s_other", label: "Other Activity", text: "Other Activity. PROVIDE DESCRIPTION OF SERVICES:", detail: true }
+];
+function dirRowsFor(form) { return form === "select" ? DIR_SELECT_ROWS : form === "genesis" ? DIR_GENESIS_ROWS : []; }
+function dirRowByKey(form, key) { var rows = dirRowsFor(form); for (var i = 0; i < rows.length; i++) { if (rows[i].key === key) return rows[i]; } return null; }
+function dirNeedsDetail(form, key) { var r = dirRowByKey(form, key); return !!(r && r.detail); }
+
+// --- Accessors (last-good recovery can return a snapshot without a field) ---
+function dirPlainObj(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+function dirList(d) { return d && Array.isArray(d.directorships) ? d.directorships : []; }
+function dirEntriesOf(d) { return d && Array.isArray(d.dirEntries) ? d.dirEntries : []; }
+function dirHandoffOf(d) { return d && dirPlainObj(d.dirHandoff) ? d.dirHandoff : {}; }
+function dirHasSignature(d) { return !!d && dirPlainObj(d.dirSignatureEnc); }
+// Changes whenever the stored ciphertext is replaced (encrypt draws a fresh
+// salt + iv every time), so a decrypted view can tell it is stale.
+function dirSigKey(d) { return dirHasSignature(d) && typeof d.dirSignatureEnc.salt === "string" && typeof d.dirSignatureEnc.iv === "string" ? d.dirSignatureEnc.salt + ":" + d.dirSignatureEnc.iv : ""; }
+function dirById(d, id) { var l = dirList(d); for (var i = 0; i < l.length; i++) { if (l[i] && l[i].id === id) return l[i]; } return null; }
+
+// --- Calendar ---
+function dirPad2(n) { return (n < 10 ? "0" : "") + n; }
+function dirMonthDays(y, m) {
+  if (typeof y !== "number" || typeof m !== "number" || y % 1 !== 0 || m % 1 !== 0 || y < 1 || m < 1 || m > 12) return 0;
+  if (m === 2) return (y % 4 === 0 && y % 100 !== 0) || y % 400 === 0 ? 29 : 28;
+  return m === 4 || m === 6 || m === 9 || m === 11 ? 30 : 31;
+}
+function dirYMParts(ym) {
+  var x = typeof ym === "string" ? /^(\d{4})-(\d{2})$/.exec(ym) : null;
+  if (!x) return null;
+  var y = +x[1], m = +x[2];
+  return y >= 1 && m >= 1 && m <= 12 ? { y: y, m: m } : null;
+}
+function dirYMDParts(ymd) {
+  var x = typeof ymd === "string" ? /^(\d{4})-(\d{2})-(\d{2})$/.exec(ymd) : null;
+  if (!x) return null;
+  var y = +x[1], m = +x[2], d = +x[3], n = dirMonthDays(y, m);
+  return n && d >= 1 && d <= n ? { y: y, m: m, d: d } : null;
+}
+function dirAddMonths(ym, n) {
+  var p = dirYMParts(ym);
+  if (!p || typeof n !== "number" || n % 1 !== 0) return "";
+  var i = p.y * 12 + (p.m - 1) + n, y = Math.floor(i / 12), m = i - y * 12 + 1;
+  if (y < 1 || y > 9999) return "";
+  return String(y).padStart(4, "0") + "-" + dirPad2(m);
+}
+function dirWeekOf(ymd) { var p = dirYMDParts(ymd); return p ? Math.floor((p.d - 1) / 7) + 1 : 0; }
+function dirWeekRanges(ym) {
+  var p = dirYMParts(ym), out = [], n = p ? dirMonthDays(p.y, p.m) : 0;
+  for (var w = 1; w <= 5; w++) {
+    var a = (w - 1) * 7 + 1, b = w === 5 ? n : w * 7;
+    if (!p || a > n) { out.push({ week: w, start: "", end: "", label: "" }); continue; }
+    out.push({ week: w, start: ym + "-" + dirPad2(a), end: ym + "-" + dirPad2(b), label: a === b ? p.m + "/" + a : p.m + "/" + a + "-" + p.m + "/" + b });
+  }
+  return out;
+}
+function dirMD(ymd) { var p = dirYMDParts(ymd); return p ? p.m + "/" + p.d : ""; }
+function dirMDY(ymd) { var p = dirYMDParts(ymd); return p ? p.m + "/" + p.d + "/" + p.y : ""; }
+function dirMonthLabel(ym) { var p = dirYMParts(ym); return p ? DIR_MONTH_NAMES[p.m - 1] + " " + p.y : ""; }
+
+// --- Durations (stored as whole minutes) ---
+function dirMinutesOk(n) { return typeof n === "number" && n % 1 === 0 && n >= 1 && n <= DIR_MAX_ENTRY_MIN; }
+function dirFmtHM(min) {
+  if (typeof min !== "number" || !isFinite(min) || min < 0) return "";
+  var t = Math.round(min);
+  return Math.floor(t / 60) + ":" + dirPad2(t % 60);
+}
+// Custom time from two numeric boxes (the iOS number pad has no ":").
+function dirParseHM(h, m) {
+  var hs = typeof h === "string" ? h.trim() : typeof h === "number" ? String(h) : "";
+  var ms = typeof m === "string" ? m.trim() : typeof m === "number" ? String(m) : "";
+  if (hs === "" && ms === "") return { min: null, error: "Type the hours and minutes." };
+  if ((hs !== "" && !/^\d{1,2}$/.test(hs)) || (ms !== "" && !/^\d{1,2}$/.test(ms))) return { min: null, error: "Use whole numbers: hours 0-24, minutes 0-59." };
+  var hh = hs === "" ? 0 : +hs, mm = ms === "" ? 0 : +ms;
+  if (hh > 24 || mm > 59) return { min: null, error: "Use whole numbers: hours 0-24, minutes 0-59." };
+  var t = hh * 60 + mm;
+  if (!dirMinutesOk(t)) return { min: null, error: t === 0 ? "The time must be at least 0:01." : "The time can be at most 24:00." };
+  return { min: t, error: "" };
+}
+// Decimal hours with no floating-point steps: hundredths of an hour.
+function dirFmtHours(min) {
+  if (typeof min !== "number" || !isFinite(min) || min < 0) return "";
+  var h = Math.round(Math.round(min) * 5 / 3), i = Math.floor(h / 100), f = h % 100;
+  return f === 0 ? String(i) : f % 10 === 0 ? i + "." + (f / 10) : i + "." + dirPad2(f);
+}
+function dirHoursExact(min) { return Math.round(min) * 5 % 3 === 0; }
+
+// --- Money (never toLocaleString: a locale must not change an attestation) ---
+function dirMoney(v) {
+  var n = typeof v === "number" && isFinite(v) ? v : 0;
+  var c = Math.round(parseFloat((Math.abs(n) * 100).toPrecision(12)));
+  return (n < 0 && c > 0 ? "-" : "") + "$" + String(Math.floor(c / 100)).replace(/\B(?=(\d{3})+(?!\d))/g, ",") + "." + dirPad2(c % 100);
+}
+function dirMoneyShown(v, show) { return show ? dirMoney(v) : "$\u2022\u2022\u2022\u2022\u2022"; }
+function dirRateOk(dir) { return !!dir && typeof dir.rate === "number" && isFinite(dir.rate) && dir.rate > 0; }
+// Whole minutes (the editor refuses a cap that isn't); under 1 minute = not set.
+function dirCapMinutes(dir) { var h = dir ? dir.maxHours : 0, c = typeof h === "number" && isFinite(h) && h > 0 ? Math.round(h * 60) : 0; return c >= 1 ? c : null; }
+// amount = round2(min(minutes, maxHours*60) / 60 * rate); 0 when the rate or
+// the cap is not set (the form blocks on both).
+function dirAmount(min, dir) {
+  var cap = dirCapMinutes(dir), m = typeof min === "number" && isFinite(min) && min > 0 ? min : 0;
+  if (cap === null || !dirRateOk(dir)) return 0;
+  return round2((m > cap ? cap : m) / 60 * dir.rate);
+}
+// Typed money / hours: "$1,720.50" or "4.5"; null when not a number > 0.
+// Commas only as thousands groups: a decimal comma ("4,25") is refused,
+// never read as 425.
+function dirNumFromText(text) {
+  var s = (typeof text === "number" ? String(text) : typeof text === "string" ? text : "").replace(/[$\s]/g, "");
+  if (s.indexOf(",") !== -1) {
+    if (!/^\d{1,3}(,\d{3})+(\.\d*)?$/.test(s)) return null;
+    s = s.replace(/,/g, "");
+  }
+  if (!/^\d*\.?\d*$/.test(s) || !/\d/.test(s)) return null;
+  var v = parseFloat(s);
+  return isFinite(v) && v > 0 ? v : null;
+}
+
+// --- Text ---
+// Smart punctuation from phone keyboards -> plain ASCII (writers apply it).
+function dirAsciiPunct(s) {
+  return String(typeof s === "string" ? s : "").replace(/[\u2018\u2019\u201A\u2032]/g, "'").replace(/[\u201C\u201D\u201E\u2033]/g, "\"")
+    .replace(/[\u2010-\u2015\u2212]/g, "-").replace(/\u2026/g, "...").replace(/[\u00A0\u2007\u202F]/g, " ");
+}
+// The PDF's standard fonts print ASCII only: any other character becomes "?"
+// and is counted (the form shows the "chars" warning).
+function dirAscii(s) {
+  var t = dirAsciiPunct(s), n = 0;
+  var out = t.replace(/[^\x20-\x7e]/g, function() { n++; return "?"; });
+  return { text: out, replaced: n };
+}
+function dirDetailKey(s) { return String(typeof s === "string" ? s : "").trim().replace(/\s+/g, " ").toLowerCase(); }
+function dirDetailText(s) { return String(typeof s === "string" ? s : "").trim().replace(/\s+/g, " "); }
+function dirNameKey(s) { return String(typeof s === "string" ? s : "").trim().replace(/\s+/g, " ").toLowerCase(); }
+// Surname = last word of printName before its first comma ("Faraz Khan, MD" -> "Khan").
+function dirSurname(printName) {
+  var w = String(typeof printName === "string" ? printName : "").split(",")[0].trim().split(/\s+/);
+  return w[w.length - 1] || "";
+}
+var DIR_FILE_BAD = /[\\\/:*?"<>|\x00-\x1f\x7f]/;
+// The monthly email task finds the PDFs by EXACT file name, so a name is
+// either exactly the contract or refused - never silently "cleaned".
+function dirFileNameProblem(data, dir) {
+  if (!dir) return "Pick a directorship.";
+  if (!dirSurname(dir.printName)) return "Add a Print Name with a surname in Settings > Directorships.";
+  var nm = typeof dir.name === "string" ? dir.name.trim() : "";
+  if (!nm) return "Give this directorship a name in Settings > Directorships.";
+  var key = dirNameKey(nm), twin = dirList(data).some(function(o) { return o && o !== dir && o.id !== dir.id && dirNameKey(o.name) === key; });
+  if (twin) return "Two directorships are named " + nm + " - rename one (their files would collide).";
+  if (DIR_FILE_BAD.test(nm) || DIR_FILE_BAD.test(dir.printName)) return "The name or Print Name contains a character file names can't use (\\ / : * ? \" < > |) - edit it in Settings.";
+  if (/[^\x20-\x7e]/.test(nm) || /[^\x20-\x7e]/.test(dir.printName)) return "The name or Print Name has a non-ASCII character - retype it with plain letters.";
+  return "";
+}
+// "<Surname> - <name> Timesheet - YYYY-MM.pdf" (or "" when it can't be made).
+function dirFileName(dir, ym) {
+  var sur = dir ? dirSurname(dir.printName) : "", nm = dir && typeof dir.name === "string" ? dir.name.trim() : "";
+  if (!sur || !nm || !dirYMParts(ym)) return "";
+  return sur + " - " + nm + " Timesheet - " + ym + ".pdf";
+}
+// Settings editor warning while name or printName differs from the stored
+// one. The draft is normalized the way Save does it, and a name Save would
+// refuse carries the problem text (data = the store, for the twin check).
+function dirFileNameNote(saved, draft, ym, data) {
+  if (!saved || !draft) return "";
+  var sn = typeof saved.name === "string" ? saved.name.trim() : "", sp = typeof saved.printName === "string" ? saved.printName.trim() : "";
+  var dn = dirAsciiPunct(draft.name).trim(), dp = dirAsciiPunct(draft.printName).trim();
+  if (sn === dn && sp === dp) return "";
+  var probe = { id: saved.id, name: dn, printName: dp }, prob = dirFileNameProblem(data, probe);
+  var now = dirFileName(probe, ym), was = dirFileName(saved, ym);
+  return "The monthly email task finds these PDFs by this exact file name: " + (now || "(none - add a name and a Print Name with a surname)") + (was ? " (was " + was + ")." : ".") + (prob ? " " + prob : "");
+}
+
+// --- IDs (never shown, never contain ":") ---
+function dirEntryId(i) { return Date.now().toString() + "-dir" + (typeof i === "number" ? i : 0) + "-" + (Math.random().toString(36) + "000000").slice(2, 8); }
+function dirNewId() { return "dir-" + Date.now().toString(36) + "-" + (Math.random().toString(36) + "000000").slice(2, 8); }
+
+// --- One month of one directorship, in FORM ORDER ---
+// date, then detail key, then category, then minutes, then the exact detail
+// text (case-sensitive) - a total order over exactly the hashed fields, so
+// slots, printed spelling and the hash can never disagree.
+function dirMonthEntries(entries, dirId, ym) {
+  var out = (Array.isArray(entries) ? entries : []).filter(function(e) {
+    return !!e && typeof e === "object" && e.dirId === dirId && typeof e.date === "string" && e.date.slice(0, 7) === ym && !!dirYMDParts(e.date);
+  });
+  var cmp = function(a, b) { return a < b ? -1 : a > b ? 1 : 0; };
+  return out.slice().sort(function(a, b) {
+    return cmp(a.date, b.date) || cmp(dirDetailKey(a.detail), dirDetailKey(b.detail)) || cmp(String(a.category), String(b.category)) ||
+      cmp(Number(a.minutes), Number(b.minutes)) || cmp(dirDetailText(a.detail), dirDetailText(b.detail));
+  });
+}
+// cyrb53: a synchronous 53-bit change detector (not a security control).
+function dirCyrb53(str) {
+  var h1 = 0xdeadbeef, h2 = 0x41c6ce57;
+  for (var i = 0; i < str.length; i++) { var ch = str.charCodeAt(i); h1 = Math.imul(h1 ^ ch, 2654435761); h2 = Math.imul(h2 ^ ch, 1597334677); }
+  h1 = Math.imul(h1 ^ (h1 >>> 16), 2246822507); h1 ^= Math.imul(h2 ^ (h2 >>> 13), 3266489909);
+  h2 = Math.imul(h2 ^ (h2 >>> 16), 2246822507); h2 ^= Math.imul(h1 ^ (h1 >>> 13), 3266489909);
+  return 4294967296 * (2097151 & h2) + (h1 >>> 0);
+}
+// Hash of a month's PRINTED entry fields; "h1-" versions the canonical form.
+function dirEntriesHash(entries, dirId, ym) {
+  var rows = dirMonthEntries(entries, dirId, ym).map(function(e) { return JSON.stringify([e.date, e.category, e.minutes, dirDetailText(e.detail)]); });
+  return "h1-" + rows.length + "-" + dirCyrb53(rows.join("\n")).toString(16).padStart(14, "0");
+}
+function dirMonthStatus(data, dirId, ym) {
+  var rec = dirHandoffOf(data)[dirId + ":" + ym];
+  var list = dirMonthEntries(dirEntriesOf(data), dirId, ym);
+  if (dirPlainObj(rec)) return { state: rec.entriesHash === dirEntriesHash(dirEntriesOf(data), dirId, ym) ? "handed" : "changed", date: rec.date, count: list.length };
+  return { state: list.length ? "progress" : "none", date: "", count: list.length };
+}
+// done counts only "handed" - a month CHANGED SINCE HANDOFF is not done.
+function dirHandoffCount(data, ym) {
+  var l = dirList(data), done = 0;
+  l.forEach(function(x) { if (x && dirMonthStatus(data, x.id, ym).state === "handed") done++; });
+  return { done: done, total: l.length };
+}
+// On the 1st-5th: the previous month while it isn't fully handed off.
+function dirDefaultMonth(data, today) {
+  var p = dirYMDParts(today);
+  if (!p) return "";
+  var cur = today.slice(0, 7), prev = dirAddMonths(cur, -1);
+  if (p.d <= 5 && dirList(data).length > 0) { var c = dirHandoffCount(data, prev); if (c.done < c.total) return prev; }
+  return cur;
+}
+// Home's reminder window: the 25th of month M through the 5th of M+1.
+function dirReminderMonth(today) {
+  var p = dirYMDParts(today);
+  if (!p) return "";
+  if (p.d >= 25) return today.slice(0, 7);
+  if (p.d <= 5) return dirAddMonths(today.slice(0, 7), -1);
+  return "";
+}
+function dirReminderLine(data, today, dismissedYM) {
+  var ym = dirReminderMonth(today);
+  if (!ym || dirList(data).length === 0 || dismissedYM === ym) return null;
+  var c = dirHandoffCount(data, ym);
+  if (c.done >= c.total) return null;
+  var p = dirYMParts(ym);
+  return { ym: ym, text: DIR_MONTH_NAMES[p.m - 1] + " directorship forms: " + c.done + " of " + c.total + " handed off", done: c.done, total: c.total, late: dirYMDParts(today).d <= 5 };
+}
+
+// --- The form model: ONE source for the Review screen and the PDF ---
+// Other/Meeting slots: each distinct detail (by dirDetailKey) takes the next
+// free slot in order of first appearance; the same detail in another week
+// reuses its slot; more details than slots -> the LAST slot joins the rest
+// with "; " (details may contain commas) and the Review flags it.
+function dirSlotPlan(list, row) {
+  var keys = [], texts = [], slotOf = {};
+  list.forEach(function(e) {
+    if (!e || e.category !== row.key) return;
+    var k = dirDetailKey(e.detail);
+    if (!k || Object.prototype.hasOwnProperty.call(slotOf, k)) return;
+    slotOf[k] = Math.min(keys.length, row.slots - 1);
+    keys.push(k); texts.push(dirDetailText(e.detail));
+  });
+  var fills = [];
+  for (var s = 0; s < row.slots; s++) fills.push((s < row.slots - 1 ? texts.slice(s, s + 1) : texts.slice(s)).join("; "));
+  return { fills: fills, slotOf: slotOf, distinct: texts.length, combined: texts.length > row.slots ? texts.length - row.slots + 1 : 0 };
+}
+function dirDatesText(dates) { return dates.map(dirMD).join(", "); }
+function dirModelFlag(flags, level, code, text) { flags.push({ level: level, code: code, text: text }); }
+function dirFormModel(data, dirId, ym, today) {
+  var dir = dirById(data, dirId), p = dirYMParts(ym);
+  var form = dir && dir.form === "select" ? "select" : "genesis";
+  var flags = [], chars = 0;
+  var A = function(s) { var r = dirAscii(s); chars += r.replaced; return r.text; };
+  var list = dirMonthEntries(dirEntriesOf(data), dirId, ym);
+  var defs = dirRowsFor(form), weeks = dirWeekRanges(ym), rows = [], rowAt = {};
+  var fmt = form === "select" ? dirFmtHours : dirFmtHM;
+  var emptyCells = function() { var c = []; for (var w = 0; w < 5; w++) c.push({ dates: [], datesText: "", minutes: 0, dur: "" }); return c; };
+  var plans = {};
+  defs.forEach(function(r) {
+    if (form === "genesis" && r.slots) {
+      var plan = dirSlotPlan(list, r);
+      plans[r.key] = plan;
+      for (var s = 0; s < r.slots; s++) {
+        var fill = A(plan.fills[s]), filled = !!fill;
+        var text = !filled ? r.text : r.pre + " " + fill + (r.post ? " " + r.post : "");
+        rowAt[r.key + ":" + s] = rows.length;
+        rows.push({ key: r.key, slot: s, text: text, parts: { pre: filled || r.post ? r.pre : r.text, fill: fill, post: r.post }, filled: filled, details: [], detailText: "", cells: emptyCells(), minutes: 0 });
+      }
+      if (plan.combined) dirModelFlag(flags, "warn", "combined", r.flagName + ": " + plan.distinct + " different details for " + r.slots + " lines - the last line combines " + plan.combined + " of them.");
+    } else {
+      rowAt[r.key] = rows.length;
+      rows.push({ key: r.key, slot: -1, text: r.text, filled: true, details: [], detailText: "", cells: emptyCells(), minutes: 0 });
+    }
+  });
+  var weekMinutes = [0, 0, 0, 0, 0], total = 0, nUnplaced = 0, nNoDetail = 0, nBad = 0, nFuture = 0, dKeys = {};
+  list.forEach(function(e) {
+    var r = dirRowByKey(form, e.category);
+    if (!r) { nUnplaced++; return; }
+    if (!dirMinutesOk(e.minutes)) { nBad++; return; }
+    var dk = dirDetailKey(e.detail);
+    if (r.detail && !dk) { nNoDetail++; return; }
+    if (isYMD(today) && e.date > today) nFuture++;
+    var row = rows[form === "genesis" && r.slots ? rowAt[r.key + ":" + plans[r.key].slotOf[dk]] : rowAt[r.key]];
+    var c = row.cells[dirWeekOf(e.date) - 1];
+    if (c.dates.indexOf(e.date) === -1) c.dates.push(e.date);
+    c.minutes += e.minutes; row.minutes += e.minutes;
+    weekMinutes[dirWeekOf(e.date) - 1] += e.minutes; total += e.minutes;
+    if (form === "select" && r.detail) {
+      dKeys[r.key] = dKeys[r.key] || {};
+      if (!dKeys[r.key][dk]) { dKeys[r.key][dk] = true; row.details.push(A(dirDetailText(e.detail))); }
+    }
+  });
+  var inexact = !dirHoursExact(total);
+  rows.forEach(function(row) {
+    row.detailText = row.details.join("; ");
+    row.cells.forEach(function(c) { c.datesText = dirDatesText(c.dates); c.dur = c.minutes ? fmt(c.minutes) : ""; if (c.minutes && !dirHoursExact(c.minutes)) inexact = true; });
+  });
+  var weekText = weekMinutes.map(function(m, i) { if (m && !dirHoursExact(m)) inexact = true; return weeks[i].label ? fmt(m) : ""; });
+  var cap = dirCapMinutes(dir), rate = dirRateOk(dir) ? dir.rate : 0, amount = dirAmount(total, dir), mName = p ? DIR_MONTH_NAMES[p.m - 1] : "";
+  var model = { ok: true, form: form, dirId: dirId, ym: ym, monthLabel: dirMonthLabel(ym), monthUpper: mName.toUpperCase(), year: p ? String(p.y) : "",
+    fileName: dirFileName(dir, ym), hash: dirEntriesHash(dirEntriesOf(data), dirId, ym), generatedYMD: today, generatedText: dirMDY(today),
+    weeks: weeks, rows: rows, weekMinutes: weekMinutes, weekText: weekText, totalMinutes: total,
+    totalHM: dirFmtHM(total), totalDec: dirFmtHours(total), totalText: fmt(total),
+    capMinutes: cap, overCap: cap !== null && total > cap, rate: rate, amount: amount, entryCount: list.length, flags: flags };
+  var str = function(v) { return typeof v === "string" ? A(v.trim()) : typeof v === "number" ? String(v) : ""; };
+  if (form === "genesis") {
+    model.header = { printName: str(dir && dir.printName), emplNo: str(dir && dir.emplNo), monthYear: model.monthLabel };
+    model.footer = { costCtr: str(dir && dir.costCtr), payCode: DIR_PAY_CODE, totalHrs: model.totalHM, rate: dirMoney(rate), due: dirMoney(amount) };
+  } else {
+    var h = dir && dirPlainObj(dir.selectHeader) ? dir.selectHeader : {}, ra = Array.isArray(h.remitAddress) ? h.remitAddress : [];
+    model.header = { programType: str(h.programType), hospital: str(h.hospital), physicianName: str(h.physicianName), contractingParty: str(h.contractingParty),
+      remit: [str(ra[0]), str(ra[1])], totalDue: dirMoney(amount), totalHours: model.totalDec, glNo: str(h.glNo), hospitalNo: str(h.hospitalNo),
+      periodMonth: model.monthUpper, periodYear: model.year };
+  }
+  model.sig = { printName: str(dir && dir.printName), date: model.generatedText };
+  // Flags: block = no PDF; warn = amber, still allowed; note = grey.
+  var plural = function(n, one, many) { return n === 1 ? one : many; };
+  if (!dir) dirModelFlag(flags, "block", "noDir", "This directorship no longer exists.");
+  if (!p) dirModelFlag(flags, "block", "month", "Pick a month.");
+  if (list.length === 0) dirModelFlag(flags, "warn", "empty", "No time logged for " + model.monthLabel + " - this form reports zero hours.");
+  if (nUnplaced) dirModelFlag(flags, "block", "unplaced", nUnplaced + " " + plural(nUnplaced, "entry uses", "entries use") + " a category the " + (form === "select" ? "Select" : "Genesis") + " form does not have - edit " + plural(nUnplaced, "it", "them") + " first.");
+  if (nNoDetail) dirModelFlag(flags, "block", "noDetail", nNoDetail + " " + plural(nNoDetail, "entry needs", "entries need") + " a detail - edit " + plural(nNoDetail, "it", "them") + " first.");
+  if (nBad) dirModelFlag(flags, "block", "badMinutes", nBad + " " + plural(nBad, "entry has", "entries have") + " an invalid duration - edit " + plural(nBad, "it", "them") + " first.");
+  if (nFuture) dirModelFlag(flags, "block", "future", nFuture + " " + plural(nFuture, "entry is", "entries are") + " dated after today - forms can only cover work already done.");
+  var fnp = dirFileNameProblem(data, dir);
+  if (dir && fnp) dirModelFlag(flags, "block", "fileName", fnp);
+  if (dir && !dirRateOk(dir)) dirModelFlag(flags, "block", "rate", "Set an hourly rate in Settings > Directorships.");
+  if (dir && cap === null) dirModelFlag(flags, "block", "cap", "Set a monthly hour cap in Settings > Directorships.");
+  if (model.overCap) {
+    if (form === "genesis") dirModelFlag(flags, "warn", "overCap", "Over the " + dirFmtHM(cap) + " monthly cap: the form prints all " + dirFmtHM(total) + "; Due counts " + dirFmtHM(cap) + ".");
+    else dirModelFlag(flags, "warn", "overCap", "Over the " + dirFmtHours(cap) + " h monthly cap: the form prints all " + dirFmtHours(total) + " hours; the amount counts " + dirFmtHours(cap) + ".");
+  }
+  if (isYMD(today) && today.slice(0, 7) === ym && p) dirModelFlag(flags, "warn", "monthOpen", mName + " isn't over (it ends " + p.m + "/" + dirMonthDays(p.y, p.m) + ").");
+  var rec = dirHandoffOf(data)[dirId + ":" + ym];
+  if (dirPlainObj(rec)) dirModelFlag(flags, "warn", "regenerate", "Handed off " + dirMD(rec.date) + ". This form uses today's rate and cap.");
+  if (form === "select" && (!dir || !dirPlainObj(dir.selectHeader) || !model.header.hospital || !model.header.programType || !model.header.physicianName)) dirModelFlag(flags, "warn", "noHeader", "The Select header details are empty - add them in Settings > Directorships.");
+  if (chars) dirModelFlag(flags, "warn", "chars", chars + " " + plural(chars, "character", "characters") + " could not print and " + plural(chars, "shows", "show") + " as ?.");
+  if (form === "select" && inexact) dirModelFlag(flags, "note", "rounded", "Hours print rounded to 2 places, so printed hours x rate may not equal the amount due.");
+  if (form === "genesis" && (!model.header.emplNo || !model.footer.costCtr)) dirModelFlag(flags, "note", "blanks", (!model.header.emplNo && !model.footer.costCtr ? "Empl # and Cost Ctr. print" : !model.header.emplNo ? "Empl # prints" : "Cost Ctr. prints") + " blank.");
+  model.ok = !flags.some(function(f) { return f.level === "block"; });
+  return model;
+}
+
+// --- Writers: every write of the four fields goes through one of these; ---
+// --- each output passes repairData unchanged (check.js contract tests). ---
+function dirNew(form, printName) {
+  var d = { id: dirNewId(), name: "New directorship", shortName: "", org: "", form: form === "select" ? "select" : "genesis", printName: typeof printName === "string" ? printName : "", emplNo: "", costCtr: "", rate: 0, maxHours: 0 };
+  if (d.form === "select") d.selectHeader = { hospital: "", programType: "", physicianName: "", contractingParty: "", remitAddress: ["", ""], glNo: "", hospitalNo: "" };
+  return d;
+}
+function dirFormInUse(entries, id) { return (Array.isArray(entries) ? entries : []).filter(function(e) { return !!e && e.dirId === id; }).length; }
+var DIR_EDIT_TEXT = ["name", "shortName", "org", "printName", "emplNo", "costCtr"];
+var DIR_EDIT_SELECT = ["hospital", "programType", "physicianName", "contractingParty", "glNo", "hospitalNo"];
+// The Settings editor's ONE Save path. draft holds raw strings as typed;
+// returns { dir, errors: [{ field, text }] } (dir null when refused).
+function dirFromEditorDraft(dirs, orig, draft) {
+  var errors = [], src = orig && typeof orig === "object" ? orig : null;
+  var t = function(k) { return dirAsciiPunct(draft && typeof draft[k] === "string" ? draft[k] : "").trim(); };
+  var form = draft && draft.form === "select" ? "select" : draft && draft.form === "genesis" ? "genesis" : (src ? src.form : "");
+  if (form !== "genesis" && form !== "select") errors.push({ field: "form", text: "Pick the form type." });
+  var name = t("name"), printName = t("printName");
+  if (!name) errors.push({ field: "name", text: "Give it a name." });
+  else if (DIR_FILE_BAD.test(name) || /[^\x20-\x7e]/.test(name)) errors.push({ field: "name", text: "The name goes into the file name: use plain letters and no \\ / : * ? \" < > |." });
+  else if ((Array.isArray(dirs) ? dirs : []).some(function(o) { return o && (!src || o.id !== src.id) && dirNameKey(o.name) === dirNameKey(name); })) errors.push({ field: "name", text: "Another directorship already has this name - the files would collide." });
+  if (!dirSurname(printName)) errors.push({ field: "printName", text: "Add a Print Name with a surname (e.g. \"Faraz Khan, MD\")." });
+  else if (DIR_FILE_BAD.test(printName) || /[^\x20-\x7e]/.test(printName)) errors.push({ field: "printName", text: "The Print Name's surname goes into the file name: use plain letters and no \\ / : * ? \" < > |." });
+  var rate = dirNumFromText(draft ? draft.rate : ""), maxHours = dirNumFromText(draft ? draft.maxHours : "");
+  if (rate === null) errors.push({ field: "rate", text: "Type the hourly rate (a number above 0)." });
+  if (maxHours === null) errors.push({ field: "maxHours", text: "Type the monthly hour cap (a number above 0)." });
+  else if (Math.round(maxHours * 60) < 1 || Math.abs(maxHours * 60 - Math.round(maxHours * 60)) > 1e-6) errors.push({ field: "maxHours", text: "Use a cap that is a whole number of minutes (e.g. 4.25 or 4.5)." });
+  if (errors.length) return { dir: null, errors: errors };
+  var d = src ? { ...src } : dirNew(form, "");
+  DIR_EDIT_TEXT.forEach(function(k) { if (k === "emplNo" || k === "costCtr") { if (form === "genesis" || d[k] !== undefined) d[k] = t(k); } else d[k] = t(k); });
+  d.form = form; d.rate = rate; d.maxHours = maxHours;
+  if (form === "select" || dirPlainObj(d.selectHeader)) {
+    var h = dirPlainObj(d.selectHeader) ? { ...d.selectHeader } : { hospital: "", programType: "", physicianName: "", contractingParty: "", remitAddress: ["", ""], glNo: "", hospitalNo: "" };
+    if (form === "select") {
+      DIR_EDIT_SELECT.forEach(function(k) { h[k] = t(k); });
+      h.remitAddress = [t("remit1"), t("remit2")];
+    }
+    d.selectHeader = h;
+  }
+  return { dir: d, errors: [] };
+}
+// Log save, edit and the Repeat confirm all build entries here.
+// draft: { date, minutes (number), category, detail } -> { entry, problems }.
+function dirEntryFromDraft(draft, dir, id) {
+  var problems = [];
+  if (!dir || typeof dir.id !== "string") problems.push("Pick a directorship.");
+  var date = draft && typeof draft.date === "string" ? draft.date : "";
+  if (!isYMD(date)) problems.push("Pick a date.");
+  var minutes = draft ? draft.minutes : null;
+  if (!dirMinutesOk(minutes)) problems.push("Pick a time (0:01 to 24:00).");
+  var cat = draft && typeof draft.category === "string" ? draft.category : "";
+  var row = dir ? dirRowByKey(dir.form, cat) : null;
+  if (dir && !row) problems.push("Pick an activity.");
+  var detail = row && row.detail ? dirDetailText(dirAsciiPunct(draft && typeof draft.detail === "string" ? draft.detail : "")) : "";
+  if (row && row.detail && !detail) problems.push("Add the " + (cat === "g_meeting" ? "meeting" : "activity") + " detail (" + DIR_DETAIL_HINT + ").");
+  if (detail.length > DIR_DETAIL_MAX) problems.push("Keep the detail to " + DIR_DETAIL_MAX + " characters.");
+  if (problems.length) return { entry: null, problems: problems };
+  return { entry: { id: typeof id === "string" && id ? id : dirEntryId(0), dirId: dir.id, date: date, minutes: minutes, category: cat, detail: detail }, problems: [] };
+}
+function dirHandoffMark(h, dirId, ym, date, hash) { var o = { ...(dirPlainObj(h) ? h : {}) }; o[dirId + ":" + ym] = { date: date, entriesHash: hash }; return o; }
+function dirHandoffClear(h, dirId, ym) { var o = { ...(dirPlainObj(h) ? h : {}) }; delete o[dirId + ":" + ym]; return o; }
+function dirRestoreBuiltIns(prev) { return dirList(prev).length > 0 ? prev : { ...prev, directorships: defaultDirectorships() }; }
+function dirMissingBuiltIns(data) {
+  var l = dirList(data);
+  if (l.length === 0) return [];
+  return defaultDirectorships().filter(function(p) { return !l.some(function(x) { return x && x.id === p.id; }); });
+}
+function dirNameTaken(data, name) { var k = dirNameKey(name); return dirList(data).some(function(x) { return !!x && dirNameKey(x.name) === k; }); }
+// Never makes a twin: refused while another directorship has the name.
+function dirRestoreBuiltIn(prev, id) {
+  var miss = dirMissingBuiltIns(prev).filter(function(p) { return p.id === id; })[0];
+  return miss && !dirNameTaken(prev, miss.name) ? { ...prev, directorships: dirList(prev).concat([miss]) } : prev;
+}
+// Entries / hand-off records whose directorship was removed (kept hidden so
+// a restored built-in gets its hours back).
+function dirOrphanCount(data) {
+  var ids = {};
+  dirList(data).forEach(function(x) { if (x && typeof x.id === "string") ids[x.id] = true; });
+  return dirEntriesOf(data).filter(function(e) { return !!e && !ids[e.dirId]; }).length;
+}
+function dirDropOrphans(prev) {
+  var ids = {};
+  dirList(prev).forEach(function(x) { if (x && typeof x.id === "string") ids[x.id] = true; });
+  var h = {}, hh = dirHandoffOf(prev);
+  Object.keys(hh).forEach(function(k) { if (ids[k.slice(0, k.lastIndexOf(":"))]) h[k] = hh[k]; });
+  var next = { ...prev, dirEntries: dirEntriesOf(prev).filter(function(e) { return !!e && ids[e.dirId]; }) };
+  if (prev.dirHandoff !== undefined) next.dirHandoff = h;
+  return next;
+}
+// Remove only the directorship; its entries and hand-offs stay (hidden).
+function dirRemove(prev, dirId) {
+  var l = dirList(prev), at = -1;
+  l.forEach(function(x, i) { if (x && x.id === dirId) at = i; });
+  if (at < 0) return { next: prev, removed: null, at: -1 };
+  return { next: { ...prev, directorships: l.filter(function(x, i) { return i !== at; }) }, removed: l[at], at: at };
+}
+function dirRemoveUndo(prev, a) {
+  if (!a || !a.removed || dirById(prev, a.removed.id)) return prev;
+  var l = dirList(prev).slice(), at = typeof a.at === "number" && a.at >= 0 && a.at <= l.length ? a.at : l.length;
+  l.splice(at, 0, a.removed);
+  return { ...prev, directorships: l };
+}
+
+// --- Logging helpers ---
+function dirRecentCategories(entries, dirId) {
+  var out = [], l = Array.isArray(entries) ? entries : [];
+  for (var i = l.length - 1; i >= 0 && out.length < 4; i--) { var e = l[i]; if (e && e.dirId === dirId && typeof e.category === "string" && out.indexOf(e.category) === -1) out.push(e.category); }
+  return out;
+}
+function dirRecentDetails(entries, dirId, category) {
+  var out = [], seen = {}, l = Array.isArray(entries) ? entries : [];
+  for (var i = l.length - 1; i >= 0 && out.length < 6; i--) {
+    var e = l[i];
+    if (!e || e.dirId !== dirId || e.category !== category) continue;
+    var k = dirDetailKey(e.detail);
+    if (k && !seen[k]) { seen[k] = true; out.push(dirDetailText(e.detail)); }
+  }
+  return out;
+}
+// "Repeat last month": a DRAFT of the previous month's entries, moved to the
+// same day of the month (clamped to its length). Never saved by itself.
+function dirRepeatDraft(entries, dirId, ym, today) {
+  var tp = dirYMParts(ym);
+  if (!tp) return [];
+  var n = dirMonthDays(tp.y, tp.m), have = {};
+  dirMonthEntries(entries, dirId, ym).forEach(function(e) { have[[e.date, e.category, e.minutes, dirDetailKey(e.detail)].join("|")] = true; });
+  return dirMonthEntries(entries, dirId, dirAddMonths(ym, -1)).map(function(e) {
+    var d = +e.date.slice(8, 10), d2 = Math.min(d, n), date = ym + "-" + dirPad2(d2);
+    var dup = !!have[[date, e.category, e.minutes, dirDetailKey(e.detail)].join("|")], future = isYMD(today) && date > today;
+    return { dirId: dirId, date: date, minutes: e.minutes, category: e.category, detail: typeof e.detail === "string" ? e.detail : "", from: e.date, clamped: d2 !== d, dup: dup, future: future, on: !dup && !future };
+  });
+}
+// Pay for months whose 1st lies in [from, to) (a month counts whole in the
+// period that holds its 1st), PLACED entries only, each directorship-month
+// capped, summed in whole cents. upTo: count only entries dated <= upTo.
+function dirTotalInRange(data, from, to, upTo) {
+  var groups = {}, n = 0, cents = 0, months = 0;
+  dirEntriesOf(data).forEach(function(e) {
+    if (!e || typeof e.date !== "string" || !dirYMDParts(e.date)) return;
+    var first = e.date.slice(0, 7) + "-01";
+    if (first < from || first >= to || (upTo && e.date > upTo)) return;
+    var dir = dirById(data, e.dirId);
+    if (!dir || !dirRowByKey(dir.form, e.category) || !dirMinutesOk(e.minutes) || !dirRateOk(dir) || dirCapMinutes(dir) === null) return;
+    var k = e.dirId + ":" + e.date.slice(0, 7);
+    groups[k] = (groups[k] || 0) + e.minutes; n++;
+  });
+  Object.keys(groups).forEach(function(k) { months++; cents += Math.round(dirAmount(groups[k], dirById(data, k.slice(0, k.lastIndexOf(":")))) * 100); });
+  return { total: cents / 100, entries: n, months: months };
+}
+// Restore confirm: what a backup would take away (computed before repair).
+function dirRestoreNote(restored, data) {
+  var parts = [], bN = restored && Array.isArray(restored.dirEntries) ? restored.dirEntries.length : 0, pN = dirEntriesOf(data).length;
+  if (bN === 0 && pN > 0) parts.push("this backup has no directorship hours - the " + pN + " time " + (pN === 1 ? "entry" : "entries") + " on this phone will be removed");
+  if (dirWillSeed(restored) && JSON.stringify(dirList(data)) !== JSON.stringify(DIRECTORSHIP_PRESET)) parts.push("this backup predates directorships - the built-in directorships will replace the ones on this phone");
+  if (dirHasSignature(data) && !(restored && dirPlainObj(restored.dirSignatureEnc))) parts.push("your saved signature will be removed (draw it again after restoring)");
+  return parts.length ? " WARNING: " + parts.join("; ") + "." : "";
+}
+
+// --- Signature ---
+// The signature PNG is stored ENCRYPTED with the session PIN (RVU_CRYPTO,
+// the API key's mechanism). What that does: it keeps the signature from
+// being readable as plain data - someone browsing the app's storage, or any
+// future plaintext export (the JSON export also strips it). What it does
+// NOT do: stop code running on fkhan628.github.io, which can read the
+// unsalted PIN hash and guess a 4-6 digit PIN almost instantly. The real fix
+// is moving the app to its own web address - a separate decision.
+// Decrypted only at render time; the plaintext lives only in the asking
+// component's state, bound to the PIN that decrypted it.
+var DIR_SIG_MAX = 200000;
+function dirSigPngOk(s) { return typeof s === "string" && s.length <= DIR_SIG_MAX && /^data:image\/png;base64,[A-Za-z0-9+\/]+=*$/.test(s); }
+// Export size: the ink box contain-fit into 600 x 200 (device independent).
+function dirSigExportSize(w, h) {
+  if (!(w > 0) || !(h > 0)) return { w: 0, h: 0 };
+  var k = Math.min(1, 600 / w, 200 / h);
+  return { w: Math.max(1, Math.round(w * k)), h: Math.max(1, Math.round(h * k)) };
+}
+function dirCrypto() { return typeof window !== "undefined" && window.RVU_CRYPTO ? window.RVU_CRYPTO : null; }
+function dirPinNow() { var c = dirCrypto(); try { return c && c.getPin ? c.getPin() : null; } catch (e) { return null; } }
+function dirSigPrecheck(enc, pin) { return !dirPlainObj(enc) ? "none" : !pin ? "locked" : "decrypt"; }
+function dirSigFromPlain(pt) { return dirSigPngOk(pt) ? { state: "ok", url: pt } : { state: "unreadable" }; }
+function dirSigStillValid(pinAt) { return !!pinAt && dirPinNow() === pinAt; }
+// -> Promise<{ state: "none"|"locked"|"ok"|"unreadable", url, pin }>; never rejects.
+function dirSignatureLoad(data) {
+  var enc = data && dirPlainObj(data.dirSignatureEnc) ? data.dirSignatureEnc : null, pin = dirPinNow(), c = dirCrypto();
+  var pre = dirSigPrecheck(enc, pin);
+  if (pre !== "decrypt") return Promise.resolve({ state: pre, url: "", pin: "" });
+  if (!c || !c.decrypt) return Promise.resolve({ state: "locked", url: "", pin: "" });
+  return Promise.resolve().then(function() { return c.decrypt(pin, enc); }).then(function(pt) {
+    var r = dirSigFromPlain(pt);
+    return { state: r.state, url: r.url || "", pin: r.state === "ok" ? pin : "" };
+  }).catch(function() { return { state: "unreadable", url: "", pin: "" }; });
+}
+// -> Promise<"saved"|"locked"|"bad"|"error">; never rejects.
+function dirSignatureSave(dataUrl, upd) {
+  if (!dirSigPngOk(dataUrl)) return Promise.resolve("bad");
+  var pin = dirPinNow(), c = dirCrypto();
+  if (!pin || !c || !c.encrypt) return Promise.resolve("locked");
+  return Promise.resolve().then(function() { return c.encrypt(pin, dataUrl); }).then(function(enc) {
+    if (!enc || typeof enc.ct !== "string" || typeof enc.salt !== "string" || typeof enc.iv !== "string") return "error";
+    upd(function(prev) { return { ...prev, dirSignatureEnc: { ct: enc.ct, salt: enc.salt, iv: enc.iv } }; });
+    return "saved";
+  }).catch(function() { return "error"; });
+}
+function dirSignatureRemove(upd) { upd(function(prev) { return { ...prev, dirSignatureEnc: null }; }); }
+
+// --- Home reminder dismissal: ONE per-device key, outside the store ---
+var DIR_REMIND_KEY = "rvu-dir-reminder";
+function readDirReminder() { var v = ""; try { v = localStorage.getItem(DIR_REMIND_KEY) || ""; } catch (e) { v = ""; } return dirYMParts(v) ? v : ""; }
+function dismissDirReminder(ym) { try { localStorage.setItem(DIR_REMIND_KEY, ym); } catch (e) {} return ym; }
+
+// --- File hand-off helpers (the Share Backup patterns, settings.js) ---
+function canShareFile(f) { try { return !!(f && navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch (e) { return false; } }
+function finePointer() { try { return !!(window.matchMedia && window.matchMedia("(pointer: fine)").matches); } catch (e) { return false; } }
+function downloadBlob(blob, name) {
+  var u = URL.createObjectURL(blob), a = document.createElement("a");
+  a.href = u; a.download = name; a.style.display = "none";
+  document.body.appendChild(a); a.click(); document.body.removeChild(a);
+  setTimeout(function() { try { URL.revokeObjectURL(u); } catch (e) {} }, 60000);   // not in the same tick
+}
+
 // Years that have ANY data (logged entries, institution months, acute
 // months, call-pay shifts via payShiftYears), newest first. Shared by the
 // Dashboard and Trends year chips so the two surfaces can never drift (a
@@ -2049,6 +2813,55 @@ function loadXLSX() {
     document.head.appendChild(s);
   });
   return _xlsxLoad;
+}
+
+// --- Lazy jsPDF loader (Directorships time sheets) ---
+// Provenance (2026-10-18): jspdf@4.2.1/dist/jspdf.umd.min.js, 420165 bytes,
+// byte-identical on unpkg, jsdelivr and the npm tarball (registry
+// dist.integrity sha512-YyAXyvnmjTbR4bHQRLzex3CuINCDlQnBqoSYyjJwTP2x9jDLuKDzy7aKUl0hgx3uhcl7xzg32agn5vlie6HIlQ==),
+// sha256 5lUfzcMvCdaFOyxRJtGNAdlEfg2mGKQaEevu4PbCDVQ= (equals jsDelivr's
+// index). A version bump changes PDF_PATH and PDF_SRI together (check.js
+// pins both). Loaded only from Review & Send, never at boot. Tried on unpkg,
+// then the same path and hash on jsdelivr (the index.html CDN pattern), 15 s
+// per host because a blackholed CDN never fires onerror. One in-flight
+// promise, reset on failure so the next tap retries.
+var PDF_PATH = "jspdf@4.2.1/dist/jspdf.umd.min.js";
+var PDF_SRI = "sha384-qovJwSBbRDPP5cEjCp8S0UP66wrvnjaa60XMOGzTNanrThcrGfXfnZkvgY8N1KT3";
+var PDF_HOSTS = ["https://unpkg.com/", "https://cdn.jsdelivr.net/npm/"];
+var PDF_HOST_MS = 15000;
+var _pdfLoad = null;
+function pdfReady() { return typeof window !== "undefined" && !!(window.jspdf && typeof window.jspdf.jsPDF === "function"); }
+function loadPDF() {
+  if (pdfReady()) return Promise.resolve(window.jspdf.jsPDF);
+  if (_pdfLoad) return _pdfLoad;
+  _pdfLoad = new Promise(function(resolve, reject) {
+    var tryHost = function(i) {
+      var done = false, s = document.createElement("script"), t = null;
+      var next = function() {
+        if (done) return;
+        done = true; clearTimeout(t);
+        if (s.parentNode) s.parentNode.removeChild(s);
+        if (pdfReady()) { resolve(window.jspdf.jsPDF); return; }   // a timed-out host's script ran after all
+        if (i + 1 < PDF_HOSTS.length) { tryHost(i + 1); return; }
+        _pdfLoad = null;
+        reject(new Error("Could not load the PDF library - check your connection and try again."));
+      };
+      s.src = PDF_HOSTS[i] + PDF_PATH; s.integrity = PDF_SRI; s.crossOrigin = "anonymous";
+      s.onload = function() {
+        // Removing a timed-out tag does not cancel its script: a late load
+        // that defines jsPDF still counts (a no-op once the promise settled).
+        if (done) { if (pdfReady()) resolve(window.jspdf.jsPDF); return; }
+        done = true; clearTimeout(t);
+        if (pdfReady()) { resolve(window.jspdf.jsPDF); return; }
+        _pdfLoad = null; reject(new Error("The PDF library loaded but did not initialize - try again."));
+      };
+      s.onerror = next;                       // network failure OR an SRI mismatch
+      t = setTimeout(next, PDF_HOST_MS);
+      document.head.appendChild(s);
+    };
+    tryHost(0);
+  });
+  return _pdfLoad;
 }
 
 // --- CSV field escaping (RFC 4180) ---
@@ -2252,6 +3065,10 @@ function validateData(d) {
   if (d.templates !== undefined && !Array.isArray(d.templates)) return false;
   if (d.paySites !== undefined && !Array.isArray(d.paySites)) return false;
   if (d.payShifts !== undefined && !Array.isArray(d.payShifts)) return false;
+  if (d.directorships !== undefined && !Array.isArray(d.directorships)) return false;
+  if (d.dirEntries !== undefined && !Array.isArray(d.dirEntries)) return false;
+  if (d.dirHandoff !== undefined && (typeof d.dirHandoff !== "object" || d.dirHandoff === null || Array.isArray(d.dirHandoff))) return false;
+  if (d.dirSignatureEnc !== undefined && d.dirSignatureEnc !== null && (typeof d.dirSignatureEnc !== "object" || Array.isArray(d.dirSignatureEnc))) return false;
   return true;
 }
 

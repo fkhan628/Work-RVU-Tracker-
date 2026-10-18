@@ -1,7 +1,7 @@
 // =======================================
 // DASHBOARD
 // =======================================
-function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay, openHistory, openBackup }) {
+function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCallPay, openHistory, openBackup, openDirectorships }) {
   const { entries, settings } = data;
   const instData = data.institutionData || [];
   const now = new Date();
@@ -18,6 +18,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Backup nudge: per-device stamp outside the store (utils.js). Home remounts
   // on every view switch, so a backup saved in More is picked up on return.
   var [backupStamp, setBackupStamp] = useState(readBackupStamp);
+  // Directorships month-end reminder: dismissed per month, per device, in a
+  // key OUTSIDE the store (utils.js readDirReminder / dismissDirReminder).
+  var [dirHide, setDirHide] = useState(readDirReminder);
 
   // Calculate year boundaries based on selection. LOCAL midnights
   // (localDateYMD): new Date("YYYY-MM-DD") is UTC midnight - the evening
@@ -136,6 +139,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var cpFrom = selectedYear === "current" ? (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01") : selectedYear + "-01-01";
   var cpTo = (+cpFrom.slice(0, 4) + 1) + cpFrom.slice(4);
   var callPay = payTotalInRange(data.payShifts || [], cpFrom, cpTo, isCurrent ? todayLocal() : null);
+  // Directorship pay: the same window, its own line - never added to Comp.
+  var dirPay = dirTotalInRange(data, cpFrom, cpTo, isCurrent ? todayLocal() : null);
+  var dirLine = dirReminderLine(data, todayLocal(), dirHide);
 
   var myAcuteYTD = 0;
   var myAcuteCount = 0;
@@ -201,7 +207,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var goalComp = settings.annualGoal * settings.ratePerRVU;
   var projectedComp = projected * settings.ratePerRVU;
   var prevYearComp = prevYearRVU.instTotal * settings.ratePerRVU;
-  var backupDue = backupNudgeDue(backupStamp, todayLocal(), entries.length + (data.payShifts || []).length);
+  var backupDue = backupNudgeDue(backupStamp, todayLocal(), entries.length + (data.payShifts || []).length + dirEntriesOf(data).length);
 
   return (<div style={S.page}>
     <div style={S.header}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}><div><h1 style={S.title}>RVU Tracker</h1><p style={S.subtitle}>{now.toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric", year: "numeric" })}</p></div>
@@ -265,13 +271,17 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>
     </div>
     {/* Quiet derived lines - no goals, no cards */}
-    {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
+    {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0 || (dirList(data).length > 0 && dirPay.entries > 0)) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
       {yeNC.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncRange); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
         <span>{"Logged, no credit (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncEnc + " encounter" + (ncEnc === 1 ? "" : "s")}</span>
         <span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
       {callPay.shifts > 0 &&<div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
         <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
+        <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+      </div>}
+      {dirList(data).length > 0 && dirPay.entries > 0 && <div onClick={function() { if (openDirectorships) openDirectorships("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
+        <span>{"Directorships (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{dirMoneyShown(dirPay.total, showComp)}</span></span>
         <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
       {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
@@ -293,6 +303,15 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
         <span style={{ marginLeft: 6, fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>
       <button onClick={function() { setBackupStamp(snoozeBackupNudge(todayLocal())); }} aria-label="Remind me in a week" style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 13, cursor: "pointer", minWidth: 32, minHeight: 32, padding: 0 }}>{"\u2715"}</button>
+    </div>}
+    {/* Directorships: from the 25th of a month through the 5th of the next,
+        until every form for that month is handed off; x hides that month. */}
+    {dirLine && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12, display: "flex", alignItems: "center", gap: 4 }}>
+      <div onClick={function() { if (openDirectorships) openDirectorships("dashboard", dirLine.ym); }} style={{ flex: 1, fontSize: 11, color: dirLine.late ? "var(--global-90)" : "var(--text-muted)", cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
+        <span>{dirLine.text}</span>
+        <span style={{ marginLeft: 6, fontSize: 13, lineHeight: 1 }}>{"\u203a"}</span>
+      </div>
+      <button onClick={function() { setDirHide(dismissDirReminder(dirLine.ym)); }} aria-label={"Hide for " + dirMonthLabel(dirLine.ym).split(" ")[0]} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 13, cursor: "pointer", minWidth: 32, minHeight: 32, padding: 0 }}>{"\u2715"}</button>
     </div>}
 
     <div style={S.statsRow}>

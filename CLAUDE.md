@@ -6,7 +6,7 @@ static files served from GitHub Pages. This file is the constraint map for
 AI-assisted sessions — keep it current in the SAME commit as any change it
 describes.
 
-## Architecture / load order (14 files)
+## Architecture / load order (15 files)
 
 index.html head defines `var ASSET_V = "<n>"` — the hand-bumped cache
 version stamped as `?v=` on every local script URL (and the cpt-data
@@ -24,10 +24,15 @@ Script execution order:
    ALL FOUR ARE JSX-FREE AND MUST STAY THAT WAY: adding JSX to any of them
    is a parse error at runtime (they never pass through Babel).
 3. **Babel scripts** (`var js = ['dashboard','log','analytics','history',
-   'compare','acute','callpay','settings','app']`) — `type="text/babel"`, transformed
-   and executed at DOMContentLoaded, after every plain script.
-4. SheetJS is NOT loaded at boot. `loadXLSX()` in utils.js lazy-injects it
-   (same pinned version + SRI) on first Excel use with an in-flight guard.
+   'compare','acute','callpay','settings','directorships','app']`) —
+   `type="text/babel"`, transformed and executed at DOMContentLoaded, after
+   every plain script.
+4. SheetJS and jsPDF are NOT loaded at boot: `loadXLSX()` and `loadPDF()`
+   in utils.js lazy-inject them (pinned version + SRI, in-flight guard,
+   reset on failure). loadPDF tries unpkg, then the same path and hash on
+   jsdelivr, 15 s per host (a blackholed CDN never fires onerror); its
+   provenance comment records the cross-mirror hash check - bump PDF_PATH
+   and PDF_SRI together (check.js G11).
 
 Startup: an inline watchdog in index.html sits AFTER #app-loader and
 BEFORE the CDN tags (so it still runs while one hangs). At 15 s it shows
@@ -68,6 +73,14 @@ the per-file gates below. Run it after EVERY file change.
   DEFAULT_PAY_SITES in utils.js (two sites + their rates, public) and the
   check.js test of the owner's worked examples against it. Any other
   site or rate stays runtime user data.
+- A second exception, chosen by the owner on 2026-10-15, is limited to
+  the built-in DIRECTORSHIP_PRESET in utils.js and check.js's copy and
+  worked-example tests of it. It allows exactly: the owner's own name,
+  the organization names, the clinic remit address, the GL number, and
+  the hourly rates and monthly hour caps. Everything else stays forbidden
+  as before: no colleagues' names, no email addresses, no partner names,
+  no PHI. No tracked file may contain an email address at all (check.js
+  G6; its self-test builds its sample at runtime).
 
 ## Hard constraints (enforced by check.js where possible)
 
@@ -239,11 +252,16 @@ the per-file gates below. Run it after EVERY file change.
   and reaches each view that masks $ along with toggleComp. Masked $ goes
   through utils.js fmtDollar(v, showComp) (always passed showComp), a
   showComp ternary (Dashboard vs-goal and $/wRVU lines, Compare's rate
-  line) or Call Pay's paid()/MASK, and each such view renders CompEye
-  (app.js, hook-free, the one component shared across Babel files) near
-  its $. Log and History still print $ unmasked (owner decision pending).
-  Exports, CSV, Excel and the Copy Summary text stay unmasked. check.js 5f
-  pins the fmtDollar argument, CompEye on every masking view, ONE CompEye
+  line), Call Pay's paid()/MASK or utils.js dirMoneyShown(v, showComp)
+  (Directorships and Home's Directorships line; cents, no locale), and
+  each such view renders CompEye (app.js, hook-free) near its $ -
+  Directorships' Review reuses its view's one eye. CompEye is shared
+  across Babel files; Settings also renders DirectorshipsCard from
+  directorships.js (typeof-guarded, in its own ErrorBoundary). Log and
+  History print $ unmasked (owner decision). Exports, CSV, Excel, the Copy
+  Summary text and the directorship PDF stay unmasked (the PDF ALWAYS
+  prints the real Rate and Due). check.js 5f pins the fmtDollar /
+  dirMoneyShown argument, CompEye on every masking view, ONE CompEye
   declaration and the App props.
 - Log's one Save control is the 64px save bar (log.js; check.js counts
   onClick={save}), pinned once the active procedure has a code. While
@@ -270,7 +288,66 @@ the per-file gates below. Run it after EVERY file change.
   snoozeBackupNudge/backupNudgeDue touch it. Never name it
   rvu-backup/rvu-backup-time (deleted on every load). navigator.share runs
   directly from its own tap (iOS gesture rule; one sheet at a time), never
-  after the async encrypt. check.js pins all of this.
+  after the async encrypt - in settings.js and in directorships.js alike.
+  check.js pins all of this.
+- Directorships (directorships.js holds only state and rendering; every
+  rule is in utils.js - the `// --- Directorships ---` block):
+  - Store fields `directorships`, `dirEntries`, `dirHandoff`,
+    `dirSignatureEnc`. `directorships` passes RAW through loadData and
+    finishRestore: MISSING = seed DIRECTORSHIP_PRESET silently (fresh
+    install, pre-feature store, pre-change backup); `[]` = the user removed
+    them, never re-seeded. Babel files read the fields only through
+    dirList / dirEntriesOf / dirHandoffOf / dirHasSignature and the
+    signature only through dirSignatureLoad(data); the sole member reads
+    are finishRestore's rebuild and the JSON export's `delete
+    clean.dirSignatureEnc` (check.js G2-G4, G7).
+  - NO ROLLBACK: never remove the loadData/finishRestore lines or the
+    repair block, and never back the feature out by reverting its commit -
+    an older build drops all four fields on its first save (logged hours
+    and the signature gone). Back out by shipping a build that keeps the
+    fields and hides the UI.
+  - One implementation: the row keys (STORED data, pinned by check.js
+    G8 - never rename one), weeks, slots, money (dirMoney, no locale), the
+    file-name contract ("<Surname> - <name> Timesheet - YYYY-MM.pdf",
+    exact or no file - the monthly email task outside the app finds files
+    by that name; never "clean" a name, refuse it), and dirFormModel - the
+    ONE source for the Review screen and the PDF, so what is reviewed is
+    what prints.
+  - Writers: every write of the four fields goes through a utils.js writer
+    whose output passes repairData unchanged (check.js T7):
+    defaultDirectorships, dirNew, dirFromEditorDraft, dirEntryFromDraft,
+    dirHandoffMark/dirHandoffClear, dirSignatureSave/dirSignatureRemove,
+    dirRestoreBuiltIns, dirRestoreBuiltIn, dirDropOrphans, dirRemove, and
+    app.js's undo paths ("dir": payUndoApply on dirEntriesOf(prev);
+    "dirRemove": dirRemoveUndo). A new writer joins this list and T7.
+  - Signature: stored ENCRYPTED with the session PIN (RVU_CRYPTO, the API
+    key's mechanism). Say only what that does: it keeps the signature from
+    being readable as plain data (someone browsing the app's storage, any
+    future plaintext export - the JSON export also strips it). It does NOT
+    stop code running on fkhan628.github.io, which can read the unsalted
+    4-6 digit PIN hash and guess the PIN almost instantly; the real fix is
+    moving the app to its own web address (a separate owner decision).
+    Decrypted only at render time; the plaintext lives only in the asking
+    component's state, bound to the PIN that decrypted it
+    (dirSigStillValid) - never stored, logged or kept in a module variable.
+  - PIN flows: there is NO PIN-change flow. One must re-encrypt
+    settings.encryptedApiKey AND dirSignatureEnc in the same write
+    (check.js G5 trips on any new aesEncrypt call site or PIN screen mode).
+    Forgot-PIN leaves dirSignatureEnc unreadable by design; Re-sign
+    replaces it.
+  - Sharing: navigator.share in directorships.js is FILES ONLY (no title,
+    text or url - some share targets save text as a second file in Drive),
+    exactly once, inside sharePdf (check.js G9). A resolved share records
+    dirHandoff {date, entriesHash} captured when the PDF was built; an
+    AbortError records nothing; no file sharing -> download under the exact
+    contract name and the user taps Mark handed off.
+  - jsPDF is loaded only by loadPDF; directorships.js uses only the plain
+    drawing surface (no .html/addJS/AcroForm/annotations; output("blob")
+    only). A form never truncates: text shrinks to a 6.5 pt floor, and what
+    still does not fit blocks Create with a layout flag.
+  - Home's month-end reminder dismissal lives in ONE per-device key,
+    DIR_REMIND_KEY ("rvu-dir-reminder"), OUTSIDE the store; only the
+    utils.js helpers touch it (check.js G12, the BACKUP_STAMP_KEY rule).
 - cpt-data.js is built by scripts/build-cpt-data.js. Row contract `[code,
   desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS]`. wRVU (r[2])
   and the global (r[5]) always come from the CMS nonQPP PPRRVU file - never

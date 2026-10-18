@@ -43,7 +43,7 @@ class ErrorBoundary extends React.Component {
               // Only the whole-app boundary offers it (per-view boundaries
               // keep Retry + Go Home), so a crash on one tab can't lead to
               // wiping all data.
-              var typed = prompt("This ERASES ALL app data on this phone (procedures, settings, call pay). If you can, export a backup from More first.\n\nType RESET to erase everything:");
+              var typed = prompt("This ERASES ALL app data on this phone (procedures, settings, call pay, directorship hours and signature). If you can, export a backup from More first.\n\nType RESET to erase everything:");
               if (typed !== null && typed.trim().toUpperCase() === "RESET") {
                 try { localStorage.removeItem(SK); localStorage.removeItem(LAST_GOOD_KEY); } catch(e) {}
                 location.reload();
@@ -129,6 +129,15 @@ function App() {
       // Call pay shifts: restores IN PLACE (utils.js payUndoApply, tested).
       var payAction = undoAction;
       upd(function(prev) { return { ...prev, payShifts: payUndoApply(prev.payShifts, payAction) }; });
+    } else if (undoAction.type === "dir") {
+      // Directorship time entries: the same tested id-list restore (save,
+      // edit, delete, Repeat confirm).
+      var dirAction = undoAction;
+      upd(function(prev) { return { ...prev, dirEntries: payUndoApply(dirEntriesOf(prev), dirAction) }; });
+    } else if (undoAction.type === "dirRemove") {
+      // A removed directorship goes back at its index, only if still missing.
+      var rmAction = undoAction;
+      upd(function(prev) { return dirRemoveUndo(prev, rmAction); });
     }
     setUndoAction(null);
     if (undoTimer.current) clearTimeout(undoTimer.current);
@@ -158,21 +167,33 @@ function App() {
   // memory only; Settings reads and clears it).
   const backupFocus = useRef(false);
   var openBackup = function() { backupFocus.current = true; setView("settings"); };
+  // Nav-less Directorships view (directorships.js); opened from More or from
+  // Home's month-end reminder, which passes its month (one-shot, memory only).
+  const [dirFrom, setDirFrom] = useState("settings");
+  const dirMonth = useRef(null);
+  var openDirectorships = function(from, month) {
+    setDirFrom(from === "dashboard" ? "dashboard" : "settings");
+    dirMonth.current = typeof month === "string" && /^\d{4}-\d{2}$/.test(month) ? month : null;
+    setView("directorships");
+  };
 
   if (!loaded) return <div style={S.loading}>Loading...</div>;
   return (
     <div style={S.shell} className="rvu-shell"><div style={S.app}>
       {/* Scrollable content area */}
       <div style={S.content} className="rvu-content" ref={contentRef}>
-        {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} openHistory={openHistory} openBackup={openBackup} /></ErrorBoundary>}
+        {view === "dashboard" && <ErrorBoundary name="Dashboard" onRetry={goHome} key="eb-dash"><Dashboard data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} openHistory={openHistory} openBackup={openBackup} openDirectorships={openDirectorships} /></ErrorBoundary>}
         {view === "log" && <ErrorBoundary name="Log Procedure" onRetry={goHome} key="eb-log"><LogProc data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} openCallPay={openCallPay} logDraft={logDraft} setLogBar={setLogBar} /></ErrorBoundary>}
         {view === "analytics" && <ErrorBoundary name="Trends" onRetry={goHome} key="eb-analytics"><Analytics data={data} db={db} setView={setView} showComp={showComp} toggleComp={toggleComp} openHistory={openHistory} /></ErrorBoundary>}
         {view === "compare" && <ErrorBoundary name="Compare" onRetry={goHome} key="eb-compare"><Compare data={data} upd={upd} setView={setView} showComp={showComp} toggleComp={toggleComp} /></ErrorBoundary>}
         {view === "import" && <ErrorBoundary name="Import" onRetry={goHome} key="eb-import"><Import data={data} cptMap={cptMap} upd={upd} setView={setView} showUndo={showUndo} /></ErrorBoundary>}
         {view === "history" && <ErrorBoundary name="History" onRetry={goHome} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} historyPreset={historyPreset} /></ErrorBoundary>}
-        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} openHistory={openHistory} backupFocus={backupFocus} /></ErrorBoundary>}
+        {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} openHistory={openHistory} backupFocus={backupFocus} openDirectorships={openDirectorships} /></ErrorBoundary>}
         {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
         {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} /></ErrorBoundary>}
+        {view === "directorships" && <ErrorBoundary name="Directorships" onRetry={goHome} key="eb-dir">{typeof Directorships === "function"
+          ? <Directorships data={data} upd={upd} onBack={function() { setView(dirFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} dirMonth={dirMonth} />
+          : <div style={S.page}>Directorships did not load - reload the app.</div>}</ErrorBoundary>}
       </div>
 
       {/* Undo toast - above the nav; on Log, above the pinned save bar (log.js: 64px bar on the ~71px nav), so Undo never covers Save */}

@@ -1,7 +1,7 @@
 // =======================================
 // SETTINGS (with wRVU Editor)
 // =======================================
-function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, openCallPay, showUndo, openHistory, backupFocus }) {
+function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleTheme, showComp, toggleComp, openAcute, openCallPay, showUndo, openHistory, backupFocus, openDirectorships }) {
   const { settings } = data;
   const [editSearch, setEditSearch] = useState("");
   const [editCat, setEditCat] = useState("All");
@@ -276,8 +276,13 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     // restore (same rule as loading) - count them so the warning is true.
     if (payWillSeed(restored)) bSites = DEFAULT_PAY_SITES.length;
     var pShifts = cnt(data.payShifts), pSites = cnt(data.paySites);
-    var msg = (label ? "From " + label + ": " : "") + "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + ").";
+    // Directorship hours count too (on both sides, when either has any).
+    var bDir = cnt(restored.dirEntries), pDir = dirEntriesOf(data).length, showDir = bDir > 0 || pDir > 0;
+    var dirN = function(n) { return n + " directorship " + (n === 1 ? "entry" : "entries"); };
+    var msg = (label ? "From " + label + ": " : "") + "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + (showDir ? " and " + dirN(bDir) : "") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + (showDir ? ", " + dirN(pDir) : "") + ").";
     if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed.";
+    // Computed on the raw backup, before repairData seeds anything.
+    msg += dirRestoreNote(restored, data);
     if (confirm(msg)) {
       // A restore replaces everything: a pending Undo (e.g. from Delete All)
       // must not act on top of it.
@@ -298,6 +303,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           templates: restored.templates || [],
           paySites: restored.paySites || [],
           payShifts: restored.payShifts || [],
+          directorships: restored.directorships,
+          dirEntries: restored.dirEntries || [],
+          dirHandoff: restored.dirHandoff || {},
+          dirSignatureEnc: restored.dirSignatureEnc || null,
           dataVersion: restored.dataVersion || DATA_VERSION
         };
       });
@@ -628,6 +637,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     delete clean.settings.encryptedApiKey;
     delete clean.settings.apiKey;
     delete clean.settings.apiKeyLast4;
+    // The signature never leaves in a plaintext file, not even as ciphertext.
+    delete clean.dirSignatureEnc;
     const b = new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".json"; a.click(); URL.revokeObjectURL(u);
   };
 
@@ -733,7 +744,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   const clear = () => {
     var all = data.entries || [];
     if (!all.length) { alert("There are no logged procedures to delete."); return; }
-    if (!confirm("Delete all " + all.length + " logged procedures? Settings, Compare, acute and call-pay data are kept. You can Undo for a few seconds.")) return;
+    if (!confirm("Delete all " + all.length + " logged procedures? Settings, Compare, acute, call-pay and directorship data are kept. You can Undo for a few seconds.")) return;
     upd(prev => ({ ...prev, entries: [] }));
     if (showUndo) showUndo({ type: "delete", entries: all, message: "Deleted " + all.length + " procedures" });
   };
@@ -993,6 +1004,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}</div>
       <button onClick={function() { if (openCallPay) openCallPay("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
     </div>
+
+    {/* Directorships (directorships.js): list, editor, signature. Guarded -
+        a file that failed to load must not take Backup & Restore down. */}
+    {typeof DirectorshipsCard === "function" && <ErrorBoundary name="Directorships card"><DirectorshipsCard data={data} upd={upd} openDirectorships={openDirectorships} showUndo={showUndo} /></ErrorBoundary>}
 
     {/* API Key for Scan Features - Encrypted (feature-flagged: hidden when SCAN_ENABLED is false) */}
     {SCAN_ENABLED && (<div style={{ ...S.card, border: hasApiKey(settings) ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)" }}>

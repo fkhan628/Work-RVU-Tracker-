@@ -41,7 +41,7 @@ function walk(node, cb) {
 }
 
 const jsFiles = fs.readdirSync(JS_DIR).filter(f => f.endsWith(".js")).sort();
-check("found 13 js files", jsFiles.length === 13, "got " + jsFiles.length + ": " + jsFiles.join(", "));
+check("found 14 js files", jsFiles.length === 14, "got " + jsFiles.length + ": " + jsFiles.join(", "));
 
 jsFiles.forEach(f => {
   const src = fs.readFileSync(path.join(JS_DIR, f), "utf8");
@@ -256,7 +256,7 @@ check("wRVU editor: no override write on a keystroke (the row input commits only
 // deletes on load (rvu-backup / rvu-backup-time) or any other key's name.
 const bkKey = (utils.match(/var BACKUP_STAMP_KEY = "([^"]+)"/) || [])[1];
 const BK_RESERVED = ["rvu-backup", "rvu-backup-time", "rvu-tracker-last-good", "rvu-tracker-last-good-time", "rvu-tracker-data-corrupt", "rvu-theme", "rvu-theme-css",
-  "rvu-pin-hint", "rvu-pin-hash", "rvu-pin-salt", "rvu-pin-session", "rvu-callfix-kept", "rvu-bio-pin", "rvu-bio-pass", "rvu-bio-enabled", "rvu-bio-cred"].concat(skMatch ? [skMatch[1]] : []);
+  "rvu-pin-hint", "rvu-pin-hash", "rvu-pin-salt", "rvu-pin-session", "rvu-callfix-kept", "rvu-bio-pin", "rvu-bio-pass", "rvu-bio-enabled", "rvu-bio-cred", "rvu-dir-reminder"].concat(skMatch ? [skMatch[1]] : []);
 check("backup stamp key defined and distinct from every other storage key", !!bkKey && BK_RESERVED.indexOf(bkKey) === -1, String(bkKey));
 const bkLeak = jsFiles.filter(f => f !== "utils.js" && /BACKUP_STAMP_KEY|rvu-last-backup/.test(fs.readFileSync(path.join(JS_DIR, f), "utf8")));
 check("only utils.js touches the backup stamp key", !!bkKey && bkLeak.length === 0 && utils.split('"' + bkKey + '"').length === 2, bkLeak.join(", "));
@@ -663,7 +663,7 @@ check("hooks before any conditional return (every component in the Babel files)"
     const a = eyeAsts[f]; if (!a) { badFmt.push(f + ": parse"); return; }
     let calls = 0, eyes = 0;
     walk(a.program, n => {
-      if (n.type === "CallExpression" && n.callee && n.callee.type === "Identifier" && n.callee.name === "fmtDollar") {
+      if (n.type === "CallExpression" && n.callee && n.callee.type === "Identifier" && (n.callee.name === "fmtDollar" || n.callee.name === "dirMoneyShown")) {
         calls++;
         if (n.arguments.length !== 2 || n.arguments[1].type !== "Identifier" || n.arguments[1].name !== "showComp") badFmt.push(f + ":" + n.loc.start.line);
       }
@@ -679,14 +679,14 @@ check("hooks before any conditional return (every component in the Babel files)"
     });
     eyeCount[f] = eyes;
     if (calls > 0) fmtFiles.push(f);
-    if ((calls > 0 || f === "callpay.js") && eyes === 0) eyeMissing.push(f);
+    if ((calls > 0 || f === "callpay.js" || f === "directorships.js") && eyes === 0) eyeMissing.push(f);
   });
   check("5f: every fmtDollar call passes showComp; every view that masks $ (and Call Pay) renders CompEye with both props",
     badFmt.length === 0 && eyeMissing.length === 0 && fmtFiles.length >= 4, JSON.stringify({ badFmt: badFmt, eyeMissing: eyeMissing, fmtFiles: fmtFiles }));
   // One eye per place $ is masked: Trends header + month detail + Monthly
   // Report; Compare card; More's Summary Stats; Home; Call Pay's shared
-  // eyeBtn. Removing any one of them (or adding a stray one) fails here.
-  const EYES = { "analytics.js": 3, "compare.js": 1, "settings.js": 1, "dashboard.js": 1, "callpay.js": 1 };
+  // eyeBtn; Directorships' shared eyeBtn (its Review reuses it). Removing any one of them (or adding a stray one) fails here.
+  const EYES = { "analytics.js": 3, "compare.js": 1, "settings.js": 1, "dashboard.js": 1, "callpay.js": 1, "directorships.js": 1 };
   const eyeOff = Object.keys(eyeAsts).filter(f => (eyeCount[f] || 0) !== (EYES[f] || 0)).map(f => f + "=" + (eyeCount[f] || 0));
   check("5f: CompEye count per file matches each masked place (" + JSON.stringify(EYES).replace(/"/g, "") + ")", eyeOff.length === 0, eyeOff.join(", "));
   const appAst = eyeAsts["app.js"];
@@ -695,13 +695,186 @@ check("hooks before any conditional return (every component in the Babel files)"
   const plainMention = PLAIN_FILES.filter(f => jsFiles.indexOf(f) !== -1 && fs.readFileSync(path.join(JS_DIR, f), "utf8").indexOf("CompEye") !== -1);
   check("5f: app.js declares CompEye exactly once at top level; no other file declares it; plain scripts never mention it",
     topEye === 1 && otherDecl.length === 0 && plainMention.length === 0, JSON.stringify({ topEye: topEye, otherDecl: otherDecl, plainMention: plainMention }));
-  const needProps = ["Dashboard", "Analytics", "Compare", "Settings", "CallPay"], propBad = [];
+  const needProps = ["Dashboard", "Analytics", "Compare", "Settings", "CallPay", "Directorships"], propBad = [];
   if (appAst) walk(appAst.program, n => {
     if (n.type !== "JSXOpeningElement" || !n.name || needProps.indexOf(n.name.name) === -1) return;
     const names = n.attributes.filter(x => x.type === "JSXAttribute" && x.name).map(x => x.name.name);
     if (names.indexOf("showComp") === -1 || names.indexOf("toggleComp") === -1) propBad.push(n.name.name);
   });
   check("5f: App passes showComp + toggleComp to every view that masks $", !!appAst && propBad.length === 0, propBad.join(", "));
+}
+
+// 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
+// fixtures use \u escapes).
+fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
+  const s = fs.readFileSync(path.join(APP, "scripts", f), "utf8"), i = s.search(/[^\x00-\x7f]/);
+  check("ascii scripts/" + f, i === -1, i === -1 ? "" : "non-ASCII at index " + i + " (char " + JSON.stringify(s[i]) + ")");
+});
+
+// 5g. Directorships structure (directorships.js + its hooks into utils.js,
+// settings.js, app.js, dashboard.js). AST-based where it matters.
+{
+  const PLAIN = ["crypto.js", "cpt-data.js", "utils.js", "styles.js"];
+  const read = f => fs.readFileSync(path.join(JS_DIR, f), "utf8");
+  const astOf = f => { try { return parser.parse(read(f), AST_OPTS); } catch (e) { return null; } };
+  const dirSrc = fs.existsSync(path.join(JS_DIR, "directorships.js")) ? read("directorships.js") : "";
+  const dirAst = dirSrc ? astOf("directorships.js") : null;
+  // The source with every comment blanked (same offsets), so a text gate is
+  // never satisfied by commented-out code.
+  const dirCode = dirAst ? dirAst.comments.reduce((s, c) => s.slice(0, c.start) + " ".repeat(c.end - c.start) + s.slice(c.end), dirSrc) : dirSrc;
+  const topNames = a => a ? a.program.body.reduce((out, n) => {
+    if (n.type === "FunctionDeclaration" && n.id) out.push(n.id.name);
+    else if (n.type === "VariableDeclaration") n.declarations.forEach(d => { if (d.id && d.id.type === "Identifier") out.push(d.id.name); else if (d.id && d.id.type === "ObjectPattern") d.id.properties.forEach(p => { if (p.value && p.value.name) out.push(p.value.name); }); });
+    else if (n.type === "ClassDeclaration" && n.id) out.push(n.id.name);
+    return out;
+  }, []) : [];
+  // G2: directorships passes through RAW (missing = seed, [] = removed).
+  const fr = findDeclared(settingsAst, "finishRestore");
+  const frSrc = fr ? settingsSrc.slice(fr.start, fr.end) : "";
+  check("directorships G2: loadData and finishRestore pass `directorships` raw (no || []), and finishRestore repairs before it writes",
+    /directorships: s\.directorships,/.test(utils) && !/directorships: s\.directorships \|\|/.test(utils) &&
+    /directorships: restored\.directorships,/.test(frSrc) && frSrc.indexOf("repairData(restored)") !== -1 && frSrc.indexOf("repairData(restored)") < frSrc.indexOf("upd(function()"));
+  // G3: the JSON export strips the signature.
+  const ex = findDeclared(settingsAst, "expJSON");
+  const exSrc = ex ? settingsSrc.slice(ex.start, ex.end) : "";
+  check("directorships G3: the JSON export deletes dirSignatureEnc", exSrc.indexOf("delete clean.dirSignatureEnc;") !== -1);
+  // G4 + G7: Babel files reach the four store fields only through the utils
+  // accessors; the only member reads are finishRestore's rebuild and the
+  // export's delete. The signature field never appears outside utils.js and
+  // those two settings.js spots.
+  const FIELDS = ["directorships", "dirEntries", "dirHandoff", "dirSignatureEnc"];
+  const memberBad = [];
+  jsFiles.filter(f => PLAIN.indexOf(f) === -1).forEach(f => {
+    const a = astOf(f); if (!a) return;
+    walk(a.program, n => {
+      if (n.type !== "MemberExpression" || n.computed || !n.property || FIELDS.indexOf(n.property.name) === -1) return;
+      const obj = n.object && n.object.type === "Identifier" ? n.object.name : "";
+      const ok = f === "settings.js" && (obj === "restored" || (obj === "clean" && n.property.name === "dirSignatureEnc"));
+      if (!ok) memberBad.push(f + ":" + n.loc.start.line + " ." + n.property.name);
+    });
+  });
+  const sigMentions = jsFiles.filter(f => f !== "utils.js" && read(f).indexOf("dirSignatureEnc") !== -1);
+  const setSig = (settingsSrc.match(/dirSignatureEnc/g) || []).length;
+  check("directorships G4/G7: Babel files read the store fields only through the accessors; dirSignatureEnc only in utils.js + finishRestore + the export strip",
+    memberBad.length === 0 && sigMentions.join() === "settings.js" && setSig === 3 && dirSrc.indexOf("dirSignatureEnc") === -1, JSON.stringify({ memberBad: memberBad, sigMentions: sigMentions, setSig: setSig }));
+  // G5: no PIN-change flow exists; one must re-encrypt the API key AND the
+  // signature together (CLAUDE.md). This trips on any new aesEncrypt call
+  // site or PIN screen mode in crypto.js.
+  const cryptoSrc = read("crypto.js");
+  const modes = (cryptoSrc.match(/showPinScreen\("([a-z]+)"\)/g) || []).map(m => m.slice(15, -2)).filter((m, i, a) => a.indexOf(m) === i).sort();
+  check("directorships G5: crypto.js still has exactly 2 aesEncrypt( call sites and only the setup/locked PIN modes - a new PIN flow must re-encrypt settings.encryptedApiKey AND dirSignatureEnc (CLAUDE.md)",
+    (cryptoSrc.match(/aesEncrypt\(/g) || []).length === 3 && modes.join() === "locked,setup" && dirSrc.indexOf("RVU_CRYPTO") === -1, JSON.stringify({ aes: (cryptoSrc.match(/aesEncrypt\(/g) || []).length, modes: modes }));
+  // G6: no email addresses in any tracked text file (this file included).
+  const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
+  const sample = "a" + "@" + "b.co";
+  const tracked = [];
+  [APP, JS_DIR, path.join(APP, "scripts")].forEach(dir => fs.readdirSync(dir).forEach(f => {
+    const p = path.join(dir, f);
+    if (fs.statSync(p).isFile() && /\.(js|html|md|json)$/.test(f) && f !== "package-lock.json" && f !== "cpt-data.js") tracked.push(p);
+  }));
+  const withEmail = tracked.filter(p => EMAIL.test(fs.readFileSync(p, "utf8"))).map(p => path.relative(APP, p));
+  check("directorships G6: no email address in any tracked text file (" + tracked.length + " files); self-test matches a built sample and not package@version",
+    EMAIL.test(sample) && !EMAIL.test("jspdf@4.2.1/dist") && !EMAIL.test("@babel/parser") && withEmail.length === 0, withEmail.join(", "));
+  // G9: directorships.js names and the share hand-off.
+  const dTop = topNames(dirAst).sort();
+  let shares = [], shareArgOk = false, inShare = false, badApi = [];
+  if (dirAst) walk(dirAst.program, n => {
+    if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && n.callee.object.name === "navigator" && n.callee.property.name === "share") {
+      shares.push(n);
+      const a = n.arguments[0];
+      shareArgOk = n.arguments.length === 1 && a.type === "ObjectExpression" && a.properties.length === 1 && a.properties[0].key.name === "files";
+    }
+    if (n.type === "VariableDeclarator" && n.id.name === "sharePdf") inShare = n.init;
+    if (n.type === "MemberExpression" && !n.computed && ["html", "addJS", "AcroForm", "createAnnotation", "innerHTML"].indexOf(n.property.name) !== -1) badApi.push(n.property.name + ":" + n.loc.start.line);
+    if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && n.callee.property.name === "output" && !(n.arguments[0] && n.arguments[0].value === "blob")) badApi.push("output:" + n.loc.start.line);
+  });
+  const shareInside = !!inShare && shares.length === 1 && shares[0].start >= inShare.start && shares[0].end <= inShare.end;
+  const bodyOf = name => { let b = ""; if (dirAst) walk(dirAst.program, n => { if (n.type === "VariableDeclarator" && n.id.name === name && n.init) b = dirCode.slice(n.init.start, n.init.end); }); return b; };
+  check("directorships G9: four top-level components; one navigator.share({ files }) inside sharePdf; PDF build never shares; no RVU_CRYPTO/localStorage/innerHTML; jsPDF calls stay in the allowed surface; settings.js share count unchanged",
+    dTop.join() === "DirReview,DirSignaturePad,Directorships,DirectorshipsCard" && shareInside && shareArgOk &&
+    !/share/i.test(bodyOf("createPdf").replace(/sharingRef|shareFailed/g, "")) && !/share/i.test(bodyOf("buildPdfFile")) &&
+    dirSrc.indexOf("localStorage") === -1 && badApi.length === 0 && (settingsSrc.match(/navigator\.share\(/g) || []).length === 2,
+    JSON.stringify({ top: dTop, shares: shares.length, shareInside: shareInside, shareArgOk: shareArgOk, badApi: badApi }));
+  // G10: no Babel file redeclares a plain-script top-level name (CLAUDE.md 3c).
+  const plainNames = {};
+  ["crypto.js", "utils.js", "styles.js"].forEach(f => topNames(astOf(f)).forEach(n => { plainNames[n] = f; }));
+  const clash = [];
+  jsFiles.filter(f => PLAIN.indexOf(f) === -1).forEach(f => topNames(astOf(f)).forEach(n => { if (plainNames[n]) clash.push(f + ":" + n + " (" + plainNames[n] + ")"); }));
+  check("directorships G10: no Babel file redeclares a plain-script top-level name", clash.length === 0, clash.join(", "));
+  // G11: the lazy jsPDF loader's pinned shape.
+  const pdfPath = (utils.match(/var PDF_PATH = "([^"]+)";/) || [])[1] || "", pdfSri = (utils.match(/var PDF_SRI = "([^"]+)";/) || [])[1] || "";
+  const ld = findDeclared(utilsAst, "loadPDF"), ldSrc = ld ? utils.slice(ld.start, ld.end) : "";
+  check("directorships G11: loadPDF pins PDF_PATH + PDF_SRI, tries unpkg then jsdelivr with crossOrigin anonymous, and index.html never loads jsPDF at boot",
+    /^jspdf@\d+\.\d+\.\d+\/dist\/jspdf\.umd\.min\.js$/.test(pdfPath) && /^sha384-[A-Za-z0-9+\/]{64}$/.test(pdfSri) &&
+    utils.indexOf('var PDF_HOSTS = ["https://unpkg.com/", "https://cdn.jsdelivr.net/npm/"];') !== -1 &&
+    ldSrc.indexOf('s.crossOrigin = "anonymous"') !== -1 && ldSrc.indexOf("s.integrity = PDF_SRI") !== -1 && !/jspdf/i.test(html.replace(/<!--[\s\S]*?-->/g, "")),
+    JSON.stringify({ pdfPath: pdfPath, sri: pdfSri.slice(0, 12) }));
+  // G12: the reminder key - per device, outside the store, utils.js only.
+  const remLeak = jsFiles.filter(f => f !== "utils.js" && /DIR_REMIND_KEY|rvu-dir-reminder/.test(read(f)));
+  check("directorships G12: the reminder key is rvu-dir-reminder, reserved, utils.js-only and never a store field; routes and the Settings mount are typeof-guarded",
+    utils.indexOf('var DIR_REMIND_KEY = "rvu-dir-reminder";') !== -1 && BK_RESERVED.filter(k => k === "rvu-dir-reminder").length === 1 && remLeak.length === 0 &&
+    !!defObj && objKeys(defObj).every(k => !/remind/i.test(k)) &&
+    read("app.js").indexOf('typeof Directorships === "function"') !== -1 && settingsSrc.indexOf('typeof DirectorshipsCard === "function"') !== -1, remLeak.join(", "));
+  // G8: stored row keys, the hint and the printed attestation texts.
+  const GK = "g_guidelines,g_oversee,g_orientation,g_dept_ed,g_community_ed,g_policy,g_safety,g_goals,g_budget,g_strategic,g_quality,g_ur,g_supplies,g_rules,g_research,g_idg,g_other,g_meeting";
+  const SKs = "s_policies,s_qa_risk,s_liaison,s_outreach,s_committees,s_staff_ed,s_outcomes,s_meetings,s_travel,s_other";
+  const keysIn = name => { const m = utils.match(new RegExp("var " + name + " = \\[([\\s\\S]*?)\\n\\];")); return m ? (m[1].match(/key: "([a-z_]+)"/g) || []).map(k => k.slice(6, -1)).join() : ""; };
+  check("directorships G8: Genesis and Select row keys pinned in order (stored data); hint and CERTIFICATION text exact; the old red instruction line never appears",
+    keysIn("DIR_GENESIS_ROWS") === GK && keysIn("DIR_SELECT_ROWS") === SKs && utils.indexOf('var DIR_DETAIL_HINT = "meeting or topic only - no patient information";') !== -1 &&
+    utils.indexOf('var DIR_GENESIS_CERT = "CERTIFICATION: By signing this document,') !== -1 && utils.indexOf("CERTIFCATION") === -1 &&
+    jsFiles.every(f => read(f).indexOf("Duration must be entered") === -1), JSON.stringify({ g: keysIn("DIR_GENESIS_ROWS"), s: keysIn("DIR_SELECT_ROWS") }));
+  // G13: the PDF always prints the real Rate/Due/Total (owner clarification 1),
+  // Create/Share/Download re-check the PIN before acting, share marks the hash
+  // the PDF was built from; an entry/month change drops a ready PDF and the
+  // finished step, a date change drops only an unsent PDF. All on comment-free code.
+  const drawB = ["drawGenesis", "drawSelect", "buildPdfFile"].map(bodyOf), cpB = bodyOf("createPdf"), shB = bodyOf("sharePdf"), dlB = bodyOf("downloadPdf");
+  const pinFirst = (b, chk, act) => b.indexOf(chk) !== -1 && b.indexOf(act) !== -1 && b.indexOf(chk) < b.indexOf(act);
+  check("directorships G13: PDF draw path never masks money; Create/Share/Download re-check the PIN first (and return); share marks p.hash; entry/month change drops PDF + done, a date change drops only the PDF",
+    drawB.every(b => b && !/dirMoneyShown|showComp|fmtDollar/.test(b)) &&
+    drawB[0].indexOf("m.footer.rate") !== -1 && drawB[0].indexOf("m.footer.due") !== -1 && drawB[1].indexOf("m.header.totalDue") !== -1 &&
+    pinFirst(cpB, 'if (!dirSigStillValid(sig.pin)) { setSig({ state: "locked", url: "", pin: "" }); setPdf(null); return; }', "buildPdfFile(") &&
+    pinFirst(shB, "if (!dirSigStillValid(p.pinAt)) { wipe(); return; }", "navigator.share(") && pinFirst(dlB, "if (!dirSigStillValid(p.pinAt)) { wipe(); return; }", "downloadBlob(") &&
+    /dirHandoffMark\([^;]*p\.hash\)/.test(shB) && shB.indexOf("model.hash") === -1 &&
+    dirCode.indexOf('useEffect(function() { setPdf(null); setDone(""); setMsg(""); }, [model.hash, dirId, ym]);') !== -1 &&
+    dirCode.indexOf("useEffect(function() { setPdf(null); }, [model.generatedYMD]);") !== -1 && dirCode.indexOf("model.generatedYMD, dirId") === -1);
+  // G4 (utils side): dirSignatureEnc only inside the allowed top-level
+  // functions; the load and PIN-binding bodies never touch storage, upd or console.
+  const SIG_FNS = ["defState", "loadData", "repairData", "validateData", "dirSignatureSave", "dirSignatureRemove", "dirSignatureLoad", "dirHasSignature", "dirSigKey", "dirRestoreNote"];
+  const topOfU = pos => { const t = utilsAst ? utilsAst.program.body.find(b => b.start <= pos && pos < b.end) : null; if (!t) return "?"; if (t.type === "FunctionDeclaration") return t.id.name; if (t.type === "VariableDeclaration") return t.declarations.map(d => d.id.name).join(); return t.type; };
+  const sigOut = [];
+  if (utilsAst) walk(utilsAst.program, n => {
+    if ((n.type === "Identifier" && n.name === "dirSignatureEnc") || (n.type === "StringLiteral" && n.value === "dirSignatureEnc")) { const t = topOfU(n.start); if (SIG_FNS.indexOf(t) === -1) sigOut.push(t + ":" + n.loc.start.line); }
+  });
+  const sigBodyBad = ["dirSignatureLoad", "dirSigStillValid"].filter(fn => { const d = utilsAst && findDeclared(utilsAst, fn); return !d || /\b(localStorage|sessionStorage|upd|console)\b/.test(utils.slice(d.start, d.end)); });
+  check("directorships G4 (utils): dirSignatureEnc only in " + SIG_FNS.join("/") + "; dirSignatureLoad + dirSigStillValid free of localStorage/sessionStorage/upd/console",
+    !!utilsAst && sigOut.length === 0 && sigBodyBad.length === 0, JSON.stringify({ sigOut: sigOut, sigBodyBad: sigBodyBad }));
+  // G5 (per file): encrypt/decrypt call sites through ANY receiver
+  // (window.RVU_CRYPTO or the dirCrypto() alias); crypto.js is pinned above.
+  const CRYPTO_CALLS = { "utils.js": [2, 2], "settings.js": [1, 2] }, cryptoOff = [];
+  jsFiles.filter(f => f !== "crypto.js").forEach(f => {
+    const a = astOf(f); if (!a) { cryptoOff.push(f + ":parse"); return; }
+    const c = { encrypt: 0, decrypt: 0 };
+    walk(a.program, n => { if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && !n.callee.computed && n.callee.property && c[n.callee.property.name] !== undefined) c[n.callee.property.name]++; });
+    const w = CRYPTO_CALLS[f] || [0, 0];
+    if (c.encrypt !== w[0] || c.decrypt !== w[1]) cryptoOff.push(f + "=" + c.encrypt + "/" + c.decrypt);
+  });
+  check("directorships G5 (per file): .encrypt(/.decrypt( call sites utils 2/2, settings 1/2, 0 elsewhere - a new PIN flow must re-encrypt settings.encryptedApiKey AND dirSignatureEnc (CLAUDE.md)", cryptoOff.length === 0, cryptoOff.join(", "));
+  // G14: the review fixes in the screens - the Review model follows the date,
+  // both signature views key on the ciphertext, Save ignores a double tap,
+  // opening a screen clears Log errors, Mark handed off survives a lock, the
+  // pad follows one pointer and drops strokes when the PIN goes.
+  let padSrc = "";
+  if (dirAst) dirAst.program.body.forEach(n => { if (n.type === "FunctionDeclaration" && n.id.name === "DirSignaturePad") padSrc = dirCode.slice(n.start, n.end); });
+  check("directorships G14: Review memo keyed on today (state, set by the 1 s check and before buildPdfFile); decrypt effects keyed on sigKey = dirSigKey(data); saveNew checks savingRef first; openScreen clears problems; Mark handed off outside the pdf block and works with pdf null; the Log hint normalizes the draft like Save; pad tracks its pointer and its PIN",
+    dirCode.indexOf("dirFormModel(data, dirId, ym, today); }, [data, dirId, ym, today]);") !== -1 && dirCode.indexOf("const [today, setToday] = useState(todayLocal());") !== -1 &&
+    dirCode.indexOf("setToday(function(d) { return d === t0 ? d : t0; });") !== -1 && pinFirst(cpB, "if (model.generatedYMD !== t1) { setToday(t1); return; }", "buildPdfFile(") &&
+    (dirCode.match(/\}, \[sigKey, sigTick\]\);/g) || []).length === 2 && (dirCode.match(/sigKey = dirSigKey\(data\);/g) || []).length === 2 && dirCode.indexOf("[hasSig, sigTick]") === -1 &&
+    /^function\(\) \{\s*if \(savingRef\.current\) return;/.test(bodyOf("saveNew")) && bodyOf("openScreen").indexOf("setProblems([]);") !== -1 &&
+    dirCode.indexOf('{!pdf && done === "downloaded" && <button onClick={markAfterDownload}') !== -1 &&
+    bodyOf("markAfterDownload").indexOf("p ? p.dirId : dirId") !== -1 && !/if \(!p\)/.test(bodyOf("markAfterDownload")) &&
+    dirCode.indexOf("var dText = dirDetailText(dirAsciiPunct(f.detail)), dKey = dirDetailKey(dText);") !== -1 && dirCode.indexOf("category: row.key, detail: dText,") !== -1 &&
+    (padSrc.match(/e\.pointerId !== activeId\.current/g) || []).length === 2 && (padSrc.match(/dirSigStillValid\(pinRef\.current\)/g) || []).length === 2,
+    JSON.stringify({ pad: padSrc.length }));
 }
 
 // 6. CPT database integrity
@@ -1196,7 +1369,9 @@ if (sb) {
   const badWorked = WORKED.filter(w => w[0] !== w[1]);
   check("built-in sites reproduce the owner's worked examples (8)", badWorked.length === 0, badWorked.map(w => w[0] + " want " + w[1]).join("; "));
   check("built-in sites: none in force before Oct 1 2026", sb.rateInForce(SIL, "2026-09-30") === null && sb.rateInForce(DAV, "2026-09-30") === null);
-  const seedStore = (o) => Object.assign({ entries: [], settings: { ratePerRVU: 55, annualGoal: 0, reconGoal: 0 }, paySites: [], payShifts: [] }, o || {});
+  // Directorships: a store saved by this build always carries the field
+  // (the preset passes repairData unchanged), so fixtures carry it too.
+  const seedStore = (o) => Object.assign({ entries: [], settings: { ratePerRVU: 55, annualGoal: 0, reconGoal: 0 }, paySites: [], payShifts: [], directorships: sb.defaultDirectorships() }, o || {});
   const sEmpty = seedStore(); sb.repairData(sEmpty);
   const sHasSite = seedStore({ paySites: [S1] }); sb.repairData(sHasSite);
   const sHasShift = seedStore({ payShifts: [kept.shift] }); sb.repairData(sHasShift);
@@ -2194,6 +2369,652 @@ if (sb) {
     check("backupNudgeDue: due at 14+ days (or never) with data to lose; a snooze within 7 days hides it (" + DUE.length + " cases)",
       dueBad.length === 0, J(dueBad.map(t => [t[0], t[1], t[2]])));
     check("backupFileName: rvu-backup-<date>.txt", sb.backupFileName("2026-10-14") === "rvu-backup-2026-10-14.txt" && /^rvu-backup-\d{4}-\d{2}-\d{2}\.txt$/.test(sb.backupFileName("junk")));
+  }
+  // ---- 7d. Directorships (the REAL utils.js). The preset is the owner's
+  // built-in data (CLAUDE.md exception); every other value is made up. ----
+  {
+    const J = o => JSON.stringify(o);
+    const PRESET_SPEC = [
+      { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.5 },
+      { id: "trauma", name: "Trauma Medical Director", shortName: "Trauma", org: "MercyOne Genesis Silvis - Illini", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.25 },
+      { id: "wound", name: "Wound Care Program Director", shortName: "Wound", org: "Select Specialty Hospital - Quad Cities", form: "select", printName: "Faraz Khan, MD", rate: 215, maxHours: 8,
+        selectHeader: { hospital: "Select Specialty Hospital - Quad Cities", programType: "Wound Care", physicianName: "Faraz Khan, MD", contractingParty: "MercyOne Genesis Health Group",
+          remitAddress: ["1228 E Rusholme St. Suite 3020", "Davenport, IA 52803"], glNo: "150-6700-64931", hospitalNo: "" } }
+    ];
+    // Silent repair: no banner, no loss text.
+    const quiet = (fn) => { const realA = sb.showDataAlert, seen = []; sb.showDataAlert = m => seen.push(String(m)); try { return { r: fn(), seen: seen }; } finally { sb.showDataAlert = realA; } };
+    const dstore = o => seedStore(Object.assign({ settings: { ratePerRVU: 55, paySitesSeeded: true } }, o || {}));
+    const fixedPt = s => { const before = J(s), q = quiet(() => sb.repairData(s)); return q.r.length === 0 && q.seen.length === 0 && J(s) === before && sb.validateData(s) === true; };
+    const ICU = PRESET_SPEC[0], WC = PRESET_SPEC[2];
+    const ent = (id, dirId, date, minutes, category, detail) => ({ id: id, dirId: dirId, date: date, minutes: minutes, category: category, detail: detail || "" });
+    const withEntries = (list, extra) => dstore(Object.assign({ dirEntries: list }, extra || {}));
+
+    // T1 preset
+    const dd1 = sb.defaultDirectorships(), dd2 = sb.defaultDirectorships(), ds1 = vm.runInContext("defState", sb)(), ds2 = vm.runInContext("defState", sb)();
+    check("directorships T1: DIRECTORSHIP_PRESET equals the spec literal, ASCII, ids icu/trauma/wound; copies and defState are fresh",
+      J(sb.DIRECTORSHIP_PRESET) === J(PRESET_SPEC) && !/[^\x20-\x7e]/.test(J(sb.DIRECTORSHIP_PRESET)) &&
+      sb.DIRECTORSHIP_PRESET.map(d => d.id).join() === "icu,trauma,wound" && dd1 !== dd2 && dd1[2].selectHeader !== dd2[2].selectHeader &&
+      J(dd1) === J(PRESET_SPEC) && ds1.directorships !== ds2.directorships && J(ds1.directorships) === J(PRESET_SPEC) &&
+      J(ds1.dirEntries) === "[]" && J(ds1.dirHandoff) === "{}" && ds1.dirSignatureEnc === null && fixedPt(ds1));
+
+    // T2 seeding
+    const t2a = { entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true } }, q2a = quiet(() => sb.repairData(t2a));
+    const t2b = dstore({ directorships: [] }), q2b = quiet(() => sb.repairData(t2b));
+    const badSeed = [null, {}, "x"].map(v => { const s = dstore({ directorships: v }), q = quiet(() => sb.repairData(s)); return J(s.directorships) === "[]" && q.seen.length === 1 && !/[^\x20-\x7e]/.test(q.seen[0]) && /Restore built-in directorships/.test(q.seen[0]); });
+    const again = JSON.parse(J(t2a)), q2c = quiet(() => sb.repairData(again));
+    check("directorships T2: missing = seeded silently (tagged), [] stays [], malformed -> [] with one ASCII banner; dirWillSeed agrees; seeded store is a fixed point",
+      J(t2a.directorships) === J(PRESET_SPEC) && q2a.r.indexOf("directorships-seeded") !== -1 && q2a.seen.length === 0 && !q2a.r.loss &&
+      J(t2b.directorships) === "[]" && q2b.r.length === 0 && q2b.seen.length === 0 && badSeed.every(Boolean) &&
+      sb.dirWillSeed({}) === true && sb.dirWillSeed({ directorships: [] }) === false && sb.dirWillSeed({ directorships: null }) === false &&
+      q2c.r.length === 0 && q2c.seen.length === 0 && J(again) === J(t2a));
+
+    // T3 loadData (in-memory storage)
+    {
+      const realLS = sb.localStorage, realConsole = sb.console, realA = sb.showDataAlert;
+      let okA = false, okB = false, okC = false, info = {};
+      try {
+        const mem = {}, writes = [], banners = [], warns = [];
+        sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null), setItem: (k, v) => { writes.push(k); mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+        sb.console = { log: () => {}, warn: m => warns.push(String(m)), error: () => {} };
+        sb.showDataAlert = m => banners.push(String(m));
+        const SKD = vm.runInContext("SK", sb);
+        mem[SKD] = J({ entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [], payShifts: [] });
+        const l1 = sb.loadData(), w1 = writes.length, b1 = banners.length;
+        const l2 = sb.loadData(), w2 = writes.length - w1;
+        okA = J(l1.directorships) === J(PRESET_SPEC) && w1 === 1 && b1 === 0 && w2 === 0 && J(l2.directorships) === J(PRESET_SPEC);
+        mem[SKD] = J({ entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [], payShifts: [], directorships: [] });
+        const w3 = writes.length, l3 = sb.loadData(), l4 = sb.loadData();
+        okB = J(l3.directorships) === "[]" && J(l4.directorships) === "[]" && writes.length === w3;
+        // A pre-feature last-good snapshot behind an unreadable primary: seeded, and the banner never mentions it.
+        mem[SKD] = "{not json"; mem[sb.LAST_GOOD_KEY] = J({ entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true } }); mem[sb.LAST_GOOD_TIME_KEY] = "T0";
+        const bStart = banners.length, l5 = sb.loadData(), last = banners[banners.length - 1] || "";
+        okC = J(l5.directorships) === J(PRESET_SPEC) && banners.length === bStart + 1 && /DATA RECOVERY/.test(last) && !/irectorship/.test(last);
+        info = { w1: w1, b1: b1, w2: w2, last: last.slice(0, 80) };
+      } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realA; }
+      check("directorships T3: loadData seeds a pre-feature store once (no banner, no rewrite after); [] stays [] with no write; a pre-feature last-good snapshot is seeded silently",
+        okA && okB && okC, J(Object.assign({ okA: okA, okB: okB, okC: okC }, info)));
+    }
+
+    // T4 directorships repair table
+    const t4 = dstore({ directorships: [
+      Object.assign({}, ICU, { rate: "250", maxHours: "5" }),                               // numeric strings: silent
+      Object.assign({}, ICU, { id: "icu", name: "Dup id", rate: "abc" }),                   // duplicate id: new id; unreadable rate -> 0 LOUD
+      { id: "x1", name: "  ", form: "genesis" },                                             // blank name: dropped
+      { id: "x2", name: "No form", form: "pdf" },                                            // bad form: dropped
+      "junk",                                                                                // non-object: dropped
+      Object.assign({}, WC, { id: "w2", name: "Header junk", selectHeader: "bad" }),         // header not an object: deleted LOUD
+      Object.assign({}, WC, { id: "w3", name: "Remit string", shortName: 7, selectHeader: Object.assign({}, WC.selectHeader, { remitAddress: "1 Main St", glNo: 42 }) }),
+      Object.assign({}, WC, { id: "w4", name: "Remit long", selectHeader: Object.assign({}, WC.selectHeader, { remitAddress: ["A", "B", "C"] }) }),
+      Object.assign({}, ICU, { id: "c:1", name: "Colon id", extra: { keep: 1 } }),           // ":" in id: kept (keys split at the LAST ":"); unknown key kept
+      { id: "trauma", name: "Trauma Medical Director", form: "pdf" },                        // a dropped BUILT-IN: the banner points to Restore
+      { id: "icu", name: "ICU again", form: "pdf" }                                          // dropped, but ICU still holds its id: hours stay there
+    ] });
+    const q4 = quiet(() => sb.repairData(t4)), D4 = t4.directorships, banner4 = q4.seen[0] || "";
+    const ids4 = D4.map(d => d.id);
+    const pass2 = JSON.parse(J(t4)), q4b = quiet(() => sb.repairData(pass2));
+    check("directorships T4: repair table - coercion silent, duplicate ids renewed, colon ids kept, bad items dropped LOUD (a built-in points to Restore, a custom one says it can't be reattached), unreadable numbers -> 0 LOUD, header rules; second pass clean",
+      D4.length === 6 && D4[0].rate === 250 && D4[0].maxHours === 5 && D4[1].rate === 0 && ids4[1] !== "icu" && new Set(ids4).size === 6 && ids4[5] === "c:1" &&
+      D4[2].selectHeader === undefined && D4[3].shortName === "7" && J(D4[3].selectHeader.remitAddress) === J(["1 Main St", ""]) && D4[3].selectHeader.glNo === "42" &&
+      J(D4[4].selectHeader.remitAddress) === J(["A", "B, C"]) && J(D4[5].extra) === J({ keep: 1 }) &&
+      q4.seen.length === 1 && banner4.indexOf("Directorships #3, No form, #5 were unreadable and removed. Their logged hours are kept but can't be reattached - add them again in Settings and re-log those hours.") !== -1 &&
+      banner4.indexOf("Directorship Trauma Medical Director was unreadable and removed - tap Restore in Settings > Directorships to bring it back with its logged hours. Don't add it again by hand.") !== -1 &&
+      banner4.indexOf("Directorship ICU again was unreadable and removed. It shared an id with a directorship you still have, so its logged hours stay on that one - check them in Directorships and don't re-log them.") !== -1 &&
+      !/ICU again[^.]*(tap Restore|re-log those)/.test(banner4) &&
+      /Dup id rate/.test(banner4) && /Header junk/.test(banner4) && !/[^\x20-\x7e]/.test(banner4) &&
+      q4b.r.length === 0 && q4b.seen.length === 0 && J(pass2) === J(t4),
+      J({ n: D4.length, ids: ids4, banner: banner4.slice(0, 600) }));
+
+    // T5 dirEntries repair table
+    const t5list = [
+      ent("a1", "icu", "2026-10-02", "90", "g_policy"), ent("a2", "icu", "2026-10-02", 90.4, "g_policy"), ent("a3", "icu", "2026-10-02", "1:30", "g_policy"),
+      ent("a4", "icu", "2026-10-02", 0, "g_policy"), ent("a5", "icu", "2026-10-02", 1441, "g_policy"), ent("a6", "icu", "2026-10-02", true, "g_policy"),
+      ent("a7", "icu", "2026-10-02", -30, "g_policy"), ent("a8", "icu", "2026-10-02", "-30", "g_policy"), ent("a9", "icu", "2026-10-02", NaN, "g_policy"),
+      ent(undefined, "icu", "2026-10-03", 30, "g_policy"), ent("a1", "icu", "2026-10-04", 30, "g_policy"), ent("b1", "icu", "2026-02-30", 30, "g_policy"),
+      ent("b2", "", "2026-10-05", 30, "g_policy"), ent("b3", "gone", "2026-10-05", 30, "g_policy"), ent("b4", "icu", "2026-10-05", 30, "s_policies"),
+      Object.assign(ent("b5", "icu", "2026-10-05", 30, 7), {}), Object.assign(ent("b6", "icu", "2026-10-05", 30, "g_other"), { detail: undefined }),
+      Object.assign(ent("b7", "icu", "2026-10-05", 30, "g_other"), { detail: 7 }), Object.assign(ent("b8", "icu", "2026-10-05", 30, "g_other"), { detail: {} }), "junk"
+    ];
+    const t5 = dstore({ dirEntries: JSON.parse(J(t5list).replace(/null/g, "null")) });
+    t5.dirEntries[8].minutes = NaN; t5.dirEntries[9].id = undefined; t5.dirEntries[15].category = 7; t5.dirEntries[16].detail = undefined;
+    const q5 = quiet(() => sb.repairData(t5)), E5 = t5.dirEntries, banner5 = q5.seen[0] || "", byId5 = {};
+    E5.forEach(e => { byId5[e.id] = e; });
+    const pass5 = JSON.parse(J(t5)), q5b = quiet(() => sb.repairData(pass5));
+    check("directorships T5: dirEntries repair - minutes coerced/rounded, unreadable or negative dropped LOUDLY by name, 0 and 1441 kept, ids renewed, unknown dirId/category kept, details coerced; 'and N more'",
+      byId5.a1 && byId5.a1.minutes === 90 && byId5.a2.minutes === 90 && !byId5.a3 && byId5.a4.minutes === 0 && byId5.a5.minutes === 1441 && !byId5.a6 && !byId5.a7 && !byId5.a8 && !byId5.a9 &&
+      E5.filter(e => e.date === "2026-10-03").length === 1 && E5.filter(e => e.id === "a1").length === 1 && E5.filter(e => e.date === "2026-10-04").length === 1 && !byId5.b1 && !byId5.b2 &&
+      byId5.b3 && byId5.b4 && byId5.b5.category === "" && byId5.b6.detail === "" && byId5.b7.detail === "7" && byId5.b8.detail === "" && E5.length === 12 &&
+      q5.seen.length === 1 && /Directorship time entries ICU 2026-10-02, ICU 2026-10-02, ICU 2026-10-02, ICU 2026-10-02, ICU 2026-10-02 and 3 more were unreadable/.test(banner5) &&
+      q5b.r.length === 0 && J(pass5) === J(t5),
+      J({ n: E5.length, banner: banner5.slice(0, 260) }));
+
+    // T6 dirHandoff and dirSignatureEnc
+    const t6 = dstore({ dirHandoff: { "icu:2026-10": { date: "2026-11-02", entriesHash: "h1-1-00000000000001" }, "bad": { date: "2026-11-02", entriesHash: "x" }, "icu:2026-13": { date: "2026-11-02", entriesHash: "x" },
+      "icu:2026-09": { date: "junk", entriesHash: "x" }, "a:b:2026-08": { date: "2026-09-01", entriesHash: "y" }, "gone:2026-07": { date: "2026-08-01", entriesHash: "z" } }, dirSignatureEnc: { ct: "Y3Q=", salt: "c2E=", iv: "aXY=", v: 2 } });
+    const q6 = quiet(() => sb.repairData(t6));
+    const t6b = dstore({ dirHandoff: [], dirSignatureEnc: { ct: "", salt: "x", iv: "y" } }), q6b = quiet(() => sb.repairData(t6b));
+    const t6c = dstore({ dirSignatureEnc: "plain" }), q6c = quiet(() => sb.repairData(t6c));
+    check("directorships T6: hand-off records validated per key (bad ones dropped LOUDLY, unknown dirId kept); signature kept when well-formed, else null LOUDLY",
+      J(Object.keys(t6.dirHandoff).sort()) === J(["a:b:2026-08", "gone:2026-07", "icu:2026-10"]) && q6.seen.length === 1 && /Hand-off records bad, icu:2026-13, icu:2026-09 were unreadable/.test(q6.seen[0]) &&
+      J(t6.dirSignatureEnc) === J({ ct: "Y3Q=", salt: "c2E=", iv: "aXY=", v: 2 }) &&
+      J(t6b.dirHandoff) === "{}" && t6b.dirSignatureEnc === null && q6b.seen.length === 1 && /hand-off records were unreadable/.test(q6b.seen[0]) && /signature was unreadable/.test(q6b.seen[0]) &&
+      t6c.dirSignatureEnc === null && q6c.seen.length === 1,
+      J({ keys: Object.keys(t6.dirHandoff), b: q6.seen }));
+
+    // T7 writer contract: every writer's output passes repairData unchanged.
+    const nG = sb.dirNew("genesis", "Pat Doe, MD"), nS = sb.dirNew("select", "Pat Doe, MD");
+    const edDraft = { name: "ICU Co\u2013Director \u201CA\u201D", shortName: "ICU", org: "Org", printName: "Pat Doe, MD", form: "genesis", emplNo: "12", costCtr: "34", rate: "$1,200.50", maxHours: "4.5" };
+    const ed1 = sb.dirFromEditorDraft([ICU], null, Object.assign({}, edDraft, { name: "Made-up Director" }));
+    const ed2 = sb.dirFromEditorDraft(PRESET_SPEC, WC, { name: WC.name, shortName: "W", org: WC.org, printName: WC.printName, form: "select", rate: "215", maxHours: "8", hospital: "H", programType: "P", physicianName: "Pat", contractingParty: "C", remit1: "1 A St", remit2: "Town, ST 00000", glNo: "1-2", hospitalNo: "9" });
+    const eB = sb.dirEntryFromDraft({ date: "2026-10-05", minutes: 90, category: "g_meeting", detail: "  CNO   team " }, ICU, sb.dirEntryId(0));
+    const rep7 = sb.dirRepeatDraft([ent("r1", "icu", "2026-09-30", 60, "g_policy")], "icu", "2026-10", "2026-10-31").map((d, i) => sb.dirEntryFromDraft(d, ICU, sb.dirEntryId(i)).entry);
+    const hm = sb.dirHandoffMark({}, "icu", "2026-10", "2026-11-02", "h1-1-00000000000001"), hc = sb.dirHandoffClear(hm, "icu", "2026-10");
+    const prev7 = dstore({ directorships: sb.defaultDirectorships(), dirEntries: [eB.entry], dirHandoff: hm });
+    const rm = sb.dirRemove(prev7, "trauma"), rmU = sb.dirRemoveUndo(rm.next, rm), rmU2 = sb.dirRemoveUndo(rmU, rm);
+    const undoSave = Object.assign({}, prev7, { dirEntries: sb.payUndoApply(sb.dirEntriesOf(prev7), { remove: [eB.entry.id], restore: [] }) });
+    const editOld = Object.assign({}, eB.entry, { minutes: 30 }), editNow = Object.assign({}, prev7, { dirEntries: [editOld] });
+    const undoEdit = Object.assign({}, editNow, { dirEntries: sb.payUndoApply(sb.dirEntriesOf(editNow), { remove: [], restore: [eB.entry] }) });
+    const undoDel = Object.assign({}, prev7, { dirEntries: sb.payUndoApply([], { remove: [], restore: [eB.entry], at: 0 }) });
+    const sigStore = Object.assign({}, prev7, { dirSignatureEnc: { ct: "Y3Q=", salt: "c2E=", iv: "aXY=" } });
+    const W7 = [
+      ["defaultDirectorships", dstore({ directorships: sb.defaultDirectorships() })], ["dirNew genesis", dstore({ directorships: [nG] })], ["dirNew select", dstore({ directorships: [nS] })],
+      ["dirFromEditorDraft new", dstore({ directorships: [ICU, ed1.dir] })], ["dirFromEditorDraft select", dstore({ directorships: [ICU, ed2.dir] })],
+      ["dirEntryFromDraft", dstore({ dirEntries: [eB.entry] })], ["repeat confirm", dstore({ dirEntries: rep7 })],
+      ["dirHandoffMark", dstore({ dirHandoff: hm })], ["dirHandoffClear", dstore({ dirHandoff: hc })],
+      ["dirRestoreBuiltIns", sb.dirRestoreBuiltIns(dstore({ directorships: [] }))], ["dirRestoreBuiltIn", sb.dirRestoreBuiltIn(dstore({ directorships: [ICU] }), "wound")],
+      ["dirDropOrphans", sb.dirDropOrphans(dstore({ directorships: [ICU], dirEntries: [eB.entry, ent("o1", "gone", "2026-10-05", 30, "g_policy")], dirHandoff: { "gone:2026-10": { date: "2026-11-01", entriesHash: "h" } } }))],
+      ["dirRemove", rm.next], ["dirRemoveUndo", rmU], ["undo save", undoSave], ["undo edit", undoEdit], ["undo delete", undoDel], ["signature stored", sigStore],
+      ["signature removed", Object.assign({}, sigStore, { dirSignatureEnc: null })]
+    ];
+    const bad7 = W7.filter(w => !fixedPt(JSON.parse(J(w[1]))));
+    check("directorships T7 CONTRACT: every writer's output (and both undo paths) passes repairData unchanged and validates (" + W7.length + " cases)",
+      bad7.length === 0 && ed1.errors.length === 0 && ed2.errors.length === 0 && eB.problems.length === 0 && rep7.length === 1 && rep7.every(Boolean) &&
+      J(Object.keys(rep7[0])) === J(["id", "dirId", "date", "minutes", "category", "detail"]) && J(rmU) === J(prev7) && rmU2 === rmU &&
+      J(undoEdit.dirEntries) === J([eB.entry]) && J(undoDel.dirEntries) === J([eB.entry]) && J(undoSave.dirEntries) === "[]",
+      bad7.map(w => w[0]).join(", "));
+
+    // T8 ids
+    const idsE = [], idsD = [];
+    for (let i = 0; i < 2000; i++) { idsE.push(sb.dirEntryId(i % 7)); idsD.push(sb.dirNewId()); }
+    check("directorships T8: 2000 dirEntryId / dirNewId values are unique, well-formed and colon-free",
+      new Set(idsE).size === 2000 && new Set(idsD).size === 2000 && idsE.every(x => /^\d{13}-dir\d+-[a-z0-9]{6}$/.test(x)) && idsD.every(x => /^dir-[a-z0-9]+-[a-z0-9]{6}$/.test(x)));
+
+    // T9 hash
+    const H = (list, id, ym) => sb.dirEntriesHash(list, id || "icu", ym || "2026-10");
+    const base9 = [ent("h1", "icu", "2026-10-02", 45, "g_policy"), ent("h2", "icu", "2026-10-04", 30, "g_policy"), ent("h3", "trauma", "2026-10-03", 30, "g_policy"), ent("h4", "icu", "2026-09-30", 30, "g_policy")];
+    const h0 = H(base9);
+    const mod = (i, k, v) => base9.map((e, j) => j === i ? Object.assign({}, e, { [k]: v }) : e);
+    const cnoA = [ent("c1", "icu", "2026-10-05", 60, "g_meeting", "cno"), ent("c2", "icu", "2026-10-05", 60, "g_meeting", "CNO")];
+    const cnoB = cnoA.slice().reverse();
+    const cnoStoreA = withEntries(cnoA, { directorships: [ICU] }), cnoStoreB = withEntries(cnoB, { directorships: [ICU] });
+    check("directorships T9: hash h1-n-hex14, deterministic, order/id/other-month independent; changes on any printed field, add, delete; whitespace-only no, case yes; case-only tie is total",
+      /^h1-\d+-[0-9a-f]{14}$/.test(h0) && h0 === H(base9.slice().reverse()) && h0 === H(base9.map(e => Object.assign({}, e, { id: e.id + "x" }))) && h0 === H(base9.slice(0, 2)) &&
+      H(mod(0, "date", "2026-10-03")) !== h0 && H(mod(0, "category", "g_goals")) !== h0 && H(mod(0, "minutes", 46)) !== h0 &&
+      H(base9.concat([ent("h5", "icu", "2026-10-06", 15, "g_goals")])) !== h0 && H(base9.slice(1)) !== h0 && H(base9.concat([base9[0]])) !== h0 &&
+      H([ent("d1", "icu", "2026-10-05", 30, "g_other", "Budget")]) === H([ent("d1", "icu", "2026-10-05", 30, "g_other", "  Budget ")]) &&
+      H([ent("d1", "icu", "2026-10-05", 30, "g_other", "Budget")]) !== H([ent("d1", "icu", "2026-10-05", 30, "g_other", "budget")]) &&
+      H(cnoA) === H(cnoB) && J(sb.dirMonthEntries(cnoA, "icu", "2026-10").map(e => e.detail)) === J(["CNO", "cno"]) &&
+      J(sb.dirMonthEntries(cnoB, "icu", "2026-10").map(e => e.detail)) === J(["CNO", "cno"]) &&
+      sb.dirFormModel(cnoStoreA, "icu", "2026-10", "2026-11-02").rows.filter(r => r.key === "g_meeting")[0].text === "Meeting with CNO to discuss" &&
+      sb.dirFormModel(cnoStoreB, "icu", "2026-10", "2026-11-02").rows.filter(r => r.key === "g_meeting")[0].text === "Meeting with CNO to discuss");
+
+    // T10 status and count
+    const st10 = dstore({});
+    const S10 = () => sb.dirMonthStatus(st10, "icu", "2026-10").state;
+    const s1 = S10(); st10.dirEntries = [ent("s1", "icu", "2026-10-02", 60, "g_policy")]; const s2 = S10();
+    st10.dirHandoff = sb.dirHandoffMark({}, "icu", "2026-10", "2026-11-02", sb.dirEntriesHash(st10.dirEntries, "icu", "2026-10")); const s3 = S10(), c3 = sb.dirHandoffCount(st10, "2026-10");
+    st10.dirEntries = st10.dirEntries.concat([ent("s2", "icu", "2026-10-03", 30, "g_policy")]); const s4 = S10();
+    st10.dirHandoff = sb.dirHandoffMark(st10.dirHandoff, "icu", "2026-10", "2026-11-03", sb.dirEntriesHash(st10.dirEntries, "icu", "2026-10")); const s5 = S10();
+    ["trauma", "wound"].forEach(id => { st10.dirHandoff = sb.dirHandoffMark(st10.dirHandoff, id, "2026-10", "2026-11-03", sb.dirEntriesHash(st10.dirEntries, id, "2026-10")); });
+    const c6 = sb.dirHandoffCount(st10, "2026-10");
+    st10.dirEntries = st10.dirEntries.concat([ent("s3", "wound", "2026-10-03", 30, "s_policies")]); const c7 = sb.dirHandoffCount(st10, "2026-10");
+    check("directorships T10: none -> progress -> handed -> changed -> handed again; count counts only handed (a changed month is not done)",
+      J([s1, s2, s3, s4, s5]) === J(["none", "progress", "handed", "changed", "handed"]) && J(c3) === J({ done: 1, total: 3 }) && J(c6) === J({ done: 3, total: 3 }) && J(c7) === J({ done: 2, total: 3 }) &&
+      J(sb.dirHandoffCount(dstore({}), "2026-10")) === J({ done: 0, total: 3 }));
+
+    // T11 signature pure parts
+    const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==";
+    const realW = sb.window;
+    let still = [];
+    try {
+      sb.window = { RVU_CRYPTO: { getPin: () => "246810" } };
+      still = [sb.dirSigStillValid("246810"), sb.dirSigStillValid("135791"), sb.dirSigStillValid(""), sb.dirSigStillValid(null)];
+      sb.window = { RVU_CRYPTO: { getPin: () => null } };
+      still.push(sb.dirSigStillValid("246810"));
+    } finally { sb.window = realW; }
+    const ex1 = sb.dirSigExportSize(1800, 420), ex2 = sb.dirSigExportSize(300, 100), ex3 = sb.dirSigExportSize(0, 50);
+    check("directorships T11: signature pure parts - precheck, PNG-only plaintext with a size cap, export size contain-fit (never upscaled), PIN binding",
+      sb.dirSigPrecheck(null, "1") === "none" && sb.dirSigPrecheck({ ct: "a" }, null) === "locked" && sb.dirSigPrecheck({ ct: "a" }, "1") === "decrypt" &&
+      J(sb.dirSigFromPlain(png)) === J({ state: "ok", url: png }) && sb.dirSigFromPlain("data:image/jpeg;base64,/9j/4AA=").state === "unreadable" && sb.dirSigFromPlain("junk").state === "unreadable" &&
+      sb.dirSigPngOk("data:image/png;base64," + "A".repeat(sb.DIR_SIG_MAX)) === false && sb.dirSigPngOk(png + " ") === false && sb.dirSigPngOk(7) === false &&
+      ex1.w <= 600 && ex1.h <= 200 && Math.abs(ex1.w / ex1.h - 1800 / 420) < 0.02 && J(ex2) === J({ w: 300, h: 100 }) && J(ex3) === J({ w: 0, h: 0 }) &&
+      J(still) === J([true, false, false, false, false]),
+      J({ ex1: ex1, still: still }));
+
+    // T12 restore note
+    const phone12 = dstore({ dirEntries: [ent("p1", "icu", "2026-10-02", 60, "g_policy")], dirSignatureEnc: { ct: "a", salt: "b", iv: "c" } });
+    const preBackup = { entries: [], settings: { ratePerRVU: 55 } };
+    const n12a = sb.dirRestoreNote(preBackup, phone12), n12b = sb.dirRestoreNote(preBackup, dstore({})), n12c = sb.dirRestoreNote(preBackup, dstore({ directorships: [ICU] }));
+    const n12d = sb.dirRestoreNote(Object.assign({}, preBackup, { directorships: [], dirEntries: [ent("q", "icu", "2026-10-01", 5, "g_policy")] }), phone12);
+    check("directorships T12: dirRestoreNote - hours and signature parts for a pre-change backup over a preset phone, '' for a clean phone, 'predates' only when the phone's list differs",
+      n12a === " WARNING: this backup has no directorship hours - the 1 time entry on this phone will be removed; your saved signature will be removed (draw it again after restoring)." &&
+      n12b === "" && n12c === " WARNING: this backup predates directorships - the built-in directorships will replace the ones on this phone." &&
+      n12d === " WARNING: your saved signature will be removed (draw it again after restoring).",
+      J([n12a, n12b, n12c, n12d]));
+
+    // T13 editor
+    const okDraft = { name: "Made-up Lead", shortName: "ML", org: "Org", printName: "Pat Doe, MD", form: "genesis", emplNo: "", costCtr: "", rate: "100", maxHours: "2" };
+    const errs = o => sb.dirFromEditorDraft(PRESET_SPEC, null, Object.assign({}, okDraft, o)).errors.map(e => e.field).join();
+    const curly = sb.dirFromEditorDraft(PRESET_SPEC, null, Object.assign({}, okDraft, { name: "Lead\u2019s ICU\u2013Group" }));
+    const switched = sb.dirFromEditorDraft(PRESET_SPEC, ICU, Object.assign({}, okDraft, { name: ICU.name, form: "select", hospital: "H" }));
+    const ents13 = [ent("f1", "icu", "2026-10-02", 60, "g_policy"), ent("f2", "icu", "2026-10-03", 60, "g_policy"), ent("f3", "trauma", "2026-10-03", 60, "g_policy")], ents13Json = J(ents13);
+    check("directorships T13: dirNumFromText and dirFromEditorDraft refusals/acceptances; a form switch keeps entries and builds a full Select header",
+      sb.dirNumFromText("4.5") === 4.5 && sb.dirNumFromText("$1,720") === 1720 && ["", "0", "-1", "abc", "1e3", null].every(v => sb.dirNumFromText(v) === null) &&
+      errs({ name: "" }) === "name" && errs({ name: "A/B" }) === "name" && errs({ printName: ", MD" }) === "printName" && errs({ name: " icu   co-director " }) === "name" &&
+      errs({ rate: "0", maxHours: "x" }) === "rate,maxHours" && curly.errors.length === 0 && curly.dir.name === "Lead's ICU-Group" && errs({ name: "Lead \u201CA\u201D" }) === "name" &&
+      errs({ printName: "Faraz" }) === "" && switched.errors.length === 0 && switched.dir.form === "select" && switched.dir.selectHeader.hospital === "H" &&
+      J(switched.dir.selectHeader.remitAddress) === J(["", ""]) && switched.dir.id === "icu" && J(ents13) === ents13Json &&
+      sb.dirFormInUse(ents13, "icu") === 2 && sb.dirFormInUse(ents13, "wound") === 0);
+
+    // T14 calendar
+    let mdOk = true;
+    for (let y = 2024; y <= 2030; y++) for (let m = 1; m <= 12; m++) if (sb.dirMonthDays(y, m) !== new Date(y, m, 0).getDate()) mdOk = false;
+    const wk = ["2026-10-01", "2026-10-07", "2026-10-08", "2026-10-14", "2026-10-15", "2026-10-21", "2026-10-22", "2026-10-28", "2026-10-29", "2026-10-31", "2028-02-29"].map(sb.dirWeekOf);
+    check("directorships T14: month lengths (leap years), weeks by day of month, week labels (Feb 2027 W5 blank), month arithmetic and formats",
+      mdOk && sb.dirMonthDays(1900, 2) === 28 && sb.dirMonthDays(2000, 2) === 29 && sb.dirMonthDays(2027, 2) === 28 && sb.dirMonthDays(2028, 2) === 29 && sb.dirMonthDays(2100, 2) === 28 && sb.dirMonthDays(2026, 13) === 0 &&
+      J(wk) === J([1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 5]) && ["2027-02-29", "2026-09-31", "2026-13-01", "2026-10-1", "junk"].every(x => sb.dirWeekOf(x) === 0) &&
+      J(sb.dirWeekRanges("2026-10").map(w => w.label)) === J(["10/1-10/7", "10/8-10/14", "10/15-10/21", "10/22-10/28", "10/29-10/31"]) &&
+      J(sb.dirWeekRanges("2027-02").map(w => w.label).slice(3)) === J(["2/22-2/28", ""]) && sb.dirWeekRanges("2028-02")[4].label === "2/29" && sb.dirWeekRanges("2026-09")[4].label === "9/29-9/30" &&
+      sb.dirAddMonths("2026-12", 1) === "2027-01" && sb.dirAddMonths("2027-01", -1) === "2026-12" && sb.dirAddMonths("2026-10", -22) === "2024-12" &&
+      sb.dirAddMonths("2026-13", 1) === "" && sb.dirAddMonths("junk", 1) === "" && sb.dirAddMonths("2026-10", 1.5) === "" &&
+      sb.dirMonthLabel("2026-10") === "October 2026" && sb.dirMD("2026-10-02") === "10/2" && sb.dirMDY("2026-11-02") === "11/2/2026" && sb.dirMDY("2027-01-05") === "1/5/2027");
+
+    // T15 h:mm, T16 decimal hours
+    const HM = [[0, "0:00"], [15, "0:15"], [270, "4:30"], [300, "5:00"], [600, "10:00"], [1440, "24:00"], [59, "0:59"], [61, "1:01"]];
+    const PH_OK = [[["4", "30"], 270], [["", "15"], 15], [["24", "0"], 1440], [["0", "21"], 21], [["0", "20"], 20]];
+    const PH_BAD = [["0", "0"], ["1", "60"], ["24", "1"], ["1", "5.5"], ["-1", "0"], ["abc", ""], ["", ""]];
+    check("directorships T15: h:mm format, and the custom-time parser (any whole minute 0:01-24:00; junk refused with a reason)",
+      HM.every(t => sb.dirFmtHM(t[0]) === t[1]) && sb.dirFmtHM(-1) === "" && sb.dirFmtHM("x") === "" &&
+      PH_OK.every(t => sb.dirParseHM(t[0][0], t[0][1]).min === t[1]) && PH_BAD.every(t => { const r = sb.dirParseHM(t[0], t[1]); return r.min === null && !!r.error; }));
+    const DEC = [[480, "8"], [90, "1.5"], [45, "0.75"], [20, "0.33"], [10, "0.17"], [40, "0.67"], [0, "0"], [1, "0.02"], [125, "2.08"], [15, "0.25"], [270, "4.5"]];
+    check("directorships T16: decimal hours print with up to 2 places, trailing zeros trimmed", DEC.every(t => sb.dirFmtHours(t[0]) === t[1]), J(DEC.map(t => sb.dirFmtHours(t[0]))));
+
+    // T17 money
+    const MON = [[0, "$0.00"], [900, "$900.00"], [1720, "$1,720.00"], [1234567.891, "$1,234,567.89"], [16.005, "$16.01"], [71.666666, "$71.67"], [0.1 + 0.2, "$0.30"], [200, "$200.00"], [53.75, "$53.75"]];
+    const capless = Object.assign({}, ICU, { maxHours: 0 }), rateless = Object.assign({}, ICU, { rate: 0 });
+    check("directorships T17: money format (no locale), the mask, the capped amount; a missing cap or rate blocks the form",
+      MON.every(t => sb.dirMoney(t[0]) === t[1]) && sb.dirMoneyShown(900, false) === sb.fmtDollar(900, false) && sb.dirMoneyShown(900, true) === "$900.00" &&
+      sb.dirAmount(270, ICU) === 900 && sb.dirAmount(300, ICU) === 900 && sb.dirAmount(480, WC) === 1720 && sb.dirAmount(510, WC) === 1720 && sb.dirAmount(21, WC) === 75.25 &&
+      sb.dirFormModel(dstore({ directorships: [capless] }), "icu", "2026-10", "2026-11-02").flags.some(f => f.code === "cap" && f.level === "block") &&
+      sb.dirFormModel(dstore({ directorships: [rateless] }), "icu", "2026-10", "2026-11-02").flags.some(f => f.code === "rate" && f.level === "block"));
+
+    // Trauma Medical Director: 4.25 h a month at $200 (owner, 2026-10-18).
+    const TR = PRESET_SPEC[1], mTR = sb.dirFormModel(dstore({ dirEntries: [ent("tr1", "trauma", "2026-10-05", 180, "g_policy"), ent("tr2", "trauma", "2026-10-12", 90, "g_safety")] }), "trauma", "2026-10", "2026-11-02");
+    check("directorships T17b: Trauma caps at 4:15 - 4:30 logged prints 4:30, Due $850.00, with the over-cap warning",
+      TR.maxHours === 4.25 && sb.dirAmount(255, TR) === 850 && sb.dirAmount(270, TR) === 850 && sb.dirAmount(240, TR) === 800 && mTR.footer.totalHrs === "4:30" && mTR.footer.due === "$850.00" &&
+      mTR.flags.some(fl => fl.code === "overCap" && fl.text === "Over the 4:15 monthly cap: the form prints all 4:30; Due counts 4:15."), JSON.stringify(mTR.flags));
+    // T18 file names (the exact contract the monthly email task depends on)
+    const P18 = dstore({});
+    const fnBad = (o) => sb.dirFileNameProblem(dstore({ directorships: [Object.assign({}, ICU, o), PRESET_SPEC[1]] }), Object.assign({}, ICU, o));
+    check("directorships T18: the three October 2026 file names are EXACT; surname rule; every file-name problem text; rename note",
+      sb.dirFileName(sb.dirById(P18, "icu"), "2026-10") === "Khan - ICU Co-Director Timesheet - 2026-10.pdf" &&
+      sb.dirFileName(sb.dirById(P18, "trauma"), "2026-10") === "Khan - Trauma Medical Director Timesheet - 2026-10.pdf" &&
+      sb.dirFileName(sb.dirById(P18, "wound"), "2026-10") === "Khan - Wound Care Program Director Timesheet - 2026-10.pdf" &&
+      ["Faraz Khan, MD", "Faraz Khan", "Khan"].every(n => sb.dirSurname(n) === "Khan") && sb.dirSurname("  Faraz   Khan ,MD, FACS") === "Khan" &&
+      sb.dirSurname("Mary Smith-Jones, DO") === "Smith-Jones" && ["", ", MD", null].every(n => sb.dirSurname(n) === "") &&
+      fnBad({ printName: ", MD" }) === "Add a Print Name with a surname in Settings > Directorships." && fnBad({ name: " " }) === "Give this directorship a name in Settings > Directorships." &&
+      fnBad({ name: "trauma  MEDICAL director" }) === "Two directorships are named trauma  MEDICAL director - rename one (their files would collide)." &&
+      /character file names can't use/.test(fnBad({ name: "ICU/A" })) && /non-ASCII/.test(fnBad({ name: "ICU \u00E9" })) && fnBad({}) === "" &&
+      sb.dirFileNameNote(ICU, Object.assign({}, ICU), "2026-10") === "" &&
+      sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "ICU Director" }), "2026-10") === "The monthly email task finds these PDFs by this exact file name: Khan - ICU Director Timesheet - 2026-10.pdf (was Khan - ICU Co-Director Timesheet - 2026-10.pdf).");
+
+    // T19-T20 ICU model, October 2026
+    const icuList = [ent("i1", "icu", "2026-10-04", 30, "g_policy"), ent("i2", "icu", "2026-10-02", 45, "g_policy"), ent("i3", "icu", "2026-10-13", 60, "g_quality"),
+      ent("i4", "icu", "2026-10-20", 135, "g_meeting", "CNO"), ent("i5", "trauma", "2026-10-03", 60, "g_policy"), ent("i6", "icu", "2026-09-30", 60, "g_policy")];
+    const S19 = dstore({ dirEntries: icuList }), S19json = J(S19), RowsJson = J(sb.DIR_GENESIS_ROWS) + J(sb.DIR_SELECT_ROWS);
+    const m19 = sb.dirFormModel(S19, "icu", "2026-10", "2026-11-02"), pol = m19.rows.filter(r => r.key === "g_policy")[0];
+    check("directorships T19: ICU October model - shared cell dates + summed duration, weekly totals, Total 4:30, $200.00, $900.00, DFEE, 23 rows, Meeting slots, ok",
+      J({ d: pol.cells[0].datesText, u: pol.cells[0].dur }) === J({ d: "10/2, 10/4", u: "1:15" }) && J(m19.weekText) === J(["1:15", "1:00", "2:15", "0:00", "0:00"]) &&
+      m19.totalText === "4:30" && m19.footer.rate === "$200.00" && m19.footer.due === "$900.00" && m19.footer.payCode === "DFEE" && m19.overCap === false &&
+      m19.generatedText === "11/2/2026" && m19.rows.length === 23 && J(m19.rows.filter(r => r.key === "g_meeting").map(r => r.text)) === J(["Meeting with CNO to discuss", "Meeting with ____ to discuss", "Meeting with ____ to discuss", "Meeting with ____ to discuss"]) &&
+      m19.ok === true && m19.header.printName === "Faraz Khan, MD" && m19.header.monthYear === "October 2026" && m19.sig.date === "11/2/2026" &&
+      m19.fileName === "Khan - ICU Co-Director Timesheet - 2026-10.pdf" && m19.hash === sb.dirEntriesHash(icuList, "icu", "2026-10"),
+      J({ cell: pol.cells[0], weeks: m19.weekText, total: m19.totalText, flags: m19.flags }));
+    const m20 = sb.dirFormModel(dstore({ dirEntries: icuList.concat([ent("i7", "icu", "2026-10-27", 30, "g_goals")]) }), "icu", "2026-10", "2026-11-02");
+    check("directorships T20: over the cap the form prints 5:00 and Due stays $900.00, with the exact amber warning",
+      m20.totalText === "5:00" && m20.footer.due === "$900.00" && m20.overCap === true && m20.ok === true &&
+      m20.flags.some(f => f.level === "warn" && f.code === "overCap" && f.text === "Over the 4:30 monthly cap: the form prints all 5:00; Due counts 4:30."));
+
+    // T21 Wound model
+    const wList = [ent("w1", "wound", "2026-10-01", 120, "s_policies"), ent("w2", "wound", "2026-10-09", 90, "s_committees"), ent("w3", "wound", "2026-10-16", 90, "s_travel", "Regional wound care committee"),
+      ent("w4", "wound", "2026-10-23", 60, "s_staff_ed"), ent("w5", "wound", "2026-10-30", 120, "s_outcomes")];
+    const m21 = sb.dirFormModel(dstore({ dirEntries: wList }), "wound", "2026-10", "2026-11-02"), m21f = sb.dirFormModel(dstore({}), "wound", "2027-02", "2027-03-02");
+    check("directorships T21: Wound October model - Total Hours 8, $1,720.00, remit lines, weekly totals, row 9 detail, 10 rows; Feb 2027 W5 blank",
+      m21.totalText === "8" && m21.header.totalDue === "$1,720.00" && J(m21.header.remit) === J(["1228 E Rusholme St. Suite 3020", "Davenport, IA 52803"]) &&
+      J(m21.weekText) === J(["2", "1.5", "1.5", "1", "2"]) && m21.rows[8].detailText === "Regional wound care committee" && m21.rows.length === 10 &&
+      m21.header.periodMonth === "OCTOBER" && m21.header.periodYear === "2026" && m21.header.glNo === "150-6700-64931" && m21.ok === true &&
+      J(m21.weeks.map(w => w.label)) === J(["10/1-10/7", "10/8-10/14", "10/15-10/21", "10/22-10/28", "10/29-10/31"]) &&
+      m21f.weeks[4].label === "" && m21f.weekText[4] === "" && m21f.weekText[3] === "0",
+      J({ total: m21.totalText, weeks: m21.weekText, flags: m21.flags }));
+
+    // T22 slots
+    const meet = (id, d, det) => ent(id, "icu", d, 30, "g_meeting", det), oth = (id, d, det) => ent(id, "icu", d, 30, "g_other", det);
+    const mText = list => sb.dirFormModel(dstore({ dirEntries: list }), "icu", "2026-10", "2026-11-02").rows.filter(r => r.key === "g_meeting").map(r => r.text);
+    const oText = list => sb.dirFormModel(dstore({ dirEntries: list }), "icu", "2026-10", "2026-11-02").rows.filter(r => r.key === "g_other").map(r => r.text);
+    const reuse = sb.dirFormModel(dstore({ dirEntries: [meet("m1", "2026-10-05", "CNO"), meet("m2", "2026-10-12", "  cno ")] }), "icu", "2026-10", "2026-11-02").rows.filter(r => r.key === "g_meeting")[0];
+    const five = sb.dirFormModel(dstore({ dirEntries: ["A", "B", "C", "D", "E"].map((x, i) => meet("f" + i, "2026-10-0" + (i + 1), x)) }), "icu", "2026-10", "2026-11-02");
+    check("directorships T22: Other/Meeting slots - first-appearance order, reuse across weeks, overflow combined into the last slot with the exact flag",
+      J(mText([meet("a", "2026-10-05", "CNO"), meet("b", "2026-10-06", "Pharmacy"), meet("c", "2026-10-07", "Quality team")])) === J(["Meeting with CNO to discuss", "Meeting with Pharmacy to discuss", "Meeting with Quality team to discuss", "Meeting with ____ to discuss"]) &&
+      reuse.text === "Meeting with CNO to discuss" && reuse.cells[0].datesText === "10/5" && reuse.cells[1].datesText === "10/12" &&
+      J(five.rows.filter(r => r.key === "g_meeting").map(r => r.text)) === J(["Meeting with A to discuss", "Meeting with B to discuss", "Meeting with C to discuss", "Meeting with D; E to discuss"]) &&
+      five.flags.some(f => f.code === "combined" && f.text === "Meeting: 5 different details for 4 lines - the last line combines 2 of them.") &&
+      J(five.rows.filter(r => r.key === "g_meeting").map(r => r.cells[0].datesText)) === J(["10/1", "10/2", "10/3", "10/4, 10/5"]) &&
+      J(oText(["A", "B", "C", "D", "E"].map((x, i) => oth("o" + i, "2026-10-0" + (i + 1), x)))) === J(["Other: A", "Other: B", "Other: C; D; E"]) &&
+      J(mText([meet("x1", "2026-10-05", "B"), meet("x2", "2026-10-03", "A"), meet("x3", "2026-10-05", "C")]).slice(0, 3)) === J(["Meeting with A to discuss", "Meeting with B to discuss", "Meeting with C to discuss"]));
+
+    // T23 cells: every date prints (owner decision 7 default), once each
+    const cellOf = (list, key) => sb.dirFormModel(dstore({ dirEntries: list }), "icu", "2026-10", "2026-11-02").rows.filter(r => r.key === key)[0].cells;
+    const run = (a, b) => { const out = []; for (let d = a; d <= b; d++) out.push(ent("r" + d, "icu", "2026-10-" + String(d).padStart(2, "0"), 15, "g_policy")); return out; };
+    check("directorships T23: date cells list every date comma-joined (no ranges), a date logged twice prints once, storage order never matters",
+      cellOf(run(5, 7).concat(run(8, 9)), "g_policy")[0].datesText === "10/5, 10/6, 10/7" && cellOf(run(8, 9), "g_policy")[1].datesText === "10/8, 10/9" &&
+      cellOf(run(22, 28), "g_policy")[3].datesText === "10/22, 10/23, 10/24, 10/25, 10/26, 10/27, 10/28" &&
+      cellOf([ent("t1", "icu", "2026-10-02", 30, "g_policy"), ent("t2", "icu", "2026-10-02", 15, "g_policy")], "g_policy")[0].datesText === "10/2" &&
+      cellOf([ent("t3", "icu", "2026-10-04", 30, "g_policy"), ent("t4", "icu", "2026-10-02", 15, "g_policy")], "g_policy")[0].datesText === "10/2, 10/4");
+
+    // T24 blocks, warns, notes; never mutates inputs or the row constants
+    const flagsOf = (list, today, extra) => sb.dirFormModel(dstore(Object.assign({ dirEntries: list }, extra || {})), "icu", "2026-10", today || "2026-11-02").flags.map(f => f.level + ":" + f.code);
+    const empty24 = sb.dirFormModel(dstore({}), "icu", "2026-10", "2026-11-02");
+    const sel24 = sb.dirFormModel(dstore({ dirEntries: [ent("q1", "wound", "2026-10-01", 20, "s_policies"), ent("q2", "wound", "2026-10-02", 20, "s_policies"), ent("q3", "wound", "2026-10-03", 20, "s_policies")] }), "wound", "2026-10", "2026-11-02");
+    check("directorships T24: each block fires alone (unplaced, noDetail, badMinutes, future, fileName); empty month warns but stays ok; Select rounding note; inputs and DIR_* untouched",
+      flagsOf([ent("u1", "icu", "2026-10-02", 30, "s_policies")]).indexOf("block:unplaced") !== -1 && flagsOf([ent("u2", "icu", "2026-10-02", 30, "g_other", "  ")]).indexOf("block:noDetail") !== -1 &&
+      flagsOf([ent("u3", "icu", "2026-10-02", 0, "g_policy")]).indexOf("block:badMinutes") !== -1 && flagsOf([ent("u4", "icu", "2026-10-20", 30, "g_policy")], "2026-10-15").indexOf("block:future") !== -1 &&
+      flagsOf([], "2026-11-02", { directorships: [Object.assign({}, ICU, { printName: "" }), PRESET_SPEC[1], WC] }).indexOf("block:fileName") !== -1 &&
+      empty24.ok === true && empty24.flags.some(f => f.code === "empty" && f.level === "warn") && empty24.footer.totalHrs === "0:00" && empty24.footer.due === "$0.00" &&
+      J(empty24.weekText) === J(["0:00", "0:00", "0:00", "0:00", "0:00"]) && flagsOf([], "2026-10-20").indexOf("warn:monthOpen") !== -1 &&
+      sel24.rows[0].cells[0].dur === "1" && sel24.rows[0].cells[0].datesText === "10/1, 10/2, 10/3" && sel24.flags.every(f => f.code !== "rounded") &&
+      sb.dirFormModel(dstore({ dirEntries: [ent("q4", "wound", "2026-10-01", 20, "s_policies")] }), "wound", "2026-10", "2026-11-02").flags.some(f => f.code === "rounded" && f.level === "note") &&
+      J(S19) === S19json && J(sb.DIR_GENESIS_ROWS) + J(sb.DIR_SELECT_ROWS) === RowsJson);
+
+    // T25 default month and reminder
+    const allDone = ym => { const s = dstore({}); ["icu", "trauma", "wound"].forEach(id => { s.dirHandoff = sb.dirHandoffMark(s.dirHandoff || {}, id, ym, "2026-11-02", sb.dirEntriesHash([], id, ym)); }); return s; };
+    const oneChanged = (() => { const s = allDone("2026-10"); s.dirEntries = [ent("z", "icu", "2026-10-02", 30, "g_policy")]; return s; })();
+    const WIN = [["2026-10-24", ""], ["2026-10-25", "2026-10"], ["2026-10-31", "2026-10"], ["2026-11-01", "2026-10"], ["2026-11-05", "2026-10"], ["2026-11-06", ""], ["2026-12-25", "2026-12"],
+      ["2027-01-05", "2026-12"], ["2027-01-06", ""], ["2027-02-28", "2027-02"], ["2027-03-01", "2027-02"], ["junk", ""]];
+    const half = (() => { const s = dstore({}); s.dirHandoff = sb.dirHandoffMark({}, "icu", "2026-10", "2026-11-01", sb.dirEntriesHash([], "icu", "2026-10")); return s; })();
+    check("directorships T25: default month (1st-5th = previous until fully handed off), the 25th-5th reminder window, the reminder line text, dismissal and late flag",
+      sb.dirDefaultMonth(dstore({}), "2026-11-03") === "2026-10" && sb.dirDefaultMonth(allDone("2026-10"), "2026-11-03") === "2026-11" && sb.dirDefaultMonth(oneChanged, "2026-11-05") === "2026-10" &&
+      sb.dirDefaultMonth(dstore({}), "2026-11-06") === "2026-11" && sb.dirDefaultMonth(dstore({ directorships: [] }), "2026-11-03") === "2026-11" && sb.dirDefaultMonth(dstore({}), "2027-01-05") === "2026-12" &&
+      WIN.every(t => sb.dirReminderMonth(t[0]) === t[1]) &&
+      J(sb.dirReminderLine(half, "2026-10-25", "")) === J({ ym: "2026-10", text: "October directorship forms: 1 of 3 handed off", done: 1, total: 3, late: false }) &&
+      sb.dirReminderLine(allDone("2026-10"), "2026-10-25", "") === null && sb.dirReminderLine(half, "2026-10-25", "2026-10") === null &&
+      sb.dirReminderLine(dstore({ directorships: [] }), "2026-10-25", "") === null && sb.dirReminderLine(half, "2026-11-01", "").late === true && sb.dirReminderLine(half, "2026-10-20", "") === null,
+      J(WIN.map(t => sb.dirReminderMonth(t[0]))));
+
+    // T26 repeat
+    const jan = [ent("j1", "icu", "2027-01-15", 30, "g_policy"), ent("j2", "icu", "2027-01-30", 45, "g_policy"), ent("j3", "icu", "2027-01-31", 60, "g_goals"), ent("j4", "trauma", "2027-01-10", 60, "g_policy")], janJson = J(jan);
+    const rFeb = sb.dirRepeatDraft(jan, "icu", "2027-02", "2027-12-31"), rFeb28 = sb.dirRepeatDraft(jan.map(e => Object.assign({}, e, { date: e.date.replace("2027", "2028") })), "icu", "2028-02", "2028-12-31");
+    const rNov = sb.dirRepeatDraft([ent("n1", "icu", "2026-10-30", 30, "g_policy"), ent("n2", "icu", "2026-10-02", 30, "g_policy"), ent("n3", "icu", "2026-11-02", 30, "g_policy")], "icu", "2026-11", "2026-11-25");
+    check("directorships T26: Repeat drafts move to the same day (clamped), flag future and exact duplicates, carry no id, skip other directorships, never mutate",
+      J(rFeb.map(d => d.date)) === J(["2027-02-15", "2027-02-28", "2027-02-28"]) && J(rFeb.map(d => d.clamped)) === J([false, true, true]) &&
+      J(rFeb28.map(d => d.date)) === J(["2028-02-15", "2028-02-29", "2028-02-29"]) &&
+      sb.dirRepeatDraft([ent("y", "icu", "2026-12-31", 30, "g_policy")], "icu", "2027-01", "2027-12-31")[0].date === "2027-01-31" &&
+      sb.dirRepeatDraft([ent("y", "icu", "2026-09-30", 30, "g_policy")], "icu", "2026-10", "2026-12-31")[0].date === "2026-10-30" &&
+      rNov.length === 2 && rNov.filter(d => d.date === "2026-11-30")[0].future === true && rNov.filter(d => d.date === "2026-11-30")[0].on === false &&
+      rNov.filter(d => d.date === "2026-11-02")[0].dup === true && rNov.filter(d => d.date === "2026-11-02")[0].on === false &&
+      rFeb.every(d => d.id === undefined && d.dirId === "icu") && J(jan) === janJson);
+
+    // T27 YTD
+    const ytd = dstore({ dirEntries: [ent("y1", "icu", "2026-10-05", 300, "g_policy"), ent("y2", "icu", "2026-10-20", 60, "g_policy"), ent("y3", "trauma", "2026-10-06", 60, "g_policy"),
+      ent("y4", "wound", "2026-10-07", 510, "s_policies"), ent("y5", "icu", "2026-09-10", 120, "g_policy"), ent("y6", "gone", "2026-10-05", 600, "g_policy"), ent("y7", "icu", "2025-12-31", 60, "g_policy")] });
+    const y1 = sb.dirTotalInRange(ytd, "2026-01-01", "2027-01-01", "2026-10-31"), y2 = sb.dirTotalInRange(ytd, "2026-01-01", "2027-01-01", "2026-10-15");
+    const twoMonths = sb.dirTotalInRange(dstore({ dirEntries: [ent("t1", "icu", "2026-08-03", 240, "g_policy"), ent("t2", "icu", "2026-09-03", 240, "g_policy")] }), "2026-01-01", "2027-01-01", null);
+    const fyJul = dstore({ dirEntries: [ent("j1", "icu", "2026-07-03", 180, "g_policy"), ent("j2", "icu", "2026-07-20", 180, "g_policy")] });
+    check("directorships T27: YTD pay - capped per directorship-month, placed entries only, upTo cut, whole months by their 1st (mid-month fiscal start)",
+      y1.total === 3220 && y1.entries === 5 && y2.total === 3220 && y2.entries === 4 && twoMonths.total === 1600 &&
+      sb.dirTotalInRange(fyJul, "2026-07-15", "2027-07-15", null).entries === 0 && sb.dirTotalInRange(fyJul, "2025-07-15", "2026-07-15", null).total === 900,
+      J({ y1: y1, y2: y2, twoMonths: twoMonths }));
+
+    // T28 reminder key
+    {
+      const realLS = sb.localStorage, writesR = [];
+      let okR = false;
+      try {
+        const memR = {};
+        sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(memR, k) ? memR[k] : null), setItem: (k, v) => { writesR.push(k); memR[k] = String(v); }, removeItem: () => {} };
+        const r0 = sb.readDirReminder(); memR["rvu-dir-reminder"] = "junk"; const r1 = sb.readDirReminder();
+        const d1 = sb.dismissDirReminder("2026-10"), r2 = sb.readDirReminder();
+        sb.localStorage = { getItem: () => { throw new Error("blocked"); }, setItem: () => { throw new Error("full"); }, removeItem: () => {} };
+        const r3 = sb.readDirReminder(), d2 = sb.dismissDirReminder("2026-11");
+        okR = r0 === "" && r1 === "" && d1 === "2026-10" && r2 === "2026-10" && r3 === "" && d2 === "2026-11" && J(writesR) === J(["rvu-dir-reminder"]) && sb.DIR_REMIND_KEY === "rvu-dir-reminder";
+      } finally { sb.localStorage = realLS; }
+      check("directorships T28: the reminder key is junk-proof, writes only rvu-dir-reminder, and storage errors never throw", okR, J(writesR));
+    }
+
+  // T30: the lazy jsPDF loader, in its own sandbox with a recording document
+  // and fake timers (a child node process, because the steps are async).
+  {
+    const probe30 = String.raw`
+      const vm = require("vm"), fs = require("fs");
+      const mk = () => {
+        const scripts = [], timers = [];
+        const head = { appendChild: s => { s.parentNode = head; scripts.push(s); }, removeChild: s => { s.parentNode = null; } };
+        const doc = { createElement: () => ({ style: {}, setAttribute: () => {}, appendChild: () => {} }), head: head, body: { appendChild: () => {} }, getElementById: () => null };
+        const win = {};
+        const ctx = vm.createContext({ console: { log: () => {}, warn: () => {}, error: () => {} }, React: {}, window: win, document: doc,
+          localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+          setTimeout: (fn, ms) => { timers.push({ fn: fn, ms: ms, live: true }); return timers.length - 1; }, clearTimeout: id => { if (timers[id]) timers[id].live = false; } });
+        vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+        vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), ctx);
+        return { ctx: ctx, win: win, js: () => scripts.filter(s => typeof s.src === "string" && s.src.indexOf("jspdf") !== -1), lastTimer: () => timers.filter(t => t.live && t.ms === 15000).pop() };
+      };
+      const A = mk(), ctx = A.ctx, win = A.win, js = A.js, lastTimer = A.lastTimer;
+      const tick = () => new Promise(r => setImmediate(r));
+      (async () => {
+        const out = {};
+        // Removing a timed-out tag does not cancel its script: when it runs
+        // late and defines jsPDF, that counts - while jsdelivr is pending...
+        const B = mk(), q1 = B.ctx.loadPDF(); let rq1 = "pending";
+        q1.then(J => { rq1 = J === B.win.jspdf.jsPDF ? "resolved" : "wrong"; }, e => { rq1 = "rejected:" + e.message; });
+        const b0 = B.js()[0]; B.lastTimer().fn(); B.win.jspdf = { jsPDF: function J() {} }; b0.onload();
+        await tick(); out.lateCounts = rq1 === "resolved" && B.js().length === 2;
+        // ...and when jsdelivr then fails (the error never wins over a loaded library).
+        const C = mk(), q2 = C.ctx.loadPDF(); let rq2 = "pending";
+        q2.then(() => { rq2 = "resolved"; }, e => { rq2 = "rejected:" + e.message; });
+        C.lastTimer().fn(); C.win.jspdf = { jsPDF: function J() {} }; C.js()[1].onerror();
+        await tick(); out.errAfterLate = rq2 === "resolved";
+        const p1 = ctx.loadPDF(), p2 = ctx.loadPDF();
+        out.same = p1 === p2; out.first = js().length === 1 && js()[0].src === "https://unpkg.com/" + ctx.PDF_PATH && js()[0].integrity === ctx.PDF_SRI && js()[0].crossOrigin === "anonymous";
+        let r1 = "pending"; p1.then(() => { r1 = "resolved"; }, e => { r1 = "rejected:" + e.message; });
+        const s0 = js()[0];
+        lastTimer().fn();                                   // unpkg hangs: the timer moves on
+        out.second = js().length === 2 && js()[1].src === "https://cdn.jsdelivr.net/npm/" + ctx.PDF_PATH && js()[1].integrity === ctx.PDF_SRI && js()[1].crossOrigin === "anonymous" && s0.parentNode === null;
+        s0.onload();                                        // a late unpkg load is ignored
+        await tick(); out.lateIgnored = r1 === "pending";
+        js()[1].onerror();                                  // jsdelivr fails too
+        await tick(); out.friendly = r1 === "rejected:Could not load the PDF library - check your connection and try again.";
+        const p3 = ctx.loadPDF();                           // a later tap retries
+        out.retry = p3 !== p1 && js().length === 3;
+        let r3 = "pending"; p3.then(() => { r3 = "resolved"; }, e => { r3 = "rejected:" + e.message; });
+        js()[2].onload();                                   // loaded but no global
+        await tick(); out.noInit = r3 === "rejected:The PDF library loaded but did not initialize - try again.";
+        const p4 = ctx.loadPDF(); let r4 = "pending"; p4.then(J => { r4 = J === win.jspdf.jsPDF ? "resolved" : "wrong"; }, () => { r4 = "rejected"; });
+        win.jspdf = { jsPDF: function J() {} };
+        js()[3].onload(); await tick(); out.ok = r4 === "resolved";
+        const p5 = ctx.loadPDF(); let r5 = ""; await p5.then(() => { r5 = "cached"; }); out.cached = r5 === "cached" && js().length === 4;
+        console.log(JSON.stringify(out));
+      })();`;
+    let out30 = "";
+    try { out30 = require("child_process").execFileSync(process.execPath, ["-e", probe30, path.join(JS_DIR, "cpt-data.js"), path.join(JS_DIR, "utils.js")], { encoding: "utf8" }).trim(); }
+    catch (e) { out30 = "error: " + e.message; }
+    let o30 = {}; try { o30 = JSON.parse(out30); } catch (e) { o30 = {}; }
+    check("directorships T30: loadPDF - one in-flight promise; unpkg then jsdelivr (same SRI, crossOrigin); a hung host times out, a late load without jsPDF is ignored but one WITH jsPDF counts (even if jsdelivr then fails); friendly failure; retry; no-global load rejected; success cached",
+      ["same", "first", "second", "lateIgnored", "friendly", "retry", "noInit", "ok", "cached", "lateCounts", "errAfterLate"].every(k => o30[k] === true), out30);
+  }
+    // T29 restore helpers
+    const p29 = dstore({ directorships: [ICU, WC] });
+    const r29 = sb.dirRestoreBuiltIn(p29, "trauma"), r29b = sb.dirRestoreBuiltIn(r29, "trauma");
+    check("directorships T29: restore-all is a no-op on a non-empty list; restore-one never duplicates; missing built-ins listed; orphans dropped with their hand-offs only",
+      sb.dirRestoreBuiltIns(p29) === p29 && J(sb.dirRestoreBuiltIns(dstore({ directorships: [] })).directorships) === J(PRESET_SPEC) &&
+      J(sb.dirMissingBuiltIns(p29).map(d => d.id)) === J(["trauma"]) && sb.dirMissingBuiltIns(dstore({ directorships: [] })).length === 0 &&
+      r29.directorships.map(d => d.id).join() === "icu,wound,trauma" && r29b === r29 &&
+      sb.dirOrphanCount(dstore({ directorships: [ICU], dirEntries: [ent("o1", "gone", "2026-10-02", 30, "g_policy"), ent("o2", "icu", "2026-10-02", 30, "g_policy")] })) === 1 &&
+      J(sb.dirDropOrphans(dstore({ directorships: [ICU], dirEntries: [ent("o1", "gone", "2026-10-02", 30, "g_policy"), ent("o2", "icu", "2026-10-02", 30, "g_policy")], dirHandoff: { "gone:2026-10": { date: "2026-11-01", entriesHash: "h" }, "icu:2026-10": { date: "2026-11-01", entriesHash: "h" } } })).dirHandoff) === J({ "icu:2026-10": { date: "2026-11-01", entriesHash: "h" } }));
+
+    // ---- Review fixes (2026-10-18) and the coverage the review found missing ----
+    // T31: the signature writers/reader themselves (async; child process like T30).
+    {
+      const probe31 = String.raw`
+        const vm = require("vm"), fs = require("fs");
+        const noop = () => {};
+        const ctx = vm.createContext({ console: { log: noop, warn: noop, error: noop }, React: {},
+          localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+          document: { createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }), head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+        vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+        vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), ctx);
+        const png = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", ENC = { ct: "Q1Q=", salt: "U0E=", iv: "SVY=" };
+        let pin = "246810", dec = png, encArgs = null, encMode = "";
+        ctx.window = { RVU_CRYPTO: { getPin: () => pin,
+          encrypt: (p, t) => { encArgs = [p, t]; if (encMode === "THROW") throw new Error("x"); return encMode === "REJECT" ? Promise.reject(new Error("OperationError")) : encMode === "BAD" ? Promise.resolve({ ct: 1 }) : Promise.resolve({ ct: ENC.ct, salt: ENC.salt, iv: ENC.iv }); },
+          decrypt: (p, e) => dec === "REJECT" ? Promise.reject(new Error("OperationError")) : Promise.resolve(dec) } };
+        (async () => {
+          const out = {}; let store = { keep: 1 }; const upd = f => { store = f(store); };
+          out.saveR = await ctx.dirSignatureSave(png, upd);
+          out.saved = JSON.stringify(store); out.encArgs = JSON.stringify(encArgs);
+          let n = 0; const cnt = f => { n++; };
+          out.bad = await ctx.dirSignatureSave("junk", cnt);
+          pin = null; out.locked = await ctx.dirSignatureSave(png, cnt); pin = "246810";
+          for (const m of ["REJECT", "BAD", "THROW"]) { encMode = m; out["enc" + m] = await ctx.dirSignatureSave(png, cnt).catch(() => "REJECTED"); }
+          encMode = "";
+          out.noWrite = n === 0;
+          out.ok = JSON.stringify(await ctx.dirSignatureLoad(store));
+          dec = "junk"; out.junk = JSON.stringify(await ctx.dirSignatureLoad(store));
+          dec = "REJECT"; out.rej = JSON.stringify(await ctx.dirSignatureLoad(store)); dec = png;
+          pin = null; out.lockedL = JSON.stringify(await ctx.dirSignatureLoad(store)); pin = "246810";
+          out.none = JSON.stringify(await ctx.dirSignatureLoad({}));
+          console.log(JSON.stringify(out));
+        })();`;
+      let out31 = "";
+      try { out31 = require("child_process").execFileSync(process.execPath, ["-e", probe31, path.join(JS_DIR, "cpt-data.js"), path.join(JS_DIR, "utils.js")], { encoding: "utf8" }).trim(); }
+      catch (e) { out31 = "error: " + e.message; }
+      let o = {}; try { o = JSON.parse(out31); } catch (e) { o = {}; }
+      const P31 = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUg==", E31 = { ct: "Q1Q=", salt: "U0E=", iv: "SVY=" };
+      let rmStore = Object.assign({}, prev7, { dirSignatureEnc: E31 }); sb.dirSignatureRemove(f => { rmStore = f(rmStore); });
+      const savedStore = o.saved ? Object.assign({}, prev7, { dirSignatureEnc: JSON.parse(o.saved).dirSignatureEnc }) : null;
+      check("directorships T31: dirSignatureSave stores exactly the encrypt result (never the PNG) and is a fixed point; bad/locked never write; encrypt reject/throw/malformed -> 'error', never rejects, never writes; Load ok/unreadable/locked/none with the PIN bound only on ok; Remove writes null",
+        o.saveR === "saved" && o.saved === J({ keep: 1, dirSignatureEnc: E31 }) && o.saved.indexOf("data:image") === -1 && o.encArgs === J(["246810", P31]) &&
+        o.bad === "bad" && o.locked === "locked" && o.encREJECT === "error" && o.encBAD === "error" && o.encTHROW === "error" && o.noWrite === true &&
+        o.ok === J({ state: "ok", url: P31, pin: "246810" }) && o.junk === J({ state: "unreadable", url: "", pin: "" }) && o.rej === J({ state: "unreadable", url: "", pin: "" }) &&
+        o.lockedL === J({ state: "locked", url: "", pin: "" }) && o.none === J({ state: "none", url: "", pin: "" }) &&
+        !!savedStore && fixedPt(JSON.parse(J(savedStore))) && rmStore.dirSignatureEnc === null && fixedPt(JSON.parse(J(rmStore))),
+        out31);
+    }
+
+    // G8b: the printed (signed) wording, verbatim - the certification, the attestation and every row text.
+    const DIR_CERT_PIN = "CERTIFICATION: By signing this document, the below listed individuals hereby affirm and attest that the Services and the number of hours recorded for such Services set forth herein were performed by Physician as Medical Director and that Physician fully performed all designated duties required during this month.";
+    const DIR_ATTEST_PIN = "I hereby attest and certify to the validity and accuracy of the information reported for reimbursement of services rendered.";
+    const DIR_GROWS_PIN = [
+      ["g_guidelines", "Develop/review guidelines or protocols:"], ["g_oversee", "Oversee department provision of services:"], ["g_orientation", "Orientation or CEU development:"],
+      ["g_dept_ed", "Department/professional education & training:"], ["g_community_ed", "Community education development/presentation:"],
+      ["g_policy", "Policy/procedure development, review, education, enforcement:"], ["g_safety", "Patient safety call/initiatives:"], ["g_goals", "Departmental goal development:"],
+      ["g_budget", "Departmental budget planning & discussion:"], ["g_strategic", "Departmental strategic planning activity:"], ["g_quality", "Quality management plan review:"],
+      ["g_ur", "Utilization Review/medical records chart review:"], ["g_supplies", "Evaluate/review supplies, facilities, equipment needs:"], ["g_rules", "Review of rules, regulations, standards, etc:"],
+      ["g_research", "Research, planning, recommendations, patient care issues:"], ["g_idg", "IDG meeting (Hospice MD only):"], ["g_other", "Other (details)"], ["g_meeting", "Meeting with ____ to discuss"]
+    ];
+    const DIR_SROWS_PIN = [
+      ["s_policies", "Assist Hospital in formulating and implementing policies, procedures and clinical protocols for the treatment of patients at Hospital who need services under the Program and, along with the Medical Director of Hospital (the \"Medical Director\"), supervise the scheduling and rendering of such services to those patients."],
+      ["s_qa_risk", "Assist the Medical Director in formulating and implementing policies for Hospital's quality assurance and risk management programs."],
+      ["s_liaison", "Develop and maintain ongoing dialogue, and act as liaison, among the medical personnel of Hospital and administrators of Hospital (including the Medical Director) concerning the functioning of the Program."],
+      ["s_outreach", "Assist Hospital in community outreach and education regarding Hospital's services, including, but not limited to, speaking engagements, written articles and interaction with physicians on staff and outside the immediate area to promote Hospital's programs."],
+      ["s_committees", "Participate in ad hoc and standing committees of Hospital's medical staff, prepare reports to the Medical Director with respect to the Program and cooperate with the administrators of Hospital, all as necessary to carry out the obligations of the Corporation/Program Director in accordance with this document."],
+      ["s_staff_ed", "Participate in clinical education and training of Hospital's employees."],
+      ["s_outcomes", "Monitor and report on the medical progress and outcomes of patients treated under the Program."],
+      ["s_meetings", "Attend MEC or OIC meetings or other Hospital administration meeting(s) as requested by Hospital's CEO."],
+      ["s_travel", "Supplementary Services (when Physician is requested to travel away from Hospital to serve on committees, make presentations and/or attend meetings.) PROVIDE DESCRIPTION OF SERVICES:"],
+      ["s_other", "Other Activity. PROVIDE DESCRIPTION OF SERVICES:"]
+    ];
+    const rowPairs = rows => rows.map(r => [r.key, r.text]);
+    check("directorships G8b: printed CERTIFICATION, Select attestation and every Genesis/Select row text pinned verbatim",
+      sb.DIR_GENESIS_CERT === DIR_CERT_PIN && sb.DIR_SELECT_ATTEST === DIR_ATTEST_PIN &&
+      J(rowPairs(sb.DIR_GENESIS_ROWS)) === J(DIR_GROWS_PIN) && J(rowPairs(sb.DIR_SELECT_ROWS)) === J(DIR_SROWS_PIN),
+      J({ cert: sb.DIR_GENESIS_CERT === DIR_CERT_PIN, attest: sb.DIR_SELECT_ATTEST === DIR_ATTEST_PIN, g: rowPairs(sb.DIR_GENESIS_ROWS).filter((p, i) => J(p) !== J(DIR_GROWS_PIN[i])), s: rowPairs(sb.DIR_SELECT_ROWS).filter((p, i) => J(p) !== J(DIR_SROWS_PIN[i])) }));
+
+    // T24b: the flags T24 does not reach (regenerate = decision 6, noHeader, blanks, noDir, the Select over-cap text).
+    const ft = (m, code) => m.flags.filter(f => f.code === code).map(f => f.level + ":" + f.text);
+    const hoS = dstore({ dirEntries: [ent("h1", "icu", "2026-10-02", 30, "g_policy")] });
+    hoS.dirHandoff = sb.dirHandoffMark({}, "icu", "2026-10", "2026-10-03", sb.dirEntriesHash(hoS.dirEntries, "icu", "2026-10"));
+    const mHo = sb.dirFormModel(hoS, "icu", "2026-10", "2026-11-02");
+    const mNoH = sb.dirFormModel(dstore({ directorships: [ICU, PRESET_SPEC[1], Object.assign({}, WC, { selectHeader: Object.assign({}, WC.selectHeader, { hospital: "" }) })] }), "wound", "2026-10", "2026-11-02");
+    const mNoH2 = sb.dirFormModel(dstore({ directorships: [ICU, PRESET_SPEC[1], Object.assign({}, WC, { selectHeader: undefined })] }), "wound", "2026-10", "2026-11-02");
+    const mGone = sb.dirFormModel(dstore({}), "gone", "2026-10", "2026-11-02");
+    const mSelCap = sb.dirFormModel(dstore({ dirEntries: [ent("w9", "wound", "2026-10-05", 510, "s_policies")] }), "wound", "2026-10", "2026-11-02");
+    const NOH = "warn:The Select header details are empty - add them in Settings > Directorships.";
+    check("directorships T24b: regenerate (decision 6), noHeader, blanks, noDir and the Select over-cap text are exact",
+      J(ft(mHo, "regenerate")) === J(["warn:Handed off 10/3. This form uses today's rate and cap."]) && mHo.ok === true &&
+      ft(sb.dirFormModel(dstore({}), "icu", "2026-10", "2026-11-02"), "regenerate").length === 0 &&
+      J(ft(mNoH, "noHeader")) === J([NOH]) && J(ft(mNoH2, "noHeader")) === J([NOH]) && ft(mSelCap, "noHeader").length === 0 &&
+      J(ft(mHo, "blanks")) === J(["note:Empl # and Cost Ctr. print blank."]) &&
+      J(ft(sb.dirFormModel(dstore({ directorships: [Object.assign({}, ICU, { emplNo: "123" }), PRESET_SPEC[1], WC] }), "icu", "2026-10", "2026-11-02"), "blanks")) === J(["note:Cost Ctr. prints blank."]) &&
+      J(ft(mGone, "noDir")) === J(["block:This directorship no longer exists."]) && mGone.ok === false &&
+      J(ft(mSelCap, "overCap")) === J(["warn:Over the 8 h monthly cap: the form prints all 8.5 hours; the amount counts 8."]) && mSelCap.overCap === true && mSelCap.header.totalDue === "$1,720.00",
+      J({ ho: mHo.flags, noH: mNoH.flags, gone: mGone.flags, sel: mSelCap.flags }));
+
+    // T24c: non-ASCII prints as "?" with the chars warn (header, Select detail, Genesis slot fill).
+    const ascii24 = s => typeof s === "string" && !/[^\x20-\x7e]/.test(s);
+    const charsOf = m => m.flags.filter(f => f.code === "chars").map(f => f.level + ":" + f.text);
+    const WCx = Object.assign({}, WC, { selectHeader: Object.assign({}, WC.selectHeader, { hospital: "Saint-\u00C9tienne \u2013 West" }) });
+    const sel24x = sb.dirFormModel(dstore({ directorships: [ICU, PRESET_SPEC[1], WCx], dirEntries: [ent("x1", "wound", "2026-10-05", 30, "s_other", "Caf\u00E9 \u00E0 \u2018huddle\u2019")] }), "wound", "2026-10", "2026-11-02");
+    const gen24x = sb.dirFormModel(dstore({ directorships: [Object.assign({}, ICU, { emplNo: "N\u00BA 12" }), PRESET_SPEC[1], WC], dirEntries: [ent("x2", "icu", "2026-10-05", 30, "g_meeting", "Pharm\u00E1cy")] }), "icu", "2026-10", "2026-11-02");
+    check("directorships T24c: a non-ASCII header field, Select detail and Genesis slot fill print as ? (smart punctuation mapped) with the exact chars warn",
+      sel24x.header.hospital === "Saint-?tienne - West" && sel24x.rows.filter(r => r.key === "s_other")[0].detailText === "Caf? ? 'huddle'" &&
+      J(charsOf(sel24x)) === J(["warn:3 characters could not print and show as ?."]) && sel24x.ok === true &&
+      gen24x.header.emplNo === "N? 12" && gen24x.rows.filter(r => r.key === "g_meeting")[0].text === "Meeting with Pharm?cy to discuss" &&
+      J(charsOf(gen24x)) === J(["warn:2 characters could not print and show as ?."]) &&
+      [sel24x, gen24x].every(m => ascii24(J(m.header)) && ascii24(J(m.sig)) && m.rows.every(r => ascii24(r.text) && ascii24(r.detailText))),
+      J({ sel: charsOf(sel24x), gen: charsOf(gen24x), h: sel24x.header.hospital }));
+
+    // T24d: boundaries - an entry dated today is not future; detail 1-60; non-detail rows store ""; recent pickers.
+    const d60 = "A".repeat(sb.DIR_DETAIL_MAX), dr = (cat, det) => sb.dirEntryFromDraft({ date: "2026-10-05", minutes: 30, category: cat, detail: det }, ICU, "e1");
+    const rec24 = [ent("k0", "icu", "2026-09-30", 30, "g_goals"), ent("k1", "icu", "2026-10-01", 30, "g_meeting", "CNO"), ent("k2", "trauma", "2026-10-02", 30, "g_safety"), ent("k3", "icu", "2026-10-03", 30, "g_meeting", "Pharmacy"),
+      ent("k4", "icu", "2026-10-04", 30, "g_goals"), ent("k5", "icu", "2026-10-05", 30, "g_meeting", "  cno ")];
+    check("directorships T24d: an entry dated today is not future (month-end form still ok); 60-char detail kept, 61 refused; a non-detail row stores ''; recent categories/details newest-first and de-duplicated",
+      sb.DIR_DETAIL_MAX === 60 && flagsOf([ent("v1", "icu", "2026-10-31", 30, "g_policy")], "2026-10-31").indexOf("block:future") === -1 &&
+      sb.dirFormModel(dstore({ dirEntries: [ent("v1", "icu", "2026-10-31", 30, "g_policy")] }), "icu", "2026-10", "2026-10-31").ok === true &&
+      (dr("g_other", d60).entry || {}).detail === d60 && dr("g_other", d60 + "B").entry === null && dr("g_other", d60 + "B").problems.join() === "Keep the detail to 60 characters." &&
+      (dr("g_policy", "CNO").entry || {}).detail === "" && dr("g_policy", d60 + "B").problems.length === 0 &&
+      J(sb.dirRecentCategories(rec24, "icu")) === J(["g_meeting", "g_goals"]) && J(sb.dirRecentCategories(rec24, "wound")) === "[]" &&
+      J(sb.dirRecentDetails(rec24, "icu", "g_meeting")) === J(["cno", "Pharmacy"]) && J(sb.dirRecentDetails(rec24, "icu", "g_goals")) === "[]" &&
+      J(sb.dirRecentCategories(["g_policy", "g_safety", "g_goals", "g_budget", "g_quality"].map((k, i) => ent("c" + i, "icu", "2026-10-0" + (i + 1), 30, k)), "icu")) === J(["g_quality", "g_budget", "g_goals", "g_safety"]) &&
+      J(sb.dirRecentDetails(["A", "B", "C", "D", "E", "F", "G"].map((t, i) => ent("m" + i, "icu", "2026-10-0" + (i + 1), 30, "g_meeting", t)), "icu", "g_meeting")) === J(["G", "F", "E", "D", "C", "B"]));
+
+    // T27b: YTD counts placed entries only (category on the form, minutes 1-1440), also after a form switch.
+    const unplaced27 = sb.dirTotalInRange(dstore({ dirEntries: [ent("p1", "icu", "2026-09-10", 120, "g_policy"), ent("p2", "icu", "2026-09-11", 60, "s_policies"), ent("p3", "icu", "2026-09-12", 0, "g_policy"), ent("p4", "icu", "2026-09-13", 1441, "g_policy")] }), "2026-01-01", "2027-01-01", null);
+    const c4s = dstore({ directorships: [Object.assign({}, ICU, { form: "select" }), PRESET_SPEC[1], WC], dirEntries: [ent("p5", "icu", "2026-09-10", 120, "g_policy")] });
+    check("directorships T27b: YTD leaves out unplaced entries (wrong-form category, 0 or 1441 minutes, a switched form)",
+      unplaced27.total === 400 && unplaced27.entries === 1 && sb.dirTotalInRange(c4s, "2026-01-01", "2027-01-01", null).entries === 0, J(unplaced27));
+
+    // T32: the review fixes in the helpers.
+    const capDraft = c => sb.dirFromEditorDraft(PRESET_SPEC, null, Object.assign({}, okDraft, { maxHours: c }));
+    const tiny = sb.dirFormModel(dstore({ directorships: [Object.assign({}, ICU, { maxHours: 0.005 }), PRESET_SPEC[1], WC] }), "icu", "2026-10", "2026-11-02");
+    const twin = dstore({ directorships: [ICU, WC, Object.assign({}, ICU, { id: "dir-x", name: " trauma  MEDICAL director" })] });
+    const sigA = { ct: "a", salt: "s1", iv: "i1" }, sigB = { ct: "a", salt: "s2", iv: "i2" };
+    const colon = dstore({ directorships: [ICU, Object.assign({}, WC, { id: "c:1", name: "Colon id" })], dirEntries: [ent("c1", "c:1", "2026-10-02", 30, "s_policies")], dirHandoff: { "c:1:2026-10": { date: "2026-11-01", entriesHash: "h" } } });
+    const colonQ = quiet(() => sb.repairData(colon));
+    const proto = dstore({ directorships: [ICU, Object.assign({}, WC, { id: "constructor", name: "Proto id" })], dirEntries: [ent("pp", "constructor", "2026-10-02", 30, "s_policies")] });
+    const protoQ = quiet(() => sb.repairData(proto));
+    check("directorships T32: a cap must be whole minutes (4.33 and 0.005 refused; a stored sub-minute cap blocks as not set); a decimal comma is refused, thousands commas kept; Restore never makes a twin; dirSigKey tracks the ciphertext; a ':' id keeps its entries and hand-off; the rename note carries Save's refusal",
+      capDraft("4.25").errors.length === 0 && capDraft("4.5").errors.length === 0 && capDraft("8").errors.length === 0 &&
+      capDraft("4.33").errors.map(e => e.field + ":" + e.text).join() === "maxHours:Use a cap that is a whole number of minutes (e.g. 4.25 or 4.5)." && capDraft("0.005").errors.length === 1 &&
+      sb.dirCapMinutes({ maxHours: 0.005 }) === null && sb.dirCapMinutes({ maxHours: 4.25 }) === 255 && tiny.flags.some(f => f.code === "cap" && f.level === "block") && tiny.ok === false &&
+      sb.dirNumFromText("4,25") === null && sb.dirNumFromText("200,50") === null && sb.dirNumFromText("1,72") === null && sb.dirNumFromText("$1,720.50") === 1720.5 && sb.dirNumFromText("12,345,678") === 12345678 &&
+      sb.dirRestoreBuiltIn(twin, "trauma") === twin && sb.dirNameTaken(twin, "Trauma Medical Director") === true && sb.dirNameTaken(twin, "Nope") === false &&
+      sb.dirSigKey(dstore({ dirSignatureEnc: sigA })) !== sb.dirSigKey(dstore({ dirSignatureEnc: sigB })) && sb.dirSigKey(dstore({})) === "" && sb.dirSigKey(null) === "" &&
+      colonQ.r.length === 0 && colon.directorships[1].id === "c:1" && sb.dirOrphanCount(colon) === 0 && sb.dirMonthEntries(colon.dirEntries, "c:1", "2026-10").length === 1 &&
+      J(Object.keys(sb.dirDropOrphans(colon).dirHandoff)) === J(["c:1:2026-10"]) &&
+      protoQ.r.length === 0 && proto.directorships[1].id === "constructor" && sb.dirOrphanCount(proto) === 0 &&
+      /character file names can't use/.test(sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "ICU/A" }), "2026-10", P18)) &&
+      /non-ASCII/.test(sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "ICU \u00E9" }), "2026-10", P18)) &&
+      /Two directorships are named/.test(sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "trauma  medical director" }), "2026-10", P18)) &&
+      sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "ICU \u2013 Trauma" }), "2026-10", P18) === "The monthly email task finds these PDFs by this exact file name: Khan - ICU - Trauma Timesheet - 2026-10.pdf (was Khan - ICU Co-Director Timesheet - 2026-10.pdf).",
+      J({ cap433: capDraft("4.33").errors, colon: colonQ.r, tinyFlags: tiny.flags.map(f => f.code) }));
   }
 }
 
