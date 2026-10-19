@@ -43,13 +43,6 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var isCurrent = yearBounds.isCurrent;
   var effectiveNow = isCurrent ? now : yearBounds.end;
 
-  // Institution data filtered to selected year
-  const instYTD = instData.filter(function(d) {
-    var dDate = localDateYMD(d.month + "-01");
-    return dDate >= ys && dDate < yearBounds.end;
-  });
-  const instTotal = instYTD.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
-
   // Tracked data for selected year
   const ye = entries.filter(function(e) { var d = new Date(e.date + "T12:00:00"); return d >= ys && d < yearBounds.end; });
   const trackedRVU = ye.reduce((s, e) => s + creditedRVU(e), 0);
@@ -65,9 +58,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   const ncEnc = countEncounters(yeNC);
   const credEnc = countEncounters(yeCredited);
 
-  // Use institution if available, otherwise tracked
-  const tRVU = hasInst ? instTotal : trackedRVU;
-  const tComp = tRVU * settings.ratePerRVU;
+  // Comp YTD comes from proj.ytdComp below (compProjection: this window's
+  // Compare months when there are any, else logged wRVU).
   const dp = Math.max(1, localDaysBetween(ys, effectiveNow));
 
   // Monthly chart - for current year show last 6 months, for past years show all 12
@@ -95,11 +87,14 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Track 1 "Tracked OR": logged entries only. Track 2 "Reconciliation":
   // institution monthly totals read directly from institutionData (Compare).
   // Year window as "YYYY-MM" strings - pure string math, no Date/UTC involved.
+  // One row per month (a duplicated month counts once, the last row); the
+  // current window starts from the same isYMD-guarded Year Start as ys,
+  // cpFrom and ncRange, so a malformed one falls back to Jan 1 everywhere.
   var instByMonth = {};
   instData.forEach(function(row) { if (row && row.month) instByMonth[row.month] = (row.workRVU || 0) + (row.splitRVU || 0); });
   var startYM;
   if (selectedYear === "current") {
-    startYM = (settings.yearStart || (now.getFullYear() + "-01-01")).slice(0, 7);
+    startYM = (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01").slice(0, 7);
   } else {
     startYM = selectedYear + "-01";
   }
@@ -113,7 +108,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // compProjection): Recon pace annualizes from months actually ENTERED, not
   // days elapsed; Tracked OR pace from logged entries ONLY, never institution
   // data. The card projects from the Compare months when there are any (the
-  // Reconciliation card's own months and pace), else from the tracked pace.
+  // Reconciliation card's own months and pace), else from the tracked pace;
+  // Comp YTD (proj.ytdComp) adds up the same source.
   var proj = compProjection({ trackedWRVU: trackedRVU, trackedDays: dp, compareWRVU: reconYTD, compareMonths: reconCount, annualGoal: settings.annualGoal, reconGoal: settings.reconGoal, rate: settings.ratePerRVU });
   var reconPace = proj.comparePace;
   var orPace = proj.trackedPace;
@@ -334,9 +330,11 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
         <div style={S.statCard}><div style={S.statValue}>{wRVU.toFixed(1)}</div><div style={S.statLabel}>This Week</div></div>
       </> : <>
         <div style={S.statCard}><div style={S.statValue}>{credEnc}</div><div style={S.statLabel}>Encounters</div></div>
-        <div style={S.statCard}><div style={S.statValue}>{credEnc > 0 ? (tRVU / credEnc).toFixed(1) : "0"}</div><div style={S.statLabel}>Avg/Enc</div></div>
+        {/* Per logged encounter: logged credited wRVU / credited encounters,
+            never a Compare total (that includes call + clinic). */}
+        <div style={S.statCard}><div style={S.statValue}>{credEnc > 0 ? (trackedRVU / credEnc).toFixed(1) : "0"}</div><div style={S.statLabel}>Avg/Enc</div></div>
       </>}
-      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(tComp, showComp)}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(proj.ytdComp, showComp)}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
     </div>
 
     {/* Year-over-year comparison - the same span on both sides (yoy) */}

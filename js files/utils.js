@@ -1901,7 +1901,10 @@ function priorSpanYMD(ys, today) {
 // (wrvu >= goal, the twin cards' test). A goal, rate or month count
 // counts only as a finite number > 0 (0, blank, an old snapshot's undefined,
 // NaN or text = not set); the wRVU totals pass through unchanged, so both
-// paces are the twin cards' exact expressions. dashboard.js only formats and
+// paces are the twin cards' exact expressions. Home's Comp YTD tile (ytdWRVU /
+// ytdComp) adds up the SAME source - the window's Compare months, else logged
+// wRVU - whether or not the card shows (an any-year Compare switch once
+// showed $0 for a year with no Compare months). dashboard.js only formats and
 // masks the result.
 function compProjection(p) {
   var q = p || {};
@@ -1914,9 +1917,11 @@ function compProjection(p) {
   var goal = recon ? pos(q.reconGoal) : pos(q.annualGoal);
   var rate = pos(q.rate);
   var wrvu = compare ? comparePace : trackedPace;
+  var ytd = compare ? q.compareWRVU : q.trackedWRVU;
   return {
     trackedPace: trackedPace, comparePace: comparePace,
     source: compare ? "compare" : "tracked", months: months,
+    ytdWRVU: ytd, ytdComp: ytd * rate,
     wrvu: wrvu, comp: wrvu * rate,
     goalWRVU: goal, goalComp: goal * rate, diff: wrvu * rate - goal * rate,
     onPace: goal > 0 && wrvu >= goal,

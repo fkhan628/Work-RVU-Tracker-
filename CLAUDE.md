@@ -321,16 +321,27 @@ the per-file gates below. Run it after EVERY file change.
   the tracked pace. A Compare projection is compared with the Reconciliation
   goal when one is set, otherwise with the OR goal, named "OR goal" on the
   card (owner's choice, 2026-10-18); a tracked projection only ever with the
-  OR goal. No rate, or no goal for that comparison, hides the card. A goal,
+  OR goal. No rate, or no goal for that comparison, hides the card. Comp YTD
+  (ytdWRVU / ytdComp) adds up the SAME source - the window's Compare months,
+  else logged wRVU - card shown or not (an any-year `hasInst` switch once
+  showed $0 for a year with no Compare months); past-year Avg/Enc is logged
+  credited wRVU / credited encounters, never a Compare total. The Compare
+  months are the Reconciliation card's: one row per month (a duplicated
+  month counts once, the last row) in a "YYYY-MM" window whose current start
+  is the isYMD-guarded Year Start (as ys / cpFrom / ncRange). A goal,
   rate or month count counts only as a finite number > 0; the wRVU totals
   pass through unchanged. dashboard.js only formats and masks the result and
   its vs line names the goal used; the pill's sign and colour both follow
   onPace. check.js pins the rule (compProjection tests) and the wiring (5f-2,
-  AST). 5f-2 is also a $ tripwire on dashboard.js: proj is read only as
+  AST: Comp YTD is exactly {fmtDollar(proj.ytdComp, showComp)}, shown
+  unconditionally; Avg/Enc is the only `/ credEnc`, trackedRVU / credEnc;
+  no fmtDollar argument in dashboard.js mentions settings.ratePerRVU, so a
+  new rate-based $ on Home comes from a compProjection field or a check.js
+  DERIVED variable, never an inline product). 5f-2 is also a $ tripwire on dashboard.js: proj is read only as
   proj.<field> (COMP_PROJ_FIELDS = the helper's output keys), and every proj
-  comp/goalComp/diff read, settings.ratePerRVU read (other than a `> 0` test,
-  the helper argument, or a factor of tComp / prevYearComp, whose reads count
-  instead), currency toLocaleString or Intl, and "/wRVU" text must sit under
+  comp/goalComp/diff/ytdComp read, settings.ratePerRVU read (other than a
+  `> 0` test, the helper argument, or a factor of prevYearComp, whose reads
+  count instead), currency toLocaleString or Intl, and "/wRVU" text must sit under
   fmtDollar(x, showComp), a showComp ternary's consequent or `showComp && x`;
   the count is pinned (COMP_MONEY_PIN). It is syntactic and cannot see a $
   figure built another way - route any new $ through fmtDollar.

@@ -709,22 +709,29 @@ check("hooks before any conditional return (every component in the Babel files)"
 // twin-card totals and the three settings (any key order), the twin paces
 // come straight from it, and no projection math or goal of its own is left
 // (AST checks, so comments and spacing neither satisfy nor dodge them).
+// Comp YTD is exactly {fmtDollar(proj.ytdComp, showComp)}, unconditional (the
+// old any-year `hasInst ? instTotal : trackedRVU` switch showed $0 for a year
+// with no Compare months); no fmtDollar argument mentions the rate (a rate $
+// on Home comes from a compProjection field or a DERIVED variable); Avg/Enc is
+// the only `/ credEnc`: trackedRVU / credEnc; the current window's startYM is
+// built from the isYMD-guarded Year Start.
 // Plus a $ tripwire on all of dashboard.js. A money node - a proj.comp /
-// goalComp / diff read; a settings.ratePerRVU read other than a `> 0` test,
-// the compProjection argument or a factor of the tComp / prevYearComp
-// products (whose READS are money instead); a toLocaleString with options
+// goalComp / diff / ytdComp read; a settings.ratePerRVU read other than a
+// `> 0` test, the compProjection argument or a factor of the prevYearComp
+// product (whose READS are money instead); a toLocaleString with options
 // that are not an inline literal or that mention "currency"; any Intl; "/wRVU"
 // in a string, template or JSX text - must sit under fmtDollar(<it>, showComp),
 // in a `showComp ? <it> : ...` consequent or in `showComp && <it>`. proj may be
 // read only as proj.<COMP_PROJ_FIELDS> (no alias, destructuring or brackets),
 // and the money-node count is pinned. Syntactic, like 3b: a $ figure built
 // some other way is not seen - route new $ through fmtDollar.
-const COMP_PROJ_FIELDS = ["comp", "comparePace", "diff", "goalComp", "goalName", "goalTile", "goalWRVU", "months", "onPace", "show", "source", "sourceLabel", "trackedPace", "wrvu"];
-// tComp read, prevYearComp read, proj.goalComp, proj.comp, proj.diff, the
-// currency call, the rate and "/wRVU" in the pill. Bump only for a new masked $.
+const COMP_PROJ_FIELDS = ["comp", "comparePace", "diff", "goalComp", "goalName", "goalTile", "goalWRVU", "months", "onPace", "show", "source", "sourceLabel", "trackedPace", "wrvu", "ytdComp", "ytdWRVU"];
+// proj.ytdComp (Comp YTD), prevYearComp read, proj.goalComp, proj.comp,
+// proj.diff, the currency call, the rate and "/wRVU" in the pill. Bump only
+// for a new masked $.
 const COMP_MONEY_PIN = 8;
 {
-  const DERIVED = ["tComp", "prevYearComp"];
+  const DERIVED = ["prevYearComp"];
   const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
   const isMember = (n, obj, prop) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, obj) && !!n.property && n.property.name === prop;
   const keyOf = (n, parent) => !!parent && ((parent.type === "MemberExpression" && parent.property === n && !parent.computed) ||
@@ -741,7 +748,7 @@ const COMP_MONEY_PIN = 8;
         return;
       }
       let label = null;
-      if (n.type === "MemberExpression" && !n.computed && isId(n.object, "proj") && ["comp", "goalComp", "diff"].indexOf(n.property.name) !== -1) label = "proj." + n.property.name;
+      if (n.type === "MemberExpression" && !n.computed && isId(n.object, "proj") && ["comp", "goalComp", "diff", "ytdComp"].indexOf(n.property.name) !== -1) label = "proj." + n.property.name;
       else if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && !n.callee.computed && n.callee.property.name === "toLocaleString" &&
         n.arguments.slice(1).some(a => a.type !== "ObjectExpression" || JSON.stringify(a).indexOf("\"currency\"") !== -1)) label = "currency";
       else if (isId(n, "Intl") && !keyOf(n, parent)) label = "Intl";
@@ -772,22 +779,23 @@ const COMP_MONEY_PIN = 8;
   const leakSelf = [
     ["var a = fmtDollar(proj.comp, showComp);", 0], ["var a = showComp ? (proj.onPace ? \"+\" : \"\") + proj.diff.toLocaleString(\"en-US\", { style: \"currency\" }) : \"$\";", 0],
     ["var a = showComp ? \"$\" + settings.ratePerRVU + \"/wRVU\" : \"\";", 0], ["var a = showComp && <i>{\"$\" + settings.ratePerRVU + \"/wRVU\"}</i>;", 0],
-    ["var tComp = t * settings.ratePerRVU; var a = fmtDollar(tComp, showComp);", 0], ["var a = settings.ratePerRVU > 0 && b;", 0],
+    ["var prevYearComp = t * settings.ratePerRVU; var a = fmtDollar(prevYearComp, showComp);", 0], ["var a = settings.ratePerRVU > 0 && b;", 0],
+    ["var a = fmtDollar(proj.ytdComp, showComp);", 0], ["var a = proj.ytdComp;", 1],
     ["var proj = compProjection({ rate: settings.ratePerRVU }); var a = proj.show;", 0], ["var a = proj.wrvu.toFixed(0) + proj.goalWRVU.toLocaleString();", 0],
     ["var a = proj.comp;", 1], ["var a = fmtDollar(proj.goalComp, true);", 1], ["var a = fmtDollar(proj.comp, showComp, 1);", 1], ["var a = showComp ? \"\" : proj.diff;", 1],
     ["var a = !showComp ? \"\" : proj.comp;", 1], ["var a = <b>{proj.goalComp}</b>;", 1],
     ["var a = x.toLocaleString(\"en-US\", { style: \"currency\", currency: \"USD\" });", 1], ["var a = x.toLocaleString(\"en-US\", { \"style\": \"currency\" });", 1],
     ["var a = x.toLocaleString(\"en-US\", USD);", 1], ["var a = new Intl.NumberFormat(\"en-US\").format(x);", 1],
     ["var a = \"$\" + r + \"/wRVU\";", 1], ["var a = <b>$55/wRVU</b>;", 1], ["var a = `$${r}/wRVU`;", 1],
-    ["var a = settings.ratePerRVU * 2;", 1], ["var tComp = t * settings.ratePerRVU; var a = tComp;", 1],
+    ["var a = settings.ratePerRVU * 2;", 1], ["var prevYearComp = t * settings.ratePerRVU; var a = prevYearComp;", 1], ["var tComp = t * settings.ratePerRVU;", 1],
     ["var c = proj; var a = c.wrvu;", 1], ["var { comp } = proj;", 1], ["var a = proj[\"wrvu\"];", 1], ["var a = proj.secret;", 1]]
     .filter(t => { try { return cardMoneyGate(t[0]).leaks.length !== t[1]; } catch (e) { return true; } });
   check("5f-2 self-test: Home's $ tripwire passes fmtDollar(x, showComp), showComp ? x : .. and showComp && x, and catches unmasked proj $ reads, rate reads, currency/Intl formatting, /wRVU text and any proj alias", leakSelf.length === 0, leakSelf.map(t => t[0]).join(" ; "));
   const dsrc = fs.readFileSync(path.join(JS_DIR, "dashboard.js"), "utf8");
   const WANT = { trackedWRVU: "trackedRVU", trackedDays: "dp", compareWRVU: "reconYTD", compareMonths: "reconCount", annualGoal: "settings.annualGoal", reconGoal: "settings.reconGoal", rate: "settings.ratePerRVU" };
   const exprText = n => !n ? "" : n.type === "Identifier" ? n.name : (n.type === "MemberExpression" && !n.computed && n.object.type === "Identifier" ? n.object.name + "." + n.property.name : "?");
-  const calls = [], argBad = [], banned = [], declInit = {};
-  let gate = null, showGate = 0, pillName = 0;
+  const calls = [], argBad = [], banned = [], declInit = {}, avgEnc = [];
+  let gate = null, showGate = 0, pillName = 0, ytdRead = 0, rateFmt = 0, ytdUncond = 0, startGuard = 0;
   try {
     gate = cardMoneyGate(dsrc);
     walk(parser.parse(dsrc, AST_OPTS).program, n => {
@@ -800,18 +808,34 @@ const COMP_MONEY_PIN = 8;
       }
       if (n.type === "VariableDeclarator" && n.id.type === "Identifier") {
         if (n.id.name === "reconPace" || n.id.name === "orPace") declInit[n.id.name] = (declInit[n.id.name] ? declInit[n.id.name] + "|" : "") + exprText(n.init);
-        if (["projected", "goalComp", "projectedComp"].indexOf(n.id.name) !== -1) banned.push(n.loc.start.line + ":var " + n.id.name);
+        if (["projected", "goalComp", "projectedComp", "tRVU", "tComp", "instYTD", "instTotal"].indexOf(n.id.name) !== -1) banned.push(n.loc.start.line + ":var " + n.id.name);
       }
+      if (n.type === "BinaryExpression" && n.operator === "/" && isId(n.right, "credEnc")) avgEnc.push(exprText(n.left));
+      // Comp YTD is fmtDollar(proj.ytdComp, showComp), and no fmtDollar
+      // argument mentions the rate at all (an inline total would dodge the
+      // source rule).
+      if (n.type === "CallExpression" && isId(n.callee, "fmtDollar") && isMember(n.arguments[0], "proj", "ytdComp")) ytdRead++;
+      if (n.type === "CallExpression" && isId(n.callee, "fmtDollar") && n.arguments[0] && JSON.stringify(n.arguments[0]).indexOf("\"ratePerRVU\"") !== -1) rateFmt++;
       if (n.type === "NumericLiteral" && n.value === 30.44) banned.push(n.loc.start.line + ":30.44");
+      // (instYTD was removed with the any-year Comp YTD switch; the clause
+      // still refuses a pace divided by it however it comes back.)
       if (n.type === "BinaryExpression" && n.operator === "/" && (isId(n.right, "reconCount") || isMember(n.right, "instYTD", "length"))) banned.push(n.loc.start.line + ":pace division");
+      if (n.type === "AssignmentExpression" && isId(n.left, "startYM") && JSON.stringify(n.right).indexOf("\"isYMD\"") !== -1) startGuard++;
       if (n.type === "LogicalExpression" && n.operator === "&&" && isMember(n.left, "proj", "show") && n.right.type === "JSXElement") showGate++;
       if (n.type === "BinaryExpression" && n.operator === "+" && isMember(n.right, "proj", "goalName")) pillName++;
     });
+    // ...shown unconditionally: the call sits directly in a JSX {...}, so no
+    // switch (e.g. hasInst ? .. : fmtDollar(0, ..)) can stand in front of it.
+    walkStack(dsrc, (n, stack) => {
+      const parent = stack[stack.length - 1];
+      if (n.type === "CallExpression" && isId(n.callee, "fmtDollar") && isMember(n.arguments[0], "proj", "ytdComp") && parent && parent.type === "JSXExpressionContainer") ytdUncond++;
+    });
   } catch (e) { gate = null; }
   check("5f-2: dashboard.js parses for the Compensation card gates", gate !== null);
-  check("5f-2: Home calls compProjection exactly once with the twin-card totals and the three settings (any key order); reconPace / orPace come from it; the card shows on proj.show and names proj.goalName; no projection math or goal of its own",
-    gate !== null && calls.length === 1 && argBad.length === 0 && declInit.reconPace === "proj.comparePace" && declInit.orPace === "proj.trackedPace" && banned.length === 0 && showGate === 1 && pillName === 1,
-    JSON.stringify({ calls: calls, argBad: argBad, declInit: declInit, banned: banned, showGate: showGate, pillName: pillName }));
+  check("5f-2: Home calls compProjection exactly once with the twin-card totals and the three settings (any key order); reconPace / orPace come from it; the card shows on proj.show and names proj.goalName; no projection math, goal or any-year Comp YTD switch of its own; Avg/Enc = trackedRVU / credEnc",
+    gate !== null && calls.length === 1 && argBad.length === 0 && declInit.reconPace === "proj.comparePace" && declInit.orPace === "proj.trackedPace" && banned.length === 0 && showGate === 1 && pillName === 1 &&
+      avgEnc.length === 1 && avgEnc[0] === "trackedRVU" && ytdRead === 1 && ytdUncond === 1 && rateFmt === 0 && startGuard === 1,
+    JSON.stringify({ calls: calls, argBad: argBad, declInit: declInit, banned: banned, showGate: showGate, pillName: pillName, avgEnc: avgEnc, ytdRead: ytdRead, ytdUncond: ytdUncond, rateFmt: rateFmt, startGuard: startGuard }));
   check("5f-2: Home's $ tripwire - every money node in dashboard.js is masked, proj is read only as proj.<field>, and the money-node count is " + COMP_MONEY_PIN,
     gate !== null && gate.leaks.length === 0 && gate.money === COMP_MONEY_PIN, gate ? JSON.stringify({ leaks: gate.leaks, money: gate.money }) : "parse");
 }
@@ -3019,9 +3043,21 @@ if (sb) {
     const untouched = JSON.stringify(inp) === inpJ;
     // The output fields are exactly the ones 5f-2 lets dashboard.js read.
     const fields = Object.keys(r0).sort().join() === COMP_PROJ_FIELDS.slice().sort().join();
-    check("compProjection: Compare months -> the Recon card's pace vs the Recon goal (the OR goal, named, when unset); else the tracked pace vs the OR goal; no rate or no goal for that comparison hides; junk = not set; paces never cross tracks",
-      badCP.length === 0 && exact && reconJunk && orJunk && rateJunk && monthsJunk && nanPass && nb1 && nb2 && noThrow && untouched && fields,
-      JSON.stringify({ badCP: badCP, exact: exact, reconJunk: reconJunk, orJunk: orJunk, rateJunk: rateJunk, monthsJunk: monthsJunk, nanPass: nanPass, nb1: nb1, nb2: nb2, noThrow: noThrow, untouched: untouched, fields: fields, keys: Object.keys(r0) }));
+    // Comp YTD: the same source as the projection - this window's Compare
+    // months, else logged wRVU (never $0 for a year with logged cases just
+    // because Compare has rows in another year) - shown even when the card is
+    // hidden; tracked figures never move a Compare total and vice versa.
+    const ytdOf = o => { const r = R(o); return [r.ytdWRVU, r.ytdComp]; };
+    // Compare months that total 0 stay on the Compare source (0), as the
+    // Recon card and the projection do - never a fall back to logged wRVU.
+    const ytd = JSON.stringify([ytdOf(), ytdOf({ compareWRVU: 0, compareMonths: 0 }), ytdOf({ reconGoal: 0, annualGoal: 0 }), ytdOf({ compareWRVU: 1560, compareMonths: 3 }),
+      ytdOf({ trackedWRVU: 4500, trackedDays: 365, compareWRVU: 0, compareMonths: 0 }), ytdOf({ trackedWRVU: 999999 }), ytdOf({ compareMonths: 0, compareWRVU: 999999 }), ytdOf({ compareWRVU: 0, compareMonths: 2 })]) ===
+      JSON.stringify([[5850, 321750], [4000, 220000], [5850, 321750], [1560, 85800], [4500, 247500], [5850, 321750], [4000, 220000], [0, 0]]) &&
+      R({ compareWRVU: 0, compareMonths: 2 }).comparePace === 0 && R({ compareWRVU: 0, compareMonths: 2 }).source === "compare" &&
+      notSet.every(v => R({ rate: v }).ytdComp === 0) && isNaN(R({ compareWRVU: NaN }).ytdWRVU);
+    check("compProjection: Compare months -> the Recon card's pace vs the Recon goal (the OR goal, named, when unset); else the tracked pace vs the OR goal; no rate or no goal for that comparison hides; Comp YTD from the same source; junk = not set; paces never cross tracks",
+      badCP.length === 0 && exact && reconJunk && orJunk && rateJunk && monthsJunk && nanPass && nb1 && nb2 && noThrow && untouched && fields && ytd,
+      JSON.stringify({ badCP: badCP, exact: exact, reconJunk: reconJunk, orJunk: orJunk, rateJunk: rateJunk, monthsJunk: monthsJunk, nanPass: nanPass, nb1: nb1, nb2: nb2, noThrow: noThrow, untouched: untouched, fields: fields, ytd: ytd, keys: Object.keys(r0) }));
   }
 
   {
