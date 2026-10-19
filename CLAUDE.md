@@ -324,13 +324,14 @@ the per-file gates below. Run it after EVERY file change.
   keeps totalOnly when its edit leaves the call split at 0. The Excel import
   keeps its own merge (Merge overwrites a month's FIRST row; Replace All
   starts empty). Readers of a duplicate an older build left: Home's
-  Reconciliation / pace / Comp / vs. Prior Year and Trends' cross-check keep
-  the LAST row; Home's monthly chart and Settings' Acute reference read the
+  Reconciliation / pace / Comp / vs. Prior Year / monthly chart and Trends'
+  cross-check keep the LAST row; Settings' Acute reference reads the
   FIRST; Compare's list and totals, Home's Prior Year (Institution) card and
   Settings' Excel export add EVERY row - so it reads differently across them
   until it is saved again from Compare's form, one copy is deleted, or
   Replace All re-imports it (a Merge leaves the later copy) (check.js 5f-3 +
-  value tests).
+  value tests for Compare's writes; 5f-5 for Home's chart reading the last
+  row).
 - Home's goal tracks: Tracked OR (logged cases via creditedRVU; goal
   settings.annualGoal) and Reconciliation (Compare's institutionData months
   in the year window, incl. call + clinic; goal settings.reconGoal).
@@ -344,7 +345,20 @@ the per-file gates below. Run it after EVERY file change.
   (ytdWRVU / ytdComp) adds up the SAME source - the window's Compare months,
   else logged wRVU - card shown or not (an any-year `hasInst` switch once
   showed $0 for a year with no Compare months); past-year Avg/Enc is logged
-  credited wRVU / credited encounters, never a Compare total. The Compare
+  credited wRVU / credited encounters, never a Compare total. Home's
+  monthly chart, vs. Prior Year and footer read Compare months, never
+  "Compare data from any year": the chart styles itself on its OWN months
+  (chartInst - on Current the last 6 calendar months, which can reach
+  before Year Start) and, when one of them has a row, shows a month's
+  Compare total where it has a row (0 included) and its logged figure
+  (Tracked colour, narrow in-flow bar) where it does not - otherwise it is
+  the plain tracked chart; vs. Prior Year compares Compare months only when
+  the selected window has some (reconCount > 0), else the logged span, and
+  its label names the source ("Compare - ..." / "Tracked OR - ..."); the
+  footer tags Compare when either has one (check.js 5f-5 pins the reads,
+  chartInst, the bar guards, the yoy switch and the footer). The any-year
+  hasInst is left only for the Prior Year (Institution) card and the "Add
+  Institution Data" card. The Compare
   months are the Reconciliation card's: one row per month (a duplicated
   month counts once, the last row) in a "YYYY-MM" window whose current start
   is the isYMD-guarded Year Start (as ys / cpFrom / ncRange). A goal,

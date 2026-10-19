@@ -1022,6 +1022,68 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", "));
 }
 
+// 5f-5. Home's chart, vs. Prior Year and footer read Compare months, never
+// "Compare data from any year" (the any-year hasInst). The chart builds each
+// month from instByMonth (one row per month, the last - like the
+// Reconciliation track): hasRow = instByMonth[mKey] !== undefined, instMRVU
+// = hasRow ? instByMonth[mKey] : 0, primary = hasRow ? instMRVU :
+// trackedMRVU, and styles itself on its OWN months - chartInst =
+// months.some(m => m.hasRow) - in the legend and every bar guard (nothing in
+// the months.map render reads reconCount, hasInst or instData). vs. Prior
+// Year switches on yoyCompare = reconCount > 0 (the if around reconKeys and
+// yoyLabel's test); the footer's Compare tag is reconCount > 0 || chartInst.
+// hasInst is read only by the Prior Year (Institution) card and the "Add
+// Institution Data" card, and instData.length only builds hasInst.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const lead = t => { while (t && t.type === "LogicalExpression" && t.operator === "&&") t = t.left; return t; };
+  const isGt0 = t => !!t && t.type === "BinaryExpression" && t.operator === ">" && isId(t.left, "reconCount") && t.right.type === "NumericLiteral" && t.right.value === 0;
+  const bad = [];
+  let dsrc = "";
+  try { dsrc = fs.readFileSync(path.join(JS_DIR, "dashboard.js"), "utf8"); parser.parse(dsrc, AST_OPTS); } catch (e) { bad.push("parse"); dsrc = ""; }
+  if (dsrc) {
+    const c = { hasInstReads: 0, hasRowDecl: 0, instDecl: 0, pushHasRow: 0, primary: 0, chartInst: 0, yoyDecl: 0, yoyIf: 0, yoyLabel: 0, footer: 0, legend: 0, mapRender: 0 };
+    let barGuards = 0;
+    walkStack(dsrc, (n, stack) => {
+      const parent = stack[stack.length - 1];
+      if (isId(n, "hasInst") && !(parent.type === "VariableDeclarator" && parent.id === n)) c.hasInstReads++;
+      if (isMem(n, "instData", "length") && !(parent.type === "VariableDeclarator" && isId(parent.id, "hasInst")) && !(stack[stack.length - 2] && stack[stack.length - 2].type === "VariableDeclarator" && isId(stack[stack.length - 2].id, "hasInst"))) bad.push(n.loc.start.line + ": instData.length outside hasInst");
+      if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && isId(n.callee.object, "instData") && n.callee.property.name === "find") bad.push(n.loc.start.line + ": instData.find (the chart reads instByMonth)");
+      if (n.type === "VariableDeclarator" && isId(n.id, "hasRow") && n.init && n.init.type === "BinaryExpression" && n.init.operator === "!==" && n.init.left.type === "MemberExpression" && n.init.left.computed && isId(n.init.left.object, "instByMonth") && isId(n.init.left.property, "mKey") && isId(n.init.right, "undefined")) c.hasRowDecl++;
+      if (n.type === "VariableDeclarator" && isId(n.id, "instMRVU") && n.init && n.init.type === "ConditionalExpression" && isId(n.init.test, "hasRow") && n.init.consequent.type === "MemberExpression" && isId(n.init.consequent.object, "instByMonth") && n.init.alternate.type === "NumericLiteral" && n.init.alternate.value === 0) c.instDecl++;
+      if (n.type === "ObjectProperty" && n.key && n.key.name === "hasRow" && isId(n.value, "hasRow")) c.pushHasRow++;
+      if (n.type === "ObjectProperty" && n.key && n.key.name === "primary" && n.value.type === "ConditionalExpression" && isId(n.value.test, "hasRow") && isId(n.value.consequent, "instMRVU") && isId(n.value.alternate, "trackedMRVU")) c.primary++;
+      if (n.type === "VariableDeclarator" && isId(n.id, "chartInst") && n.init && n.init.type === "CallExpression" && isMem(n.init.callee, "months", "some")) {
+        const f = n.init.arguments[0], p = f && f.params && f.params[0] && f.params[0].name;
+        const body = f && (f.body.type === "BlockStatement" ? (f.body.body.length === 1 && f.body.body[0].type === "ReturnStatement" ? f.body.body[0].argument : null) : f.body);
+        if (p && isMem(body, p, "hasRow")) c.chartInst++;
+      }
+      if (n.type === "VariableDeclarator" && isId(n.id, "yoyCompare") && isGt0(n.init)) c.yoyDecl++;
+      if (n.type === "IfStatement" && isId(n.test, "yoyCompare") && deep(n.consequent, m => m.type === "CallExpression" && isMem(m.callee, "reconKeys", "forEach")).length) c.yoyIf++;
+      if (n.type === "VariableDeclarator" && isId(n.id, "yoyLabel") && n.init && n.init.type === "ConditionalExpression" && isId(n.init.test, "yoyCompare")) c.yoyLabel++;
+      if (n.type === "ConditionalExpression" && n.consequent.type === "StringLiteral" && n.consequent.value === " | Compare" && n.test.type === "LogicalExpression" && n.test.operator === "||" && isGt0(n.test.left) && isId(n.test.right, "chartInst")) c.footer++;
+      if (n.type === "LogicalExpression" && n.operator === "&&" && isId(n.left, "chartInst") && n.right.type === "JSXElement" && JSON.stringify(n.right).indexOf("Inst (Compare)") !== -1) c.legend++;
+      if (n.type === "CallExpression" && isMem(n.callee, "months", "map") && stack.some(a => a.type === "JSXExpressionContainer")) {
+        c.mapRender++;
+        const f = n.arguments[0];
+        if (deep(f, m => isId(m, "reconCount") || isId(m, "hasInst") || isId(m, "instData")).length) bad.push(n.loc.start.line + ": the chart render reads reconCount / hasInst / instData");
+        deep(f, m => m.type === "JSXExpressionContainer" && m.expression.type === "LogicalExpression" && m.expression.operator === "&&" && m.expression.right.type === "JSXElement").forEach(m => {
+          const l = lead(m.expression);
+          if (isId(l, "chartInst") || (l.type === "UnaryExpression" && l.operator === "!" && isId(l.argument, "chartInst"))) barGuards++;
+          else bad.push(m.loc.start.line + ": a chart bar guard does not lead with chartInst");
+        });
+      }
+    });
+    if (c.hasInstReads !== 2) bad.push("hasInst read " + c.hasInstReads + " times (only the Prior Year card and the Add Institution card)");
+    if (barGuards !== 4) bad.push("chart bar guards x" + barGuards + " (expected 4, each led by chartInst)");
+    Object.keys(c).filter(k => k !== "hasInstReads").forEach(k => { if (c[k] !== 1) bad.push(k + " x" + c[k]); });
+  }
+  check("5f-5: Home's chart reads instByMonth per month (hasRow, instMRVU, tracked fallback) and styles itself on its own months (chartInst in the legend and every bar guard); vs. Prior Year switches on reconCount > 0; the footer tags Compare on reconCount > 0 || chartInst; hasInst only on its two cards",
+    bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {

@@ -62,7 +62,19 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Compare months when there are any, else logged wRVU).
   const dp = Math.max(1, localDaysBetween(ys, effectiveNow));
 
-  // Monthly chart - for current year show last 6 months, for past years show all 12
+  // Compare months, one row per month (a duplicated month counts once, the
+  // last row) - shared by the chart below and the Reconciliation track.
+  var instByMonth = {};
+  instData.forEach(function(row) { if (row && row.month) instByMonth[row.month] = (row.workRVU || 0) + (row.splitRVU || 0); });
+
+  // Monthly chart - for current year show last 6 months, for past years show
+  // all 12. The chart's OWN months decide its style (chartInst: one of them
+  // has a Compare row - on Current these are the last 6 calendar months,
+  // which can reach before Year Start), never Compare data from any year.
+  // When chartInst, a month with a row shows that total (0 included) and a
+  // month without one (the current month, before its statement is entered)
+  // shows its logged figure in the Tracked colour over a narrow in-flow bar;
+  // otherwise it is the plain tracked chart.
   const months = [];
   var chartMonths = isCurrent ? 6 : 12;
   var chartBase = isCurrent ? now : new Date(parseInt(yearBounds.label), 11, 1);
@@ -70,12 +82,13 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     var md = new Date(chartBase.getFullYear(), chartBase.getMonth() - i, 1);
     var mKey = md.getFullYear() + "-" + String(md.getMonth() + 1).padStart(2, "0");
     var mLabel = md.toLocaleDateString("en-US", { month: "short" });
-    var instMonth = instData.find(function(d) { return d.month === mKey; });
+    var hasRow = instByMonth[mKey] !== undefined;
     var trackedMonth = entries.filter(function(e) { var ed = new Date(e.date + "T12:00:00"); return ed.getMonth() === md.getMonth() && ed.getFullYear() === md.getFullYear(); });
     var trackedMRVU = trackedMonth.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
-    var instMRVU = instMonth ? (instMonth.workRVU || 0) + (instMonth.splitRVU || 0) : 0;
-    months.push({ label: mLabel, inst: instMRVU, tracked: trackedMRVU, primary: hasInst ? instMRVU : trackedMRVU });
+    var instMRVU = hasRow ? instByMonth[mKey] : 0;
+    months.push({ label: mLabel, inst: instMRVU, tracked: trackedMRVU, hasRow: hasRow, primary: hasRow ? instMRVU : trackedMRVU });
   }
+  var chartInst = months.some(function(m) { return m.hasRow; });
   const maxM = Math.max(...months.map(m => Math.max(m.inst, m.tracked)), 1);
 
   // Today and this week from tracked entries (current year only)
@@ -86,12 +99,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // --- Two independent tracks (never blended) ---
   // Track 1 "Tracked OR": logged entries only. Track 2 "Reconciliation":
   // institution monthly totals read directly from institutionData (Compare).
-  // Year window as "YYYY-MM" strings - pure string math, no Date/UTC involved.
-  // One row per month (a duplicated month counts once, the last row); the
-  // current window starts from the same isYMD-guarded Year Start as ys,
-  // cpFrom and ncRange, so a malformed one falls back to Jan 1 everywhere.
-  var instByMonth = {};
-  instData.forEach(function(row) { if (row && row.month) instByMonth[row.month] = (row.workRVU || 0) + (row.splitRVU || 0); });
+  // Year window as "YYYY-MM" strings - pure string math, no Date/UTC involved,
+  // over instByMonth (above: one row per month, the last). The current
+  // window starts from the same isYMD-guarded Year Start as ys, cpFrom and
+  // ncRange, so a malformed one falls back to Jan 1 everywhere.
   var startYM;
   if (selectedYear === "current") {
     startYM = (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01").slice(0, 7);
@@ -180,13 +191,16 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Tracked: the year window (cpFrom) cut at today while today is inside it,
   // vs the same span a year earlier (priorSpanYMD); a past-year chip, or a
   // year already over, compares whole years. Credited wRVU only
-  // (creditedRVU). With institution data (hasInst - the tracks never blend)
-  // it compares Compare months: this period's entered months (reconKeys)
-  // that ALSO have the month a year earlier, so a month missing on either
-  // side drops out of both (no matched month hides the card).
+  // (creditedRVU). When THIS window has Compare months (reconCount - the
+  // tracks never blend; Compare data from other years does not count) it
+  // compares Compare months instead: this period's entered months
+  // (reconKeys) that ALSO have the month a year earlier, so a month missing
+  // on either side drops out of both (no matched month hides the card). The
+  // label names the source.
   var yoySpan = priorSpanYMD(cpFrom, todayLocal());
   var yoy = { cur: 0, prev: 0, months: 0 };
-  if (hasInst) {
+  var yoyCompare = reconCount > 0;
+  if (yoyCompare) {
     reconKeys.forEach(function(k) {
       var pk = (+k.slice(0, 4) - 1) + k.slice(4);
       if (instByMonth[pk] === undefined) return;
@@ -198,8 +212,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       else if (e.date >= yoySpan.prev.start && e.date <= yoySpan.prev.end) yoy.prev += creditedRVU(e);
     });
   }
-  var yoyLabel = hasInst ? "Same " + yoy.months + " month" + (yoy.months === 1 ? "" : "s") + ", prior year"
-    : (yoySpan && yoySpan.toDate ? "Same period last year (to " + fmtShort(yoySpan.cur.end) + ")" : "Prior full year");
+  var yoyLabel = yoyCompare ? "Compare - same " + yoy.months + " month" + (yoy.months === 1 ? "" : "s") + ", prior year"
+    : "Tracked OR - " + (yoySpan && yoySpan.toDate ? "same period last year (to " + fmtShort(yoySpan.cur.end) + ")" : "prior full year");
 
   // Compensation card figures come from proj (compProjection) above.
   var prevYearComp = prevYearRVU.instTotal * settings.ratePerRVU;
@@ -399,7 +413,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>
     </div>}
 
-    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>{isCurrent ? "Monthly wRVUs" : yearBounds.label + " Monthly wRVUs"}</div>{hasInst && <div style={{ display: "flex", gap: 8 }}>
+    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>{isCurrent ? "Monthly wRVUs" : yearBounds.label + " Monthly wRVUs"}</div>{chartInst && <div style={{ display: "flex", gap: 8 }}>
       <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#a78bfa" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst (Compare)</span>
       <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#0ea5e9" }}><span style={{ display: "inline-block", width: 8, height: 3, borderRadius: 1, background: "#0ea5e9" }}></span>Tracked</span>
     </div>}</div>
@@ -408,13 +422,16 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       var trackH = maxM > 0 ? (m.tracked / maxM) * 80 : 0;
       var isLast = i === months.length - 1 && isCurrent;
       return (<div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
-        <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#cbd5e1", fontWeight: 500 }}>{m.primary > 0 ? m.primary.toFixed(0) : ""}</span>
+        <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: chartInst && !m.hasRow ? "var(--global-10)" : "var(--text-secondary)", fontWeight: 500 }}>{(chartInst && m.hasRow) || m.primary > 0 ? m.primary.toFixed(0) : ""}</span>
         <div style={{ width: "100%", position: "relative" }}>
-          {hasInst && <div style={{ width: "100%", height: Math.max(instH > 0 ? instH : 0, instH > 0 ? 4 : 0), background: isLast ? "linear-gradient(to top, #8b5cf6, #a78bfa)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4, transition: "height 0.3s" }} />}
-          {hasInst && m.tracked > 0 && <div style={{ position: "absolute", bottom: 0, left: "25%", width: "50%", height: Math.max(4, trackH), background: "#0ea5e9", borderRadius: 2, opacity: 0.8 }} />}
-          {!hasInst && <div style={{ width: "100%", height: Math.max(4, trackH > 0 ? trackH : 0), background: isLast ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4 }} />}
+          {chartInst && m.hasRow && <div style={{ width: "100%", height: Math.max(instH > 0 ? instH : 0, instH > 0 ? 4 : 0), background: isLast ? "linear-gradient(to top, #8b5cf6, #a78bfa)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4, transition: "height 0.3s" }} />}
+          {chartInst && m.hasRow && m.inst > 0 && m.tracked > 0 && <div style={{ position: "absolute", bottom: 0, left: "25%", width: "50%", height: Math.max(4, trackH), background: "#0ea5e9", borderRadius: 2, opacity: 0.8 }} />}
+          {/* No Compare bar to sit on (no row, or a row of 0): the narrow
+              Tracked bar sits in the flow, so the number stays above it. */}
+          {chartInst && !(m.hasRow && m.inst > 0) && m.tracked > 0 && <div style={{ width: "50%", margin: "0 auto", height: Math.max(4, trackH), background: "#0ea5e9", borderRadius: 2, opacity: 0.8 }} />}
+          {!chartInst && <div style={{ width: "100%", height: Math.max(4, trackH > 0 ? trackH : 0), background: isLast ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4 }} />}
         </div>
-        <span style={{ fontSize: 10, color: "#94a3b8" }}>{m.label}</span>
+        <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{m.label}</span>
       </div>);
     })}</div></div>
 
@@ -430,7 +447,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>
     </div>}
 
-    <div style={{ ...S.card, background: "#0f172a", border: "1px solid #1e293b", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "#475569" }}>Data: Tracked{hasInst ? " | Compare" : ""}{reconCount > 0 ? " | Recon" : ""} | CMS {DATA_YEAR}</span><span style={{ fontSize: 10, color: "#334155", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
+    <div style={{ ...S.card, background: "var(--bg-inset)", border: "1px solid var(--border-subtle)", padding: "10px 16px" }}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><span style={{ fontSize: 11, color: "var(--text-faint)" }}>Data: Tracked{reconCount > 0 || chartInst ? " | Compare" : ""} | CMS {DATA_YEAR}</span><span style={{ fontSize: 10, color: "var(--text-faint)", fontFamily: "JetBrains Mono" }}>{DATA_VERSION}</span></div></div>
     <button onClick={() => setView("log")} style={S.fabBtn}>+ Log Procedure</button>
   </div>);
 }
