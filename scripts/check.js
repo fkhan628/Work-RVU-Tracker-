@@ -1084,6 +1084,46 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", "));
 }
 
+// 5f-6. Home's small fixes. This Week is `isCurrent ? entries.filter(e =>
+// e.date >= localYMD(ws) && e.date <= localYMD(now)) ... : 0` - Sunday
+// through TODAY as date keys, no Date parse; the acute share line says
+// (isCurrent ? "YTD" : yearBounds.label) like its sibling lines, with no
+// hard-coded "(YTD)" left; the "Add Institution Data" card shown under
+// !hasInst calls setView("compare") when tapped.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const ymdOf = (n, v) => !!n && n.type === "CallExpression" && isId(n.callee, "localYMD") && isId(n.arguments[0], v);
+  const bad = [];
+  let dAst = null;
+  try { dAst = parser.parse(fs.readFileSync(path.join(JS_DIR, "dashboard.js"), "utf8"), AST_OPTS); } catch (e) { bad.push("parse"); }
+  const dash = dAst ? dAst.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "Dashboard"))[0] : null;
+  if (dAst && !dash) bad.push("no Dashboard");
+  if (dash) {
+    const week = deep(dash, n => n.type === "VariableDeclarator" && isId(n.id, "wRVU"));
+    const init = week.length === 1 ? week[0].init : null;
+    let weekOk = !!init && init.type === "ConditionalExpression" && isId(init.test, "isCurrent") && !deep(init, n => n.type === "NewExpression" && isId(n.callee, "Date")).length;
+    if (weekOk) {
+      const flt = deep(init.consequent, n => n.type === "CallExpression" && n.callee.type === "MemberExpression" && isId(n.callee.object, "entries") && n.callee.property.name === "filter")[0];
+      const f = flt && flt.arguments[0], p = f && f.params && f.params[0] && f.params[0].name, b = f && f.body;
+      weekOk = !!p && !!b && b.type === "LogicalExpression" && b.operator === "&&" &&
+        b.left.type === "BinaryExpression" && b.left.operator === ">=" && isMem(b.left.left, p, "date") && ymdOf(b.left.right, "ws") &&
+        b.right.type === "BinaryExpression" && b.right.operator === "<=" && isMem(b.right.left, p, "date") && ymdOf(b.right.right, "now");
+    }
+    if (!weekOk) bad.push("This Week is not isCurrent ? entries.filter(e => e.date >= localYMD(ws) && e.date <= localYMD(now)) : 0");
+    const acute = deep(dash, n => n.type === "BinaryExpression" && n.operator === "+" && n.left.type === "BinaryExpression" && n.left.left.type === "StringLiteral" && n.left.left.value === "My acute share (" &&
+      n.left.right.type === "ConditionalExpression" && isId(n.left.right.test, "isCurrent") && n.left.right.consequent.type === "StringLiteral" && n.left.right.consequent.value === "YTD" && isMem(n.left.right.alternate, "yearBounds", "label"));
+    if (acute.length !== 1) bad.push("the acute share label is not (isCurrent ? \"YTD\" : yearBounds.label)");
+    if (deep(dash, n => (n.type === "JSXText" || n.type === "StringLiteral") && n.value.indexOf("My acute share (YTD)") !== -1).length) bad.push("a hard-coded \"My acute share (YTD)\" is left");
+    const card = deep(dash, n => n.type === "LogicalExpression" && n.operator === "&&" && n.left.type === "UnaryExpression" && n.left.operator === "!" && isId(n.left.argument, "hasInst") &&
+      n.right.type === "JSXElement" && JSON.stringify(n.right).indexOf("Add Institution Data") !== -1 &&
+      n.right.openingElement.attributes.some(a => a.type === "JSXAttribute" && a.name && a.name.name === "onClick" && deep(a.value, m => m.type === "CallExpression" && isId(m.callee, "setView") && m.arguments[0] && m.arguments[0].type === "StringLiteral" && m.arguments[0].value === "compare").length === 1));
+    if (card.length !== 1) bad.push("the !hasInst Add Institution Data card does not call setView(\"compare\")");
+  }
+  check("5f-6: Home - This Week is isCurrent ? Sunday..today as date keys : 0; the acute share line is (isCurrent ? YTD : the year); the !hasInst Add Institution Data card calls setView(\"compare\")", bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {

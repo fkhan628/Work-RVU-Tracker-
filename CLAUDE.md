@@ -358,7 +358,10 @@ the per-file gates below. Run it after EVERY file change.
   footer tags Compare when either has one (check.js 5f-5 pins the reads,
   chartInst, the bar guards, the yoy switch and the footer). The any-year
   hasInst is left only for the Prior Year (Institution) card and the "Add
-  Institution Data" card. The Compare
+  Institution Data" card (which opens Compare when tapped). Today and This
+  Week compare date keys (This Week = localYMD(Sunday)..localYMD(today),
+  like the call-pay window), and the acute share line, like its siblings,
+  says YTD only on Current (check.js 5f-6). The Compare
   months are the Reconciliation card's: one row per month (a duplicated
   month counts once, the last row) in a "YYYY-MM" window whose current start
   is the isYMD-guarded Year Start (as ys / cpFrom / ncRange). A goal,

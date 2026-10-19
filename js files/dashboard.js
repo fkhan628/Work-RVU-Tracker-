@@ -91,9 +91,11 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var chartInst = months.some(function(m) { return m.hasRow; });
   const maxM = Math.max(...months.map(m => Math.max(m.inst, m.tracked)), 1);
 
-  // Today and this week from tracked entries (current year only)
+  // Today and this week from tracked entries (current year only). This Week
+  // is Sunday through TODAY, as date keys (a case dated later this week
+  // counts on its own day, like Today and the call-pay window).
   const ws = new Date(now); ws.setDate(now.getDate() - now.getDay()); ws.setHours(0,0,0,0);
-  const wRVU = isCurrent ? entries.filter(e => new Date(e.date + "T12:00:00") >= ws).reduce((s, e) => s + creditedRVU(e), 0) : 0;
+  const wRVU = isCurrent ? entries.filter(e => e.date >= localYMD(ws) && e.date <= localYMD(now)).reduce((s, e) => s + creditedRVU(e), 0) : 0;
   const todayRVU = isCurrent ? entries.filter(e => e.date === localYMD(now)).reduce((s, e) => s + creditedRVU(e), 0) : 0;
 
   // --- Two independent tracks (never blended) ---
@@ -276,7 +278,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
         <div style={{ height: 6, borderRadius: 3, background: "rgba(51,65,85,0.6)", marginTop: 8, overflow: "hidden" }}><div style={{ width: reconPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #059669, #34d399)", transition: "width 0.5s" }} /></div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, minHeight: 13 }}>
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{reconGoal > 0 && reconCount > 0 ? reconPct.toFixed(0) + "%" : ""}</span>
-          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span style={{ fontSize: 10, color: "var(--text-faint)" }}>add months in Compare</span>}
+          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span onClick={function() { setView("compare"); }} style={{ fontSize: 10, color: "var(--text-faint)", cursor: "pointer" }}>{"add months in Compare \u203A"}</span>}
         </div>
       </div>
     </div>
@@ -312,7 +314,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
         Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
       </div>}
       {myAcuteCount > 0 && <div onClick={function() { if (openAcute) openAcute("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, cursor: "pointer", display: "flex", alignItems: "center" }}>
-        <span>My acute share (YTD): <span style={{ fontFamily: "JetBrains Mono", color: "#34d399", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}</span>
+        <span>{"My acute share (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#34d399", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}</span>
         <span style={{ marginLeft: 6, color: "#34d399", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
       {myAcuteCount > 0 && reconCount > 0 && overlapKeys.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
@@ -437,13 +439,15 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
 
     {entries.length > 0 && <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Recent Procedures</div><button onClick={() => setView("history")} style={S.linkBtn}>View All </button></div><div style={{ marginTop: 8 }}>{entries.slice(-3).reverse().map((e, i) => (<div key={i} style={S.recentItem}><div><div style={S.recentCode}>{e.cptCode}{isNoCredit(e) && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div><div style={S.recentDesc}>{e.description}</div></div><div style={{ textAlign: "right" }}><div style={isNoCredit(e) ? { ...S.recentRVU, color: "var(--text-dim)" } : S.recentRVU}>{e.adjustedRVU.toFixed(2)}</div><div style={S.recentDate}>{fmtShort(e.date)}</div></div></div>))}</div></div>}
 
-    {!hasInst && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.03)" }}>
+    {/* Onboarding card (no Compare data at all): tapping it opens Compare. */}
+    {!hasInst && <div onClick={function() { setView("compare"); }} style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.03)", cursor: "pointer", minHeight: 44 }}>
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 18 }}>{"\u2194"}</span>
-        <div>
+        <div style={{ flex: 1 }}>
           <div style={{ fontSize: 12, fontWeight: 600, color: "#a78bfa" }}>Add Institution Data</div>
-          <div style={{ fontSize: 11, color: "#64748b" }}>Go to Compare tab to import your institution's RVU data for month-by-month comparison</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Open Compare to add your institution's monthly RVU figures for a month-by-month comparison</div>
         </div>
+        <span style={{ color: "#a78bfa", fontSize: 16, lineHeight: 1 }}>{"\u203a"}</span>
       </div>
     </div>}
 
