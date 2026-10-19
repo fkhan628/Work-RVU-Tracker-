@@ -83,6 +83,12 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   // keys on encounterId). Real ids are Date.now()-based; no collision.
   const [addSourceId, setAddSourceId] = useState(null);
   const addSavingRef = useRef(false);
+  // editSnap: the open panel's values, taken by the editId effect below
+  // cancelEdit (for the discard check). listScroll: the list's offset,
+  // saved by keepListScroll (startEdit / startAdd) and restored by that
+  // effect on close.
+  const editSnap = useRef(null);
+  const listScroll = useRef(null);
   var ADD_SENTINEL = "__add__";
   // A "Logged, no credit" line elsewhere opens History on the No credit chip
   // with its date range (App's one-shot historyPreset, cleared after mount).
@@ -270,7 +276,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     URL.revokeObjectURL(u);
   };
 
+  // Opening the panel from the list remembers where the list was.
+  var keepListScroll = function() { var sc = document.querySelector(".rvu-content"); if (listScroll.current === null) listScroll.current = sc ? sc.scrollTop : null; };
   const startEdit = (e) => {
+    keepListScroll();
     setEditId(e.id);
     setEditDate(e.date);
     setEditCode(e.cptCode);
@@ -285,13 +294,35 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     setEditManualBase(String(e.baseRVU || 0));
   };
 
-  const cancelEdit = () => { setEditId(null); setAddSourceId(null); };
+  // The panel's values as one string (modifiers order-free), for the
+  // discard check - an array, never an object literal with an isCall key
+  // (check.js G8).
+  var editJSON = function() { return JSON.stringify([editDate, editCode, (editMods || []).slice().sort(), editNotes, editPatient, editIsCall, editSite, editManualBase, editRederive, editApplyEnc]); };
+  // An instant jump: .rvu-content's smooth scroll-behavior would animate a
+  // plain scrollTop assignment (callpay.js rates focus).
+  var jumpTo = function(top) { var sc = document.querySelector(".rvu-content"); if (!sc) return; if (sc.scrollTo) sc.scrollTo({ top: top, behavior: "instant" }); else sc.scrollTop = top; };
+  // Back / Cancel ask before discarding a change; the saves and Delete close
+  // the panel directly.
+  const cancelEdit = () => {
+    if (editSnap.current && editJSON() !== editSnap.current && !confirm(editId === ADD_SENTINEL ? "Discard this new procedure?" : "Discard changes to this procedure?")) return;
+    setEditId(null); setAddSourceId(null);
+  };
+  // On every editId change (open, add mode, "+ Save + add another", close):
+  // an open panel snapshots what it shows and starts at the top; a closed
+  // one returns the list to where it was (approximate if rows moved: the
+  // same pixel offset, clamped only if the list got shorter).
+  useEffect(function() {
+    if (editId) { editSnap.current = editJSON(); jumpTo(0); return; }
+    editSnap.current = null;
+    if (listScroll.current !== null) { var top = listScroll.current; listScroll.current = null; setTimeout(function() { jumpTo(top); }, 0); }
+  }, [editId]);
 
   // Open the panel in add mode, inheriting the encounter context (date,
   // initials, call status, notes) from a source entry. Notes are copied
   // verbatim: siblings logged together share one identical notes string, and
   // the encounter-count fallback keys on notes.substring(0,2).
   var startAdd = function(src) {
+    keepListScroll();
     setEditId(ADD_SENTINEL);
     setAddSourceId(src.id);
     setEditDate(src.date);
@@ -311,7 +342,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   var addAnother = function() {
     var srcId = editId;
     var orig = data.entries.find(function(x) { return x.id === srcId; });
-    saveEdit();
+    // Only a save that went through opens add mode: a blocked save (no
+    // date, call site needed, unknown code without a wRVU - the button is
+    // disabled then anyway) must never drop the edit.
+    if (!saveEdit()) return;
     setAddSourceId(srcId);
     setEditId(ADD_SENTINEL);
     setEditCode("");
@@ -343,7 +377,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   var saveAdd = function() {
     var info = cptMap[editCode];
     var ci = editCallInfo();
-    if (!info || addSavingRef.current || ci.need) return;
+    if (!info || addSavingRef.current || ci.need || !isYMD(editDate)) return;
     addSavingRef.current = true;
     var adj = calcAdj(info.wRVU, editMods);
     var newEntry = entryWithCall({
@@ -384,11 +418,12 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   // is consulted only when the user actively changed to a KNOWN code; a
   // change to an unknown code takes the explicit manual value - never a
   // silent zero. Adjusted is recomputed from the resolved base so modifier
-  // edits still apply.
+  // edits still apply. Returns true only when the edit was written (addAnother
+  // opens add mode only then).
   const saveEdit = () => {
     var orig = data.entries.find(function(e) { return e.id === editId; });
-    if (!orig) { setEditId(null); return; }
-    if (editCallInfo().need) return; // Save is disabled in this state; backstop
+    if (!orig) { setEditId(null); return false; }
+    if (editCallInfo().need || !isYMD(editDate)) return false; // Save is disabled in these states; backstop
     var info = cptMap[editCode];
     var codeChanged = editCode !== orig.cptCode;
     var baseRVU, desc, cat;
@@ -402,7 +437,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       cat = info.category;
     } else {
       baseRVU = parseFloat(editManualBase);
-      if (isNaN(baseRVU)) return; // Save is disabled in this state; backstop
+      if (isNaN(baseRVU)) return false; // Save is disabled in this state; backstop
       desc = "CPT " + editCode;
       cat = "Other";
     }
@@ -425,6 +460,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       }) };
     });
     setEditId(null);
+    return true;
   };
 
   const toggleEditMod = (mc) => { setEditMods(prev => prev.includes(mc) ? prev.filter(m => m !== mc) : [...prev, mc]); };
@@ -474,12 +510,15 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       var sid = editOffer.site.id;
       upd(function(prev) { return { ...prev, paySites: payApplyNoCredit(prev.paySites || [], [sid]) }; });
     };
-    var editSaveDisabled = (editUnknownChanged && isNaN(parseFloat(editManualBase))) || ci.need;
+    // A cleared or impossible date would save "" and drop the case out of
+    // every dated total (Log refuses it the same way).
+    var editDateOk = isYMD(editDate);
+    var editSaveDisabled = (editUnknownChanged && isNaN(parseFloat(editManualBase))) || ci.need || !editDateOk;
     return (<div style={S.page}>
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{isAddMode ? "Add Procedure" : "Edit Procedure"}</h1></div>
       {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, call status and call site are carried over. Pick the CPT code below.</div>}
       <div style={{ display: "flex", gap: 8 }}>
-        <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} /></div></div>
+        <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} />{!editDateOk && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>Pick a valid date</div>}</div></div>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { setEditPatient(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
@@ -528,10 +567,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       </label>}
       {!isAddMode && <button onClick={addAnother} disabled={editSaveDisabled} style={{ width: "100%", marginBottom: 10, padding: "9px 12px", borderRadius: 10, border: "1px dashed rgba(14,165,233,0.4)", background: "rgba(14,165,233,0.04)", color: "#0ea5e9", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: editSaveDisabled ? 0.4 : 1 }}>+ Save + add another procedure to this encounter</button>}
       <div style={{ display: "flex", gap: 8 }}><button onClick={cancelEdit} style={S.secondaryBtn}>Cancel</button>{isAddMode
-        ? <button onClick={saveAdd} disabled={!editInfo || ci.need} style={{ ...S.saveBtn, flex: 1, opacity: editInfo && !ci.need ? 1 : 0.4 }}>Add Procedure</button>
+        ? <button onClick={saveAdd} disabled={!editInfo || ci.need || !editDateOk} style={{ ...S.saveBtn, flex: 1, opacity: editInfo && !ci.need && editDateOk ? 1 : 0.4 }}>Add Procedure</button>
         : <button onClick={saveEdit} disabled={editSaveDisabled} style={{ ...S.saveBtn, flex: 1, opacity: editSaveDisabled ? 0.4 : 1 }}>Save Changes</button>}</div>
       {/* Delete from the edit panel - same no-confirm + 8s Undo as swipe. */}
-      {!isAddMode && <button onClick={function() { var id = editId; cancelEdit(); del(id); }} style={{ ...S.dangerBtn, width: "100%", marginTop: 10, minHeight: 44 }}>Delete this procedure</button>}
+      {!isAddMode && <button onClick={function() { var id = editId; setEditId(null); setAddSourceId(null); del(id); }} style={{ ...S.dangerBtn, width: "100%", marginTop: 10, minHeight: 44 }}>Delete this procedure</button>}
     </div>);
   }
 

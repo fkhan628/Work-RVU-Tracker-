@@ -301,6 +301,17 @@ the per-file gates below. Run it after EVERY file change.
   through entryWithCall (entrySitelessCalls / entrySitelessCallPlan) with an
   in-place Undo (app.js undo type "restore", entryRestoreInPlace, which
   restores only cases still exactly as the fix-up wrote them).
+- History's edit / add panel: Save, "+ Save + add another" and Add
+  Procedure need a valid date (isYMD - a cleared date would save "" and drop
+  the case out of every dated total; saveEdit / saveAdd return early too,
+  saveEdit returns true only when it wrote, and addAnother opens add mode
+  only after `if (!saveEdit()) return;`); Back / Cancel (onClick={cancelEdit})
+  ask before discarding a change (editJSON, an
+  ARRAY of the panel's values, against the snapshot the editId effect takes
+  when the panel opens or switches to add mode); Delete and the saves close
+  directly; the panel opens at the top and closing it returns the list to
+  where it was (instant jumps). A tab switch with the panel open still
+  discards it (no nav guard) (check.js 5f-7).
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

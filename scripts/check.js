@@ -1124,6 +1124,112 @@ const COMP_MONEY_PIN = 8;
   check("5f-6: Home - This Week is isCurrent ? Sunday..today as date keys : 0; the acute share line is (isCurrent ? YTD : the year); the !hasInst Add Institution Data card calls setView(\"compare\")", bad.length === 0, bad.join(", "));
 }
 
+// 5f-7. History's edit / add panel (CLAUDE.md "History's edit / add panel").
+// Dates: editDateOk = isYMD(editDate) is a top-level `||` operand of
+// editSaveDisabled and of Add Procedure's disabled test; saveEdit and saveAdd
+// return early on `!isYMD(editDate)` as a top-level `||` operand (no dead
+// `false &&`); saveEdit returns true only when it wrote, and addAnother opens
+// add mode only after `if (!saveEdit()) return;`. Discard: the panel's Back
+// and Cancel buttons are onClick={cancelEdit}, whose test is exactly
+// `editSnap.current && editJSON() !== editSnap.current && !confirm(..)`;
+// editJSON is JSON.stringify of an ARRAY of the ten panel values (never an
+// object with an isCall key, G8); editSnap.current is assigned only in the
+// [editId] effect, whose first statement is `if (editId) { editSnap.current =
+// editJSON(); jumpTo(0); return; }` and whose close path clears editSnap,
+// clears listScroll and jumps back to it in a setTimeout; keepListScroll
+// saves .rvu-content's scrollTop and startEdit / startAdd call it. Delete is
+// an inline handler that closes and calls del - no cancelEdit, no confirm.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression");
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const ors = t => (t && t.type === "LogicalExpression" && t.operator === "||") ? ors(t.left).concat(ors(t.right)) : [t];
+  const ands = t => (t && t.type === "LogicalExpression" && t.operator === "&&") ? ands(t.left).concat(ands(t.right)) : [t];
+  const isNot = (n, inner) => !!n && n.type === "UnaryExpression" && n.operator === "!" && inner(n.argument);
+  const notYMDCall = n => isNot(n, a => a.type === "CallExpression" && isId(a.callee, "isYMD") && isId(a.arguments[0], "editDate"));
+  const returns = c => c.type === "ReturnStatement" || (c.type === "BlockStatement" && c.body.some(x => x.type === "ReturnStatement"));
+  const bad = [];
+  let hAst = null;
+  try { hAst = parser.parse(fs.readFileSync(path.join(JS_DIR, "history.js"), "utf8"), AST_OPTS); } catch (e) { bad.push("parse"); }
+  const hist = hAst ? hAst.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "History"))[0] : null;
+  if (hAst && !hist) bad.push("no History");
+  if (hist) {
+    const fnOf = name => { const d = deep(hist, n => n.type === "VariableDeclarator" && isId(n.id, name) && isFn(n.init)); return d.length === 1 ? d[0].init : null; };
+    const stmtsOf = f => f && f.body.type === "BlockStatement" ? f.body.body : [];
+    // Dates.
+    ["saveEdit", "saveAdd"].forEach(nm => {
+      const st = stmtsOf(fnOf(nm));
+      const gi = st.findIndex(s => s.type === "IfStatement" && ors(s.test).some(notYMDCall) && returns(s.consequent));
+      const ci = st.findIndex(s => deep(s, m => m.type === "CallExpression" && isId(m.callee, "upd")).length > 0);
+      if (gi === -1 || (ci !== -1 && gi > ci)) bad.push(nm + ": no early top-level !isYMD(editDate) return");
+    });
+    const se = fnOf("saveEdit");
+    const seRets = se ? deep(se.body, m => m.type === "ReturnStatement").filter(r => !deep(se.body, f => isFn(f) && deep(f, x => x === r).length).length) : [];
+    if (!se || !seRets.length || !seRets.every(r => r.argument && r.argument.type === "BooleanLiteral") || seRets.filter(r => r.argument.value === true).length !== 1) bad.push("saveEdit does not return true only when it wrote");
+    const aa = stmtsOf(fnOf("addAnother"));
+    const gAA = aa.findIndex(s => s.type === "IfStatement" && isNot(s.test, a => a.type === "CallExpression" && isId(a.callee, "saveEdit")) && returns(s.consequent));
+    const setAdd = aa.findIndex(s => deep(s, m => m.type === "CallExpression" && isId(m.callee, "setEditId")).length > 0);
+    if (gAA === -1 || setAdd === -1 || gAA > setAdd || deep({ body: aa }, m => m.type === "CallExpression" && isId(m.callee, "saveEdit")).length !== 1) bad.push("addAnother does not open add mode only after if (!saveEdit()) return");
+    if (deep(hist, n => n.type === "VariableDeclarator" && isId(n.id, "editDateOk") && n.init && n.init.type === "CallExpression" && isId(n.init.callee, "isYMD") && isId(n.init.arguments[0], "editDate")).length !== 1) bad.push("editDateOk is not isYMD(editDate)");
+    const notOk = n => isNot(n, a => isId(a, "editDateOk"));
+    const dis = deep(hist, n => n.type === "VariableDeclarator" && isId(n.id, "editSaveDisabled"))[0];
+    if (!dis || !ors(dis.init).some(notOk)) bad.push("editSaveDisabled has no top-level !editDateOk");
+    const addBtn = deep(hist, n => n.type === "JSXOpeningElement" && n.attributes.some(a => a.type === "JSXAttribute" && a.name && a.name.name === "onClick" && a.value && isId(a.value.expression, "saveAdd")))[0];
+    const addDis = addBtn && addBtn.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === "disabled")[0];
+    if (!addDis || !ors(addDis.value.expression).some(notOk)) bad.push("Add Procedure's disabled has no top-level !editDateOk");
+    // Discard check.
+    const ej = fnOf("editJSON");
+    const ret = stmtsOf(ej).filter(s => s.type === "ReturnStatement")[0];
+    const arr = ret && ret.argument && ret.argument.type === "CallExpression" && isMem(ret.argument.callee, "JSON", "stringify") ? ret.argument.arguments[0] : null;
+    const NEED = ["editDate", "editCode", "editMods", "editNotes", "editPatient", "editIsCall", "editSite", "editManualBase", "editRederive", "editApplyEnc"];
+    if (!arr || arr.type !== "ArrayExpression" || !NEED.every(k => deep(arr, m => isId(m, k)).length > 0)) bad.push("editJSON is not JSON.stringify([..the panel's values..])");
+    const ce = fnOf("cancelEdit");
+    const asks = ce ? deep(ce, n => {
+      if (n.type !== "IfStatement") return false;
+      const ops = ands(n.test);
+      return ops.length === 3 && isMem(ops[0], "editSnap", "current") &&
+        ops[1].type === "BinaryExpression" && ops[1].operator === "!==" && ops[1].left.type === "CallExpression" && isId(ops[1].left.callee, "editJSON") && isMem(ops[1].right, "editSnap", "current") &&
+        isNot(ops[2], a => a.type === "CallExpression" && isId(a.callee, "confirm")) && returns(n.consequent);
+    }) : [];
+    if (asks.length !== 1) bad.push("cancelEdit does not confirm a changed panel");
+    const btnText = el => el.children.filter(c => c.type === "JSXText").map(c => c.value.trim()).join("");
+    const cancelBtns = deep(hist, n => n.type === "JSXElement" && n.openingElement.name && n.openingElement.name.name === "button" &&
+      n.openingElement.attributes.some(a => a.type === "JSXAttribute" && a.name && a.name.name === "onClick" && a.value && isId(a.value.expression, "cancelEdit"))).map(btnText).sort().join(",");
+    if (cancelBtns !== "Back,Cancel") bad.push("the panel's Back and Cancel are not onClick={cancelEdit} (got " + cancelBtns + ")");
+    const snapWrites = deep(hist, n => n.type === "AssignmentExpression" && isMem(n.left, "editSnap", "current"));
+    const effs = deep(hist, n => n.type === "CallExpression" && isId(n.callee, "useEffect") && n.arguments[1] && n.arguments[1].type === "ArrayExpression" && n.arguments[1].elements.length === 1 && isId(n.arguments[1].elements[0], "editId"));
+    const eff = effs.length === 1 && isFn(effs[0].arguments[0]) ? effs[0].arguments[0] : null;
+    const est = stmtsOf(eff);
+    const first = est[0];
+    const openOk = !!first && first.type === "IfStatement" && isId(first.test, "editId") && first.consequent.type === "BlockStatement" && first.consequent.body.length === 3 &&
+      first.consequent.body[0].type === "ExpressionStatement" && first.consequent.body[0].expression.type === "AssignmentExpression" && isMem(first.consequent.body[0].expression.left, "editSnap", "current") &&
+      first.consequent.body[0].expression.right.type === "CallExpression" && isId(first.consequent.body[0].expression.right.callee, "editJSON") &&
+      first.consequent.body[1].type === "ExpressionStatement" && first.consequent.body[1].expression.type === "CallExpression" && isId(first.consequent.body[1].expression.callee, "jumpTo") &&
+      first.consequent.body[2].type === "ReturnStatement";
+    const rest = { type: "Block", body: est.slice(1) };
+    const closeOk = deep(rest, m => m.type === "AssignmentExpression" && isMem(m.left, "editSnap", "current") && m.right.type === "NullLiteral").length === 1 &&
+      deep(rest, m => m.type === "AssignmentExpression" && isMem(m.left, "listScroll", "current") && m.right.type === "NullLiteral").length === 1 &&
+      deep(rest, m => m.type === "CallExpression" && isId(m.callee, "setTimeout") && isFn(m.arguments[0]) && deep(m.arguments[0], x => x.type === "CallExpression" && isId(x.callee, "jumpTo")).length === 1).length === 1 &&
+      deep(rest, m => m.type === "VariableDeclarator" && isMem(m.init, "listScroll", "current")).length === 1;
+    if (!eff || !openOk) bad.push("the editId effect does not open with if (editId) { editSnap.current = editJSON(); jumpTo(0); return; }");
+    if (!eff || !closeOk) bad.push("the editId effect's close path does not clear the snapshot and jump back to listScroll");
+    if (snapWrites.length !== 2 || !eff || !snapWrites.every(w => deep(eff, x => x === w).length === 1)) bad.push("editSnap.current is written outside the editId effect");
+    const kls = fnOf("keepListScroll");
+    if (!kls || deep(kls, m => m.type === "AssignmentExpression" && isMem(m.left, "listScroll", "current")).length !== 1 || !deep(kls, m => isMem(m, "sc", "scrollTop")).length) bad.push("keepListScroll does not save the scroll offset");
+    ["startEdit", "startAdd"].forEach(nm => { const f = fnOf(nm); if (!f || !deep(f, m => m.type === "CallExpression" && isId(m.callee, "keepListScroll")).length) bad.push(nm + " does not keep the list scroll"); });
+    // Delete.
+    const delBtn = deep(hist, n => n.type === "JSXElement" && n.openingElement.name && n.openingElement.name.name === "button" && n.children.some(c => c.type === "JSXText" && c.value.indexOf("Delete this procedure") !== -1));
+    const delAttr = delBtn.length === 1 ? delBtn[0].openingElement.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === "onClick")[0] : null;
+    const delFn = delAttr && delAttr.value && isFn(delAttr.value.expression) ? delAttr.value.expression : null;
+    if (!delFn || deep(delFn, m => m.type === "CallExpression" && (isId(m.callee, "cancelEdit") || isId(m.callee, "confirm"))).length ||
+      !deep(delFn, m => m.type === "CallExpression" && isId(m.callee, "setEditId") && m.arguments[0] && m.arguments[0].type === "NullLiteral").length ||
+      !deep(delFn, m => m.type === "CallExpression" && isId(m.callee, "del")).length) bad.push("Delete is not an inline close + del without cancelEdit / confirm");
+  }
+  check("5f-7: History panel - valid date for Save / add another / Add (top-level guards; add mode only after saveEdit() wrote); Back/Cancel = cancelEdit confirming a changed panel (editJSON array vs the editId effect's snapshot); list scroll kept and restored; Delete closes directly",
+    bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
