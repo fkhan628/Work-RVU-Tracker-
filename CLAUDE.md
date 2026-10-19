@@ -312,6 +312,25 @@ the per-file gates below. Run it after EVERY file change.
   through rvuOverrideFromText: the CMS value removes the override; blank, 0
   or junk is refused and the field reverts. Overrides reach only cases
   logged, added, imported or re-coded later (entries keep their snapshot).
+- Compare months (institutionData rows `{ month, workRVU, splitRVU, cases,
+  totalOnly? }`): ONE row per month. compare.js writes a manual month only
+  through utils.js instSaveMonth and deletes only through instDeleteRow,
+  both by the row OBJECT - never a list index (a delete or import while the
+  form is open would shift it onto another month). Replacing another row of
+  the same month (an Add over a saved month, an edit moved onto one, or a
+  duplicate an older build left) is confirmed in the tap via instSameMonth,
+  never in the updater; a save whose edited row is gone asks first, and an
+  Excel import closes an edit form whose row it replaced. A migrated month
+  keeps totalOnly when its edit leaves the call split at 0. The Excel import
+  keeps its own merge (Merge overwrites a month's FIRST row; Replace All
+  starts empty). Readers of a duplicate an older build left: Home's
+  Reconciliation / pace / Comp / vs. Prior Year and Trends' cross-check keep
+  the LAST row; Home's monthly chart and Settings' Acute reference read the
+  FIRST; Compare's list and totals, Home's Prior Year (Institution) card and
+  Settings' Excel export add EVERY row - so it reads differently across them
+  until it is saved again from Compare's form, one copy is deleted, or
+  Replace All re-imports it (a Merge leaves the later copy) (check.js 5f-3 +
+  value tests).
 - Home's goal tracks: Tracked OR (logged cases via creditedRVU; goal
   settings.annualGoal) and Reconciliation (Compare's institutionData months
   in the year window, incl. call + clinic; goal settings.reconGoal).

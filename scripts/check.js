@@ -840,6 +840,88 @@ const COMP_MONEY_PIN = 8;
     gate !== null && gate.leaks.length === 0 && gate.money === COMP_MONEY_PIN, gate ? JSON.stringify({ leaks: gate.leaks, money: gate.money }) : "parse");
 }
 
+// 5f-3. Compare month rows (CLAUDE.md "Compare months"): compare.js writes a
+// manual month only through utils.js instSaveMonth and deletes only through
+// instDeleteRow, by the row OBJECT - never a list index (an index taken when
+// the form opened can point at another month after a delete or import).
+// Structure, like the Call Pay confirm gate: in saveMonth and deleteMonth
+// every confirm() runs in the tap (not in a nested function) before the ONE
+// upd() call, whose updater passes its own prev.institutionData to the
+// helper and asks nothing; saveMonth's `others = instSameMonth(instData,
+// editRow, editMonth)` gates a confirm, and its row is a var set from
+// editRow; the delete passes deleteMonth's own row parameter and closes the
+// form when that row is being edited; startEdit / deleteMonth receive the
+// row of the displayData.map callback; no computed instData[..] or
+// .institutionData[..] read; the import closes a stale edit form.
+{
+  const csrc = fs.readFileSync(path.join(JS_DIR, "compare.js"), "utf8");
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression" || n.type === "FunctionDeclaration");
+  const callName = c => c.callee.type === "Identifier" ? c.callee.name : null;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  // The first operand of an `a && b && ...` test (so `false && x` never counts as testing x).
+  const lead = t => { while (t && t.type === "LogicalExpression" && t.operator === "&&") t = t.left; return t; };
+  // Calls in fn's own body, not inside a nested function, in source order.
+  const ownCalls = fn => { const out = []; (function visit(n) { if (!n || typeof n !== "object") return; if (Array.isArray(n)) { n.forEach(visit); return; } if (isFn(n)) return; if (n.type === "CallExpression") out.push(n); for (const k in n) { if (!WALK_SKIP[k] && n[k] && typeof n[k] === "object") visit(n[k]); } })(fn.body); return out.sort((a, b) => a.start - b.start); };
+  const bad = [];
+  let cAst = null;
+  try { cAst = parser.parse(csrc, AST_OPTS); } catch (e) { cAst = null; }
+  if (!cAst) bad.push("parse");
+  const declFn = name => { let f = null; if (cAst) walk(cAst.program, n => { if (n.type === "VariableDeclarator" && isId(n.id, name) && isFn(n.init)) f = n.init; }); return f; };
+  const cnt = { instSaveMonth: 0, instDeleteRow: 0, instSameMonth: 0 };
+  if (cAst) walk(cAst.program, n => {
+    if (n.type === "Identifier" && n.name === "editIdx") bad.push(n.loc.start.line + ":editIdx");
+    if (n.type === "CallExpression" && cnt[callName(n)] !== undefined) cnt[callName(n)]++;
+    if (n.type === "MemberExpression" && n.computed && (isId(n.object, "instData") || (n.object.type === "MemberExpression" && !n.object.computed && n.object.property.name === "institutionData"))) bad.push(n.loc.start.line + ":computed row read");
+  });
+  Object.keys(cnt).forEach(k => { if (cnt[k] !== 1) bad.push(k + " x" + cnt[k]); });
+  // One upd() in the tap, after every confirm(); its updater asks nothing and
+  // hands ITS OWN prev.institutionData to the helper.
+  const tapThenUpd = (name, helper, argCheck) => {
+    const fn = declFn(name);
+    if (!fn) { bad.push(name + ": not found"); return null; }
+    const calls = ownCalls(fn), upds = calls.filter(c => callName(c) === "upd"), confs = calls.filter(c => callName(c) === "confirm");
+    if (upds.length !== 1) { bad.push(name + ": upd x" + upds.length); return fn; }
+    if (!confs.length || confs.some(c => c.start > upds[0].start)) bad.push(name + ": confirm not before upd");
+    const up = upds[0].arguments[0], P = up && isFn(up) && up.params[0] && up.params[0].type === "Identifier" ? up.params[0].name : null;
+    if (!P) { bad.push(name + ": updater"); return fn; }
+    if (deep(up, n => n.type === "CallExpression" && callName(n) === "confirm").length) bad.push(name + ": confirm in the updater");
+    const hc = deep(up, n => n.type === "CallExpression" && callName(n) === helper);
+    if (hc.length !== 1 || !(hc[0].arguments[0] && hc[0].arguments[0].type === "MemberExpression" && isId(hc[0].arguments[0].object, P) && hc[0].arguments[0].property.name === "institutionData") || !argCheck(hc[0].arguments, fn)) bad.push(name + ": " + helper + " arguments");
+    return fn;
+  };
+  const save = tapThenUpd("saveMonth", "instSaveMonth", (a, fn) => isId(a[1], "row") && isId(a[2], "entry") &&
+    deep(fn, n => n.type === "VariableDeclarator" && isId(n.id, "row") && isId(n.init, "editRow")).length === 1);
+  if (save) {
+    const same = deep(save, n => n.type === "VariableDeclarator" && isId(n.id, "others") && n.init && n.init.type === "CallExpression" && callName(n.init) === "instSameMonth");
+    const sameOk = same.length === 1 && isId(same[0].init.arguments[0], "instData") && isId(same[0].init.arguments[1], "editRow") && isId(same[0].init.arguments[2], "editMonth");
+    const ol = n => { const l = lead(n.test); return !!l && l.type === "MemberExpression" && isId(l.object, "others") && l.property.name === "length"; };
+    const gated = deep(save, n => n.type === "IfStatement" && ol(n) && deep(n.consequent, m => m.type === "CallExpression" && callName(m) === "confirm").length > 0).length > 0;
+    if (!sameOk || !gated) bad.push("saveMonth: instSameMonth(instData, editRow, editMonth) does not gate a confirm");
+  }
+  const del = tapThenUpd("deleteMonth", "instDeleteRow", (a, fn) => fn.params[0] && isId(a[1], fn.params[0].name));
+  if (del && del.params[0]) {
+    const D = del.params[0].name;
+    const guard = deep(del, n => n.type === "IfStatement" && n.test.type === "BinaryExpression" && n.test.operator === "===" &&
+      ((isId(n.test.left, D) && isId(n.test.right, "editRow")) || (isId(n.test.left, "editRow") && isId(n.test.right, D))) &&
+      deep(n.consequent, m => m.type === "CallExpression" && callName(m) === "resetForm").length > 0);
+    if (!guard.length) bad.push("deleteMonth: no close-the-edited-row guard");
+  }
+  const imp = declFn("importXlData");
+  if (!imp || !deep(imp, n => n.type === "IfStatement" && isId(lead(n.test), "editRow") && deep(n.consequent, m => m.type === "CallExpression" && callName(m) === "resetForm").length > 0).length) bad.push("importXlData: no stale edit-form close");
+  if (cAst) walkStack(csrc, (n, stack) => {
+    if (n.type !== "CallExpression" || (callName(n) !== "startEdit" && callName(n) !== "deleteMonth")) return;
+    let row = null;
+    for (let i = stack.length - 1; i > 0; i--) {
+      const f = stack[i], p = stack[i - 1];
+      if (isFn(f) && p.type === "CallExpression" && p.arguments[0] === f && p.callee.type === "MemberExpression" && isId(p.callee.object, "displayData") && p.callee.property.name === "map") { row = f.params[0] && f.params[0].name; break; }
+    }
+    if (!row || n.arguments.length !== 1 || !isId(n.arguments[0], row)) bad.push(n.loc.start.line + ":" + callName(n) + " not given the row");
+  });
+  check("5f-3: Compare month rows by row object - instSaveMonth / instDeleteRow / instSameMonth once each, confirm in the tap before the one upd, updater on its own prev, the row passed (no index), delete closes the edited row, import closes a stale form",
+    bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
@@ -3058,6 +3140,42 @@ if (sb) {
     check("compProjection: Compare months -> the Recon card's pace vs the Recon goal (the OR goal, named, when unset); else the tracked pace vs the OR goal; no rate or no goal for that comparison hides; Comp YTD from the same source; junk = not set; paces never cross tracks",
       badCP.length === 0 && exact && reconJunk && orJunk && rateJunk && monthsJunk && nanPass && nb1 && nb2 && noThrow && untouched && fields && ytd,
       JSON.stringify({ badCP: badCP, exact: exact, reconJunk: reconJunk, orJunk: orJunk, rateJunk: rateJunk, monthsJunk: monthsJunk, nanPass: nanPass, nb1: nb1, nb2: nb2, noThrow: noThrow, untouched: untouched, fields: fields, ytd: ytd, keys: Object.keys(r0) }));
+  }
+
+  {
+    // Compare month rows: one row per month, rows found by identity (never a
+    // list index), totalOnly kept when an edit leaves the split at 0, inputs
+    // never mutated (instSameMonth / instSaveMonth / instDeleteRow).
+    const A = { month: "2026-01", workRVU: 500, splitRVU: 150, cases: 40 };
+    const B = { month: "2026-02", workRVU: 400, splitRVU: 100, cases: 30 };
+    const C = { month: "2026-03", workRVU: 300, splitRVU: 0, cases: 20, totalOnly: true };
+    const B2 = { month: "2026-02", workRVU: 1, splitRVU: 1, cases: 1 }; // an older build's duplicate
+    const rows = [A, B, C, B2], rowsJ = JSON.stringify(rows);
+    const E = (m, w, s, c) => ({ month: m, workRVU: w, splitRVU: s, cases: c });
+    // month:work/split/cases, T = totalOnly
+    const sig = l => l.map(r => r.month + ":" + r.workRVU + "/" + r.splitRVU + "/" + r.cases + (r.totalOnly ? "T" : "")).join(",");
+    const IS = [ // [case, result, expected]
+      ["plain edit in place", sb.instSaveMonth(rows, A, E("2026-01", 510, 150, 41)), "2026-01:510/150/41,2026-02:400/100/30,2026-03:300/0/20T,2026-02:1/1/1"],
+      ["edit moved onto a month with 2 rows keeps one", sb.instSaveMonth(rows, A, E("2026-02", 510, 150, 41)), "2026-02:510/150/41,2026-03:300/0/20T"],
+      ["add over a saved month replaces it (no totalOnly carried)", sb.instSaveMonth(rows, null, E("2026-03", 333, 0, 0)), "2026-01:500/150/40,2026-02:400/100/30,2026-02:1/1/1,2026-03:333/0/0"],
+      ["add a new month appends", sb.instSaveMonth(rows, null, E("2026-04", 1, 2, 3)), "2026-01:500/150/40,2026-02:400/100/30,2026-03:300/0/20T,2026-02:1/1/1,2026-04:1/2/3"],
+      ["edited row gone meanwhile: append, overwrite nothing", sb.instSaveMonth([B, C], A, E("2026-01", 9, 9, 9)), "2026-02:400/100/30,2026-03:300/0/20T,2026-01:9/9/9"],
+      ["totalOnly edit, split 0: kept", sb.instSaveMonth(rows, C, E("2026-03", 350, 0, 22)), "2026-01:500/150/40,2026-02:400/100/30,2026-03:350/0/22T,2026-02:1/1/1"],
+      ["totalOnly edit, split set: cleared", sb.instSaveMonth(rows, C, E("2026-03", 350, 5, 22)), "2026-01:500/150/40,2026-02:400/100/30,2026-03:350/5/22,2026-02:1/1/1"],
+      ["totalOnly edit moved to another month, split 0: kept", sb.instSaveMonth(rows, C, E("2026-05", 350, 0, 22)), "2026-01:500/150/40,2026-02:400/100/30,2026-05:350/0/22T,2026-02:1/1/1"],
+      ["plain edit of a duplicated month drops the other row", sb.instSaveMonth(rows, B, E("2026-02", 410, 100, 30)), "2026-01:500/150/40,2026-02:410/100/30,2026-03:300/0/20T"],
+      ["a duplicate BEFORE the edited row: written in the edited row's slot", sb.instSaveMonth([A, B2, B, C], B, E("2026-02", 410, 100, 30)), "2026-01:500/150/40,2026-02:410/100/30,2026-03:300/0/20T"],
+      ["delete by identity keeps the same-month duplicate", sb.instDeleteRow(rows, B), "2026-01:500/150/40,2026-03:300/0/20T,2026-02:1/1/1"],
+      ["delete of a row no longer there is a no-op", sb.instDeleteRow(rows, Object.assign({}, B)), "2026-01:500/150/40,2026-02:400/100/30,2026-03:300/0/20T,2026-02:1/1/1"],
+      ["junk rows", sb.instSaveMonth(null, null, E("2026-06", 1, 0, 0)).concat(sb.instDeleteRow(undefined, A)), "2026-06:1/0/0"],
+    ];
+    const badIS = IS.filter(t => sig(t[1]) !== t[2]).map(t => t[0] + " got " + sig(t[1]));
+    const same = [sb.instSameMonth(rows, A, "2026-02").length, sb.instSameMonth(rows, B, "2026-02").length, sb.instSameMonth(rows, null, "2026-04").length,
+      sb.instSameMonth([null, A], null, "2026-01").length, sb.instSameMonth(null, null, "2026-01").length].join() === "2,1,0,1,0";
+    const e6 = E("2026-03", 350, 0, 22), r6 = sb.instSaveMonth(rows, C, e6);
+    const pure = JSON.stringify(rows) === rowsJ && e6.totalOnly === undefined && r6 !== rows && r6[0] === A;
+    check("Compare month rows: one row per month, rows by identity (an edit or delete never lands on another month), totalOnly kept on a split-0 edit, inputs untouched",
+      badIS.length === 0 && same && pure, JSON.stringify({ badIS: badIS, same: same, pure: pure }));
   }
 
   {

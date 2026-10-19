@@ -11,7 +11,9 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
   var [editSplit, setEditSplit] = useState("");
   var [editCases, setEditCases] = useState("");
   var [showAdd, setShowAdd] = useState(false);
-  var [editIdx, setEditIdx] = useState(-1);
+  // The row being edited, by identity (never a list index: a delete or an
+  // import while the form is open would shift an index onto another month).
+  var [editRow, setEditRow] = useState(null);
   var [viewYear, setViewYear] = useState(function() { return String(new Date().getFullYear()); });
   var [showMonthlyDetail, setShowMonthlyDetail] = useState(false);
   var [xlPreview, setXlPreview] = useState(null);
@@ -209,6 +211,9 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
       });
       return { ...prev, institutionData: arr };
     });
+    // An open Edit form whose row this import replaced (Replace All, or a
+    // Merge of its month) would otherwise save a month back: close it.
+    if (editRow && (mode === "replace" || xlPreview.some(function(e) { return e.month === editRow.month; }))) resetForm();
     var total = xlPreview.reduce(function(s, e) { return s + e.workRVU + e.splitRVU; }, 0);
     setXlPreview(null);
     setXlRawWb(null);
@@ -273,41 +278,41 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
       splitRVU: parseFloat(editSplit) || 0,
       cases: parseInt(editCases) || 0
     };
-    upd(function(prev) {
-      var arr = (prev.institutionData || []).slice();
-      if (editIdx >= 0) {
-        arr[editIdx] = entry;
-      } else {
-        // Check for existing month
-        var existIdx = arr.findIndex(function(d) { return d.month === editMonth; });
-        if (existIdx >= 0) {
-          arr[existIdx] = entry;
-        } else {
-          arr.push(entry);
-        }
-      }
-      return { ...prev, institutionData: arr };
-    });
+    // One row per month: replacing another saved row of this month (an Add
+    // over a saved month, an edit moved onto one, or a duplicate an older
+    // build left) is asked here in the tap - never in the updater, which
+    // works the rows out again from prev (utils.js instSaveMonth).
+    // The edited row was replaced or removed meanwhile: saving would add it
+    // back as a new row - ask first.
+    if (editRow && instData.indexOf(editRow) === -1 && !confirm("The " + monthLabel(editRow.month) + " row you were editing is no longer saved (an import or a delete changed it). Save these figures as " + monthLabel(editMonth) + " anyway?")) return;
+    var others = instSameMonth(instData, editRow, editMonth);
+    if (others.length) {
+      var otherT = others.reduce(function(s, d) { return s + (d.workRVU || 0) + (d.splitRVU || 0); }, 0);
+      if (!confirm(monthLabel(editMonth) + " already has " + (others.length === 1 ? "a saved row" : others.length + " saved rows") + " (" + otherT.toFixed(1) + " wRVUs). Replace " + (others.length === 1 ? "it" : "them") + " with these figures?")) return;
+    }
+    var row = editRow;
+    upd(function(prev) { return { ...prev, institutionData: instSaveMonth(prev.institutionData, row, entry) }; });
+    // A month saved into another year would vanish from this view: show it.
+    var y = editMonth.slice(0, 4);
+    if (viewYear !== "all" && viewYear !== y) setViewYear(y);
     resetForm();
   };
 
-  var deleteMonth = function(idx) {
-    if (!confirm("Delete this month's institution data?")) return;
-    upd(function(prev) {
-      var arr = (prev.institutionData || []).slice();
-      arr.splice(idx, 1);
-      return { ...prev, institutionData: arr };
-    });
+  var deleteMonth = function(d) {
+    if (!d || !confirm("Delete " + monthLabel(d.month) + " institution data (" + ((d.workRVU || 0) + (d.splitRVU || 0)).toFixed(1) + " wRVUs)?")) return;
+    upd(function(prev) { return { ...prev, institutionData: instDeleteRow(prev.institutionData, d) }; });
+    // Deleting the month being edited closes its form, so Update cannot
+    // bring it back.
+    if (d === editRow) resetForm();
   };
 
-  var startEdit = function(idx) {
-    var d = instData[idx];
+  var startEdit = function(d) {
     if (!d) return;
     setEditMonth(d.month);
     setEditWork(String(d.workRVU || 0));
     setEditSplit(String(d.splitRVU || 0));
     setEditCases(String(d.cases || 0));
-    setEditIdx(idx);
+    setEditRow(d);
     setShowAdd(true);
   };
 
@@ -316,7 +321,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
     setEditWork("");
     setEditSplit("");
     setEditCases("");
-    setEditIdx(-1);
+    setEditRow(null);
     setShowAdd(false);
   };
 
@@ -577,7 +582,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
     </div>}
 
     {showAdd && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.3)", marginBottom: 12 }}>
-      <div style={S.cardLabel}>{editIdx >= 0 ? "Edit Month" : "Add Month"}</div>
+      <div style={S.cardLabel}>{editRow ? "Edit Month" : "Add Month"}</div>
       <div style={S.fieldGroup}>
         <label style={S.fieldLabel}>Month</label>
         <input type="month" value={editMonth} onChange={function(e) { setEditMonth(e.target.value); }} style={{ ...S.dateInput, width: "100%" }} />
@@ -597,7 +602,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         <input type="text" inputMode="numeric" value={editCases} onChange={function(e) { setEditCases(e.target.value.replace(/[^0-9]/g, "")); }} placeholder="0" style={{ ...S.numberInput, width: "100%" }} />
       </div>
       <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>Total: <span style={{ fontFamily: "JetBrains Mono", color: "#a78bfa", fontWeight: 600 }}>{((parseFloat(editWork) || 0) + (parseFloat(editSplit) || 0)).toFixed(1)} wRVUs</span></div>
-      <button onClick={saveMonth} disabled={!editMonth} style={{ ...S.saveBtn, opacity: editMonth ? 1 : 0.4, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{editIdx >= 0 ? "Update Month" : "Save Month"}</button>
+      <button onClick={saveMonth} disabled={!editMonth} style={{ ...S.saveBtn, opacity: editMonth ? 1 : 0.4, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{editRow ? "Update Month" : "Save Month"}</button>
     </div>}
 
     {/* Monthly detail list (collapsible) */}
@@ -621,7 +626,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
           var m = measuredByMonth[mKey];
           var measT = m ? m.rvu : 0;
           var mDiff = measT - instT;
-          return (<div key={d.month} style={{ padding: "10px 0", borderBottom: dispIdx < displayData.length - 1 ? "1px solid rgba(51,65,85,0.5)" : "none" }}>
+          return (<div key={d.month + "-" + realIdx} style={{ padding: "10px 0", borderBottom: dispIdx < displayData.length - 1 ? "1px solid rgba(51,65,85,0.5)" : "none" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div style={{ flex: 1 }}>
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-bright)" }}>{monthLabel(d.month)}</div>
@@ -643,8 +648,8 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
                 </div>
               </div>
               <div style={{ display: "flex", gap: 4, flexShrink: 0 }}>
-                <button onClick={function() { startEdit(realIdx); }} style={{ ...S.deleteBtn, color: "var(--text-muted)" }}>{"\u270E"}</button>
-                <button onClick={function() { deleteMonth(realIdx); }} style={S.deleteBtn}>{"\u2715"}</button>
+                <button onClick={function() { startEdit(d); }} aria-label={"Edit " + monthLabel(d.month)} style={{ ...S.deleteBtn, color: "var(--text-muted)", minWidth: 36, minHeight: 36, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{"\u270E"}</button>
+                <button onClick={function() { deleteMonth(d); }} aria-label={"Delete " + monthLabel(d.month)} style={{ ...S.deleteBtn, minWidth: 36, minHeight: 36, display: "inline-flex", alignItems: "center", justifyContent: "center" }}>{"\u2715"}</button>
               </div>
             </div>
           </div>);

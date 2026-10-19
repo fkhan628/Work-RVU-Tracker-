@@ -1932,6 +1932,34 @@ function compProjection(p) {
   };
 }
 
+// Compare's manual month rows (institutionData): ONE row per month. A row is
+// found by IDENTITY (the object the user tapped), never by list position, so
+// a delete or an import while the form is open can never redirect a save or
+// a delete onto another month. instSameMonth lists the OTHER rows already
+// holding a month (the tap confirms before they are replaced - an older build
+// could leave duplicates); instSaveMonth drops them, writes the entry at the
+// edited row's position (or appends it when adding, or when that row is
+// gone), and keeps a migrated month's totalOnly flag when its edit leaves the
+// call split at 0; instDeleteRow removes exactly that row (a no-op once it is
+// gone). Inputs are never mutated. The Excel import keeps its own merge.
+function instSameMonth(rows, editRow, month) {
+  return (Array.isArray(rows) ? rows : []).filter(function(r) { return !!r && r !== editRow && r.month === month; });
+}
+function instSaveMonth(rows, editRow, entry) {
+  var arr = (Array.isArray(rows) ? rows : []).filter(function(r) { return !(r && r !== editRow && r.month === entry.month); });
+  var out = Object.assign({}, entry);
+  var i = editRow ? arr.indexOf(editRow) : -1;
+  if (i >= 0 && editRow.totalOnly === true && entry.splitRVU === 0) out.totalOnly = true;
+  if (i >= 0) arr[i] = out; else arr.push(out);
+  return arr;
+}
+function instDeleteRow(rows, row) {
+  var arr = (Array.isArray(rows) ? rows : []).slice();
+  var i = arr.indexOf(row);
+  if (i >= 0) arr.splice(i, 1);
+  return arr;
+}
+
 // --- Acute care group split math (single implementation - do not duplicate) ---
 // Half-up rounding to 2dp with a precision guard: 992.31/62 is exactly 16.005 in
 // decimal but 16.004999... in binary floats, and naive toFixed(2) would display
