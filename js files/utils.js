@@ -657,9 +657,10 @@ function showDataAlert(msg, onDismiss) {
 const fmt = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric", year: "numeric" });
 const fmtShort = d => new Date(d + "T12:00:00").toLocaleDateString("en-US", { month: "short", day: "numeric" });
 function fmtDollar(val, show) { if (!show) return "$\u2022\u2022\u2022\u2022\u2022"; return "$" + val.toLocaleString(undefined, { maximumFractionDigits: 0 }); }
-// annualGoal = OR / Tracked goal (logged cases). reconGoal = yearly goal for the
-// manually-entered monthly reconciliation totals (incl. call + clinic). The two
-// tracks are independent and never mix.
+// annualGoal = OR / Tracked goal (logged cases). reconGoal = yearly goal for
+// Compare's monthly institution totals (incl. call + clinic). The two tracks
+// are independent; Home's Compensation card uses the OR goal for a Compare
+// projection only when reconGoal is unset, and says so (compProjection).
 const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yearStart: new Date().getFullYear() + "-01-01" });
 // The Reconciliation track reads institution monthly totals directly from
 // institutionData (Compare tab). The old hand-typed reconMonths store was
@@ -1885,6 +1886,45 @@ function priorSpanYMD(ys, today) {
   var back = function(k) { return (+k.slice(0, 4) - 1) + k.slice(4); };
   var end = isYMD(today) && today < fy.end ? today : fy.end;
   return { cur: { start: fy.start, end: end }, prev: { start: back(fy.start), end: end === fy.end ? addDaysYMD(fy.start, -1) : back(end) }, toDate: end !== fy.end };
+}
+
+// Home Compensation card: the ONE projection rule. Home's two goal tracks:
+// Tracked OR = logged cases (creditedRVU), goal settings.annualGoal;
+// Reconciliation = Compare's monthly institution totals (incl. call +
+// clinic), goal settings.reconGoal. The card projects from the year window's
+// Compare months when there are any (the Reconciliation card's own months and
+// pace), else from the tracked pace. A Compare projection is compared with the
+// Reconciliation goal when one is set, otherwise with the OR goal, named as
+// such (owner's choice, 2026-10-18); a tracked projection only ever with the
+// OR goal. No rate, or no goal for that comparison (the OR goal for a tracked
+// projection), hides the card. The pill's sign and colour both follow onPace
+// (wrvu >= goal, the twin cards' test). A goal, rate or month count
+// counts only as a finite number > 0 (0, blank, an old snapshot's undefined,
+// NaN or text = not set); the wRVU totals pass through unchanged, so both
+// paces are the twin cards' exact expressions. dashboard.js only formats and
+// masks the result.
+function compProjection(p) {
+  var q = p || {};
+  var pos = function(v) { return typeof v === "number" && isFinite(v) && v > 0 ? v : 0; };
+  var months = pos(q.compareMonths);
+  var compare = months > 0;
+  var trackedPace = (q.trackedWRVU / Math.max(1, q.trackedDays / 30.44)) * 12;
+  var comparePace = compare ? (q.compareWRVU / months) * 12 : 0;
+  var recon = compare && pos(q.reconGoal) > 0;
+  var goal = recon ? pos(q.reconGoal) : pos(q.annualGoal);
+  var rate = pos(q.rate);
+  var wrvu = compare ? comparePace : trackedPace;
+  return {
+    trackedPace: trackedPace, comparePace: comparePace,
+    source: compare ? "compare" : "tracked", months: months,
+    wrvu: wrvu, comp: wrvu * rate,
+    goalWRVU: goal, goalComp: goal * rate, diff: wrvu * rate - goal * rate,
+    onPace: goal > 0 && wrvu >= goal,
+    show: rate > 0 && goal > 0,
+    goalName: recon ? "Reconciliation goal" : "OR goal",
+    goalTile: recon ? "Recon goal" : "OR goal",
+    sourceLabel: compare ? "from Compare (" + months + "-mo avg)" : "from tracked pace"
+  };
 }
 
 // --- Acute care group split math (single implementation - do not duplicate) ---

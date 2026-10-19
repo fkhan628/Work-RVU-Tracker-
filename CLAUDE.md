@@ -312,6 +312,28 @@ the per-file gates below. Run it after EVERY file change.
   through rvuOverrideFromText: the CMS value removes the override; blank, 0
   or junk is refused and the field reverts. Overrides reach only cases
   logged, added, imported or re-coded later (entries keep their snapshot).
+- Home's goal tracks: Tracked OR (logged cases via creditedRVU; goal
+  settings.annualGoal) and Reconciliation (Compare's institutionData months
+  in the year window, incl. call + clinic; goal settings.reconGoal).
+  utils.js compProjection is the ONE rule for both Home paces and the
+  Compensation card: the card projects from the window's Compare months (the
+  Reconciliation card's own months and pace) when there are any, else from
+  the tracked pace. A Compare projection is compared with the Reconciliation
+  goal when one is set, otherwise with the OR goal, named "OR goal" on the
+  card (owner's choice, 2026-10-18); a tracked projection only ever with the
+  OR goal. No rate, or no goal for that comparison, hides the card. A goal,
+  rate or month count counts only as a finite number > 0; the wRVU totals
+  pass through unchanged. dashboard.js only formats and masks the result and
+  its vs line names the goal used; the pill's sign and colour both follow
+  onPace. check.js pins the rule (compProjection tests) and the wiring (5f-2,
+  AST). 5f-2 is also a $ tripwire on dashboard.js: proj is read only as
+  proj.<field> (COMP_PROJ_FIELDS = the helper's output keys), and every proj
+  comp/goalComp/diff read, settings.ratePerRVU read (other than a `> 0` test,
+  the helper argument, or a factor of tComp / prevYearComp, whose reads count
+  instead), currency toLocaleString or Intl, and "/wRVU" text must sit under
+  fmtDollar(x, showComp), a showComp ternary's consequent or `showComp && x`;
+  the count is pinned (COMP_MONEY_PIN). It is syntactic and cannot see a $
+  figure built another way - route any new $ through fmtDollar.
 - Show/hide $: App's showComp is memory only (every launch starts hidden)
   and reaches each view that masks $ along with toggleComp. Masked $ goes
   through utils.js fmtDollar(v, showComp) (always passed showComp), a

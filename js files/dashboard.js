@@ -91,9 +91,6 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   const wRVU = isCurrent ? entries.filter(e => new Date(e.date + "T12:00:00") >= ws).reduce((s, e) => s + creditedRVU(e), 0) : 0;
   const todayRVU = isCurrent ? entries.filter(e => e.date === localYMD(now)).reduce((s, e) => s + creditedRVU(e), 0) : 0;
 
-  // Projected annual based on current pace
-  var projected = hasInst && instYTD.length > 0 ? (instTotal / instYTD.length) * 12 : (trackedRVU / Math.max(1, dp / 30.44)) * 12;
-
   // --- Two independent tracks (never blended) ---
   // Track 1 "Tracked OR": logged entries only. Track 2 "Reconciliation":
   // institution monthly totals read directly from institutionData (Compare).
@@ -112,11 +109,14 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var reconCount = reconKeys.length;
   var reconGoal = settings.reconGoal || 0;
   var reconPct = reconGoal > 0 ? Math.min((reconYTD / reconGoal) * 100, 100) : 0;
-  // Recon pace annualizes from months actually ENTERED, not days elapsed.
-  var reconPace = reconCount > 0 ? (reconYTD / reconCount) * 12 : 0;
-  // Tracked OR pace: annualized run-rate from logged entries ONLY - never
-  // institution data (retires the silently-switching projection for this card).
-  var orPace = (trackedRVU / Math.max(1, dp / 30.44)) * 12;
+  // Both paces and the Compensation card come from ONE rule (utils.js
+  // compProjection): Recon pace annualizes from months actually ENTERED, not
+  // days elapsed; Tracked OR pace from logged entries ONLY, never institution
+  // data. The card projects from the Compare months when there are any (the
+  // Reconciliation card's own months and pace), else from the tracked pace.
+  var proj = compProjection({ trackedWRVU: trackedRVU, trackedDays: dp, compareWRVU: reconYTD, compareMonths: reconCount, annualGoal: settings.annualGoal, reconGoal: settings.reconGoal, rate: settings.ratePerRVU });
+  var reconPace = proj.comparePace;
+  var orPace = proj.trackedPace;
   var orPct = settings.annualGoal > 0 ? Math.min((trackedRVU / settings.annualGoal) * 100, 100) : 0;
   // Derived call + clinic: reconciliation minus tracked OR over the SAME months
   // only. Negative means more OR logged than the institution credited - real
@@ -205,9 +205,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var yoyLabel = hasInst ? "Same " + yoy.months + " month" + (yoy.months === 1 ? "" : "s") + ", prior year"
     : (yoySpan && yoySpan.toDate ? "Same period last year (to " + fmtShort(yoySpan.cur.end) + ")" : "Prior full year");
 
-  // Compensation calculations
-  var goalComp = settings.annualGoal * settings.ratePerRVU;
-  var projectedComp = projected * settings.ratePerRVU;
+  // Compensation card figures come from proj (compProjection) above.
   var prevYearComp = prevYearRVU.instTotal * settings.ratePerRVU;
   var backupDue = backupNudgeDue(backupStamp, todayLocal(), entries.length + (data.payShifts || []).length + dirEntriesOf(data).length);
 
@@ -378,31 +376,29 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       </div>
     </div>}
 
-    {/* Compensation Breakdown */}
-    {settings.ratePerRVU > 0 && settings.annualGoal > 0 && <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.2)", background: "rgba(16,185,129,0.02)" }}>
+    {/* Compensation Breakdown. Source, goal and labels all come from
+        compProjection (utils.js): the goal is the source's own track's,
+        except a Compare projection with no Reconciliation goal, which is
+        compared with the OR goal and says so. This only formats and masks. */}
+    {proj.show && <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.2)", background: "rgba(16,185,129,0.02)" }}>
       <div style={S.cardLabel}>Compensation</div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 10 }}>
         <div>
-          <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>Goal</div>
-          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{fmtDollar(goalComp, showComp)}</div>
-          <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{settings.annualGoal.toLocaleString()} wRVUs</div>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>{proj.goalTile}</div>
+          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{fmtDollar(proj.goalComp, showComp)}</div>
+          <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{proj.goalWRVU.toLocaleString()} wRVUs</div>
         </div>
         <div>
-          <div style={{ fontSize: 10, color: projectedComp >= goalComp ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>Projected</div>
-          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: projectedComp >= goalComp ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{fmtDollar(projectedComp, showComp)}</div>
-          <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{projected.toFixed(0)} wRVUs</div>
-          {/* Source label only - the projection math is unchanged. Which
-              source feeds it is a standing consolidation question. */}
-          <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{hasInst && instYTD.length > 0 ? "from Compare (" + instYTD.length + "-mo avg)" : "from tracked pace"}</div>
+          <div style={{ fontSize: 10, color: proj.onPace ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>Projected</div>
+          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: proj.onPace ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{fmtDollar(proj.comp, showComp)}</div>
+          <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{proj.wrvu.toFixed(0)} wRVUs</div>
+          <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{proj.sourceLabel}</div>
         </div>
       </div>
-      {(function() {
-        var compDiff = projectedComp - goalComp;
-        return <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, background: compDiff >= 0 ? "rgba(16,185,129,0.08)" : "rgba(245,158,11,0.08)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span style={{ fontSize: 11, color: compDiff >= 0 ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{showComp ? ((compDiff >= 0 ? "+" : "") + compDiff.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) + " vs goal") : "$\u2022\u2022\u2022\u2022\u2022 vs goal"}</span>
-          <span style={{ fontSize: 10, color: "var(--text-dim)" }}>{showComp ? "$" + settings.ratePerRVU + "/wRVU" : ""}</span>
-        </div>;
-      })()}
+      <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, background: proj.onPace ? "rgba(16,185,129,0.08)" : "rgba(245,158,11,0.08)", display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "space-between", alignItems: "center" }}>
+        <span style={{ fontSize: 11, color: proj.onPace ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{(showComp ? (proj.onPace ? "+" : "") + proj.diff.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "$\u2022\u2022\u2022\u2022\u2022") + " vs " + proj.goalName}</span>
+        <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)" }}>{showComp ? "$" + settings.ratePerRVU + "/wRVU" : ""}</span>
+      </div>
     </div>}
 
     <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>{isCurrent ? "Monthly wRVUs" : yearBounds.label + " Monthly wRVUs"}</div>{hasInst && <div style={{ display: "flex", gap: 8 }}>

@@ -704,6 +704,118 @@ check("hooks before any conditional return (every component in the Babel files)"
   check("5f: App passes showComp + toggleComp to every view that masks $", !!appAst && propBad.length === 0, propBad.join(", "));
 }
 
+// 5f-2. Home's Compensation card (CLAUDE.md "Home's goal tracks"): utils.js
+// compProjection is the ONE rule. dashboard.js calls it exactly once with the
+// twin-card totals and the three settings (any key order), the twin paces
+// come straight from it, and no projection math or goal of its own is left
+// (AST checks, so comments and spacing neither satisfy nor dodge them).
+// Plus a $ tripwire on all of dashboard.js. A money node - a proj.comp /
+// goalComp / diff read; a settings.ratePerRVU read other than a `> 0` test,
+// the compProjection argument or a factor of the tComp / prevYearComp
+// products (whose READS are money instead); a toLocaleString with options
+// that are not an inline literal or that mention "currency"; any Intl; "/wRVU"
+// in a string, template or JSX text - must sit under fmtDollar(<it>, showComp),
+// in a `showComp ? <it> : ...` consequent or in `showComp && <it>`. proj may be
+// read only as proj.<COMP_PROJ_FIELDS> (no alias, destructuring or brackets),
+// and the money-node count is pinned. Syntactic, like 3b: a $ figure built
+// some other way is not seen - route new $ through fmtDollar.
+const COMP_PROJ_FIELDS = ["comp", "comparePace", "diff", "goalComp", "goalName", "goalTile", "goalWRVU", "months", "onPace", "show", "source", "sourceLabel", "trackedPace", "wrvu"];
+// tComp read, prevYearComp read, proj.goalComp, proj.comp, proj.diff, the
+// currency call, the rate and "/wRVU" in the pill. Bump only for a new masked $.
+const COMP_MONEY_PIN = 8;
+{
+  const DERIVED = ["tComp", "prevYearComp"];
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMember = (n, obj, prop) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, obj) && !!n.property && n.property.name === prop;
+  const keyOf = (n, parent) => !!parent && ((parent.type === "MemberExpression" && parent.property === n && !parent.computed) ||
+    (parent.type === "ObjectProperty" && parent.key === n && parent.value !== n && !parent.computed));
+  const cardMoneyGate = src => {
+    const leaks = [];
+    let money = 0;
+    walkStack(src, (n, stack) => {
+      const parent = stack[stack.length - 1], gp = stack[stack.length - 2], ggp = stack[stack.length - 3];
+      if (isId(n, "proj")) {
+        const decl = parent && parent.type === "VariableDeclarator" && parent.id === n && !!parent.init && parent.init.type === "CallExpression" && isId(parent.init.callee, "compProjection");
+        const field = parent && parent.type === "MemberExpression" && parent.object === n && !parent.computed && COMP_PROJ_FIELDS.indexOf(parent.property.name) !== -1;
+        if (!keyOf(n, parent) && !decl && !field) leaks.push(n.loc.start.line + ":proj use");
+        return;
+      }
+      let label = null;
+      if (n.type === "MemberExpression" && !n.computed && isId(n.object, "proj") && ["comp", "goalComp", "diff"].indexOf(n.property.name) !== -1) label = "proj." + n.property.name;
+      else if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && !n.callee.computed && n.callee.property.name === "toLocaleString" &&
+        n.arguments.slice(1).some(a => a.type !== "ObjectExpression" || JSON.stringify(a).indexOf("\"currency\"") !== -1)) label = "currency";
+      else if (isId(n, "Intl") && !keyOf(n, parent)) label = "Intl";
+      else if ((n.type === "StringLiteral" || n.type === "JSXText") && n.value.indexOf("/wRVU") !== -1) label = "/wRVU";
+      else if (n.type === "TemplateElement" && n.value.cooked.indexOf("/wRVU") !== -1) label = "/wRVU";
+      else if (isMember(n, "settings", "ratePerRVU")) {
+        const gt0 = parent.type === "BinaryExpression" && parent.operator === ">" && parent.left === n && parent.right.type === "NumericLiteral" && parent.right.value === 0;
+        const arg = parent.type === "ObjectProperty" && parent.value === n && isId(parent.key, "rate") && !!ggp && ggp.type === "CallExpression" && isId(ggp.callee, "compProjection");
+        const factor = parent.type === "BinaryExpression" && parent.operator === "*" && !!gp && gp.type === "VariableDeclarator" && gp.init === parent && gp.id.type === "Identifier" && DERIVED.indexOf(gp.id.name) !== -1;
+        if (!gt0 && !arg && !factor) label = "settings.ratePerRVU";
+      }
+      else if (n.type === "Identifier" && DERIVED.indexOf(n.name) !== -1 && !keyOf(n, parent) && !(parent && parent.type === "VariableDeclarator" && parent.id === n)) label = n.name;
+      if (!label) return;
+      money++;
+      const chain = stack.concat([n]);
+      const masked = chain.some((a, i) => {
+        const c = chain[i + 1];
+        if (!c) return false;
+        if (a.type === "CallExpression" && isId(a.callee, "fmtDollar") && a.arguments.length === 2 && a.arguments[0] === c && isId(a.arguments[1], "showComp")) return true;
+        if (a.type === "ConditionalExpression" && isId(a.test, "showComp") && a.consequent === c) return true;
+        return a.type === "LogicalExpression" && a.operator === "&&" && isId(a.left, "showComp") && a.right === c;
+      });
+      if (!masked) leaks.push(n.loc.start.line + ":" + label);
+    });
+    return { leaks: leaks, money: money };
+  };
+  // The gate's own self-test: masked forms pass, each leak is caught once.
+  const leakSelf = [
+    ["var a = fmtDollar(proj.comp, showComp);", 0], ["var a = showComp ? (proj.onPace ? \"+\" : \"\") + proj.diff.toLocaleString(\"en-US\", { style: \"currency\" }) : \"$\";", 0],
+    ["var a = showComp ? \"$\" + settings.ratePerRVU + \"/wRVU\" : \"\";", 0], ["var a = showComp && <i>{\"$\" + settings.ratePerRVU + \"/wRVU\"}</i>;", 0],
+    ["var tComp = t * settings.ratePerRVU; var a = fmtDollar(tComp, showComp);", 0], ["var a = settings.ratePerRVU > 0 && b;", 0],
+    ["var proj = compProjection({ rate: settings.ratePerRVU }); var a = proj.show;", 0], ["var a = proj.wrvu.toFixed(0) + proj.goalWRVU.toLocaleString();", 0],
+    ["var a = proj.comp;", 1], ["var a = fmtDollar(proj.goalComp, true);", 1], ["var a = fmtDollar(proj.comp, showComp, 1);", 1], ["var a = showComp ? \"\" : proj.diff;", 1],
+    ["var a = !showComp ? \"\" : proj.comp;", 1], ["var a = <b>{proj.goalComp}</b>;", 1],
+    ["var a = x.toLocaleString(\"en-US\", { style: \"currency\", currency: \"USD\" });", 1], ["var a = x.toLocaleString(\"en-US\", { \"style\": \"currency\" });", 1],
+    ["var a = x.toLocaleString(\"en-US\", USD);", 1], ["var a = new Intl.NumberFormat(\"en-US\").format(x);", 1],
+    ["var a = \"$\" + r + \"/wRVU\";", 1], ["var a = <b>$55/wRVU</b>;", 1], ["var a = `$${r}/wRVU`;", 1],
+    ["var a = settings.ratePerRVU * 2;", 1], ["var tComp = t * settings.ratePerRVU; var a = tComp;", 1],
+    ["var c = proj; var a = c.wrvu;", 1], ["var { comp } = proj;", 1], ["var a = proj[\"wrvu\"];", 1], ["var a = proj.secret;", 1]]
+    .filter(t => { try { return cardMoneyGate(t[0]).leaks.length !== t[1]; } catch (e) { return true; } });
+  check("5f-2 self-test: Home's $ tripwire passes fmtDollar(x, showComp), showComp ? x : .. and showComp && x, and catches unmasked proj $ reads, rate reads, currency/Intl formatting, /wRVU text and any proj alias", leakSelf.length === 0, leakSelf.map(t => t[0]).join(" ; "));
+  const dsrc = fs.readFileSync(path.join(JS_DIR, "dashboard.js"), "utf8");
+  const WANT = { trackedWRVU: "trackedRVU", trackedDays: "dp", compareWRVU: "reconYTD", compareMonths: "reconCount", annualGoal: "settings.annualGoal", reconGoal: "settings.reconGoal", rate: "settings.ratePerRVU" };
+  const exprText = n => !n ? "" : n.type === "Identifier" ? n.name : (n.type === "MemberExpression" && !n.computed && n.object.type === "Identifier" ? n.object.name + "." + n.property.name : "?");
+  const calls = [], argBad = [], banned = [], declInit = {};
+  let gate = null, showGate = 0, pillName = 0;
+  try {
+    gate = cardMoneyGate(dsrc);
+    walk(parser.parse(dsrc, AST_OPTS).program, n => {
+      if (n.type === "CallExpression" && isId(n.callee, "compProjection")) {
+        calls.push(n.loc.start.line);
+        const o = n.arguments.length === 1 ? n.arguments[0] : null, got = {};
+        if (o && o.type === "ObjectExpression") o.properties.forEach(p => { if (p.type === "ObjectProperty" && !p.computed && p.key.type === "Identifier") got[p.key.name] = exprText(p.value); else got["?"] = "?"; });
+        const keys = Object.keys(got).sort();
+        if (keys.join() !== Object.keys(WANT).sort().join() || keys.some(k => got[k] !== WANT[k])) argBad.push(n.loc.start.line + " " + JSON.stringify(got));
+      }
+      if (n.type === "VariableDeclarator" && n.id.type === "Identifier") {
+        if (n.id.name === "reconPace" || n.id.name === "orPace") declInit[n.id.name] = (declInit[n.id.name] ? declInit[n.id.name] + "|" : "") + exprText(n.init);
+        if (["projected", "goalComp", "projectedComp"].indexOf(n.id.name) !== -1) banned.push(n.loc.start.line + ":var " + n.id.name);
+      }
+      if (n.type === "NumericLiteral" && n.value === 30.44) banned.push(n.loc.start.line + ":30.44");
+      if (n.type === "BinaryExpression" && n.operator === "/" && (isId(n.right, "reconCount") || isMember(n.right, "instYTD", "length"))) banned.push(n.loc.start.line + ":pace division");
+      if (n.type === "LogicalExpression" && n.operator === "&&" && isMember(n.left, "proj", "show") && n.right.type === "JSXElement") showGate++;
+      if (n.type === "BinaryExpression" && n.operator === "+" && isMember(n.right, "proj", "goalName")) pillName++;
+    });
+  } catch (e) { gate = null; }
+  check("5f-2: dashboard.js parses for the Compensation card gates", gate !== null);
+  check("5f-2: Home calls compProjection exactly once with the twin-card totals and the three settings (any key order); reconPace / orPace come from it; the card shows on proj.show and names proj.goalName; no projection math or goal of its own",
+    gate !== null && calls.length === 1 && argBad.length === 0 && declInit.reconPace === "proj.comparePace" && declInit.orPace === "proj.trackedPace" && banned.length === 0 && showGate === 1 && pillName === 1,
+    JSON.stringify({ calls: calls, argBad: argBad, declInit: declInit, banned: banned, showGate: showGate, pillName: pillName }));
+  check("5f-2: Home's $ tripwire - every money node in dashboard.js is masked, proj is read only as proj.<field>, and the money-node count is " + COMP_MONEY_PIN,
+    gate !== null && gate.leaks.length === 0 && gate.money === COMP_MONEY_PIN, gate ? JSON.stringify({ leaks: gate.leaks, money: gate.money }) : "parse");
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
@@ -2854,6 +2966,62 @@ if (sb) {
     const nullPS = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.priorSpanYMD(v, "2026-10-14") === null);
     check("priorSpanYMD: to-date same span a year back while today is in the year, whole years otherwise, never overlapping; null for a bad start",
       badPS.length === 0 && nullPS, JSON.stringify({ badPS: badPS, nullPS: nullPS }));
+  }
+
+  {
+    // Home's Compensation card (compProjection): the source picks the pace -
+    // the window's Compare months (the Reconciliation card's own months and
+    // pace) when there are any, else the tracked pace. A Compare projection is
+    // compared with the Reconciliation goal when one is set, else with the OR
+    // goal (named as such); a tracked one only ever with the OR goal. No rate,
+    // or no goal for that comparison, hides the card (diff and onPace are then
+    // never shown, so they are not pinned). Literal expected values from
+    // made-up settings: rate 55, OR goal 6000, Recon goal 8000, 290 days in,
+    // 4000 logged, Compare 9 months x 650.
+    const P = o => Object.assign({ trackedWRVU: 4000, trackedDays: 290, compareWRVU: 5850, compareMonths: 9, annualGoal: 6000, reconGoal: 8000, rate: 55 }, o || {});
+    const R = o => sb.compProjection(P(o));
+    const pick = r => [r.show, r.source, r.months, Math.round(r.wrvu), r.goalWRVU, r.goalName, r.goalTile, Math.round(r.comp), Math.round(r.goalComp), r.show ? Math.round(r.diff) : null, r.show ? r.onPace : null, r.sourceLabel];
+    const CP = [ // [case, overrides, expected pick]
+      ["Compare + Recon goal", {}, [true, "compare", 9, 7800, 8000, "Reconciliation goal", "Recon goal", 429000, 440000, -11000, false, "from Compare (9-mo avg)"]],
+      ["tracked uses the OR goal even with a Recon goal set", { compareWRVU: 0, compareMonths: 0 }, [true, "tracked", 0, 5038, 6000, "OR goal", "OR goal", 277109, 330000, -52891, false, "from tracked pace"]],
+      ["Compare, no Recon goal: the OR goal, named", { reconGoal: 0 }, [true, "compare", 9, 7800, 6000, "OR goal", "OR goal", 429000, 330000, 99000, true, "from Compare (9-mo avg)"]],
+      ["Compare + Recon goal, no OR goal: shows", { annualGoal: 0 }, [true, "compare", 9, 7800, 8000, "Reconciliation goal", "Recon goal", 429000, 440000, -11000, false, "from Compare (9-mo avg)"]],
+      ["Compare, neither goal: hidden", { reconGoal: 0, annualGoal: 0 }, [false, "compare", 9, 7800, 0, "OR goal", "OR goal", 429000, 0, null, null, "from Compare (9-mo avg)"]],
+      ["tracked, no OR goal, Recon goal set: hidden", { compareWRVU: 0, compareMonths: 0, annualGoal: 0 }, [false, "tracked", 0, 5038, 0, "OR goal", "OR goal", 277109, 0, null, null, "from tracked pace"]],
+      ["mid-month Year Start: the Recon card's 3 months", { compareWRVU: 1560, compareMonths: 3 }, [true, "compare", 3, 6240, 8000, "Reconciliation goal", "Recon goal", 343200, 440000, -96800, false, "from Compare (3-mo avg)"]],
+      ["a saved 0-wRVU month counts", { compareMonths: 10 }, [true, "compare", 10, 7020, 8000, "Reconciliation goal", "Recon goal", 386100, 440000, -53900, false, "from Compare (10-mo avg)"]],
+      ["exactly on goal", { reconGoal: 7800 }, [true, "compare", 9, 7800, 7800, "Reconciliation goal", "Recon goal", 429000, 429000, 0, true, "from Compare (9-mo avg)"]],
+      ["past year, tracked (365 days)", { trackedWRVU: 4500, trackedDays: 365, compareWRVU: 0, compareMonths: 0 }, [true, "tracked", 0, 4503, 6000, "OR goal", "OR goal", 247690, 330000, -82310, false, "from tracked pace"]],
+      ["one-month floor", { trackedWRVU: 400, trackedDays: 10, compareWRVU: 0, compareMonths: 0 }, [true, "tracked", 0, 4800, 6000, "OR goal", "OR goal", 264000, 330000, -66000, false, "from tracked pace"]],
+    ];
+    const badCP = CP.filter(t => JSON.stringify(pick(R(t[1]))) !== JSON.stringify(t[2])).map(t => t[0] + " got " + JSON.stringify(pick(R(t[1]))));
+    // Exact paces: the twin cards' expressions, unrounded.
+    const r0 = R();
+    const exact = r0.wrvu === 7800 && r0.comp === 429000 && r0.trackedPace.toFixed(2) === "5038.34" && R({ compareWRVU: 9600, compareMonths: 12 }).wrvu === 9600 &&
+      R({ compareWRVU: 0, compareMonths: 0 }).comparePace === 0 && R({ trackedWRVU: 4500, trackedDays: 365 }).trackedPace.toFixed(2) === "4503.45" &&
+      [0, 10, 30].every(d => R({ trackedWRVU: 400, trackedDays: d, compareMonths: 0 }).wrvu === 4800);
+    // A goal, the rate or the month count counts only as a finite number > 0.
+    const notSet = [0, undefined, null, -5, NaN, Infinity, "8000", ""];
+    const reconJunk = notSet.every(v => { const r = R({ reconGoal: v }); return r.show && r.goalWRVU === 6000 && r.goalName === "OR goal" && r.goalTile === "OR goal"; });
+    const orJunk = notSet.every(v => { const r = R({ annualGoal: v, compareMonths: 0 }); return r.show === false && r.goalWRVU === 0; });
+    const rateJunk = notSet.every(v => { const r = R({ rate: v }); return r.show === false && r.comp === 0; });
+    const monthsJunk = [0, undefined, null, -3, NaN, "9"].every(v => R({ compareMonths: v }).source === "tracked");
+    // Totals pass through unchanged (the twin cards show the same NaN today).
+    const nanPass = isNaN(R({ trackedWRVU: NaN }).trackedPace) && isNaN(R({ compareWRVU: NaN }).comparePace);
+    // Tracked figures never move a Compare projection, and Compare figures or
+    // the Recon goal never move a tracked one.
+    const nb1 = JSON.stringify(pick(R({ trackedWRVU: 999999, trackedDays: 1, annualGoal: 1 }))) === JSON.stringify(pick(R()));
+    const nb2 = JSON.stringify(pick(R({ compareMonths: 0, compareWRVU: 999999, reconGoal: 1 }))) === JSON.stringify(pick(R({ compareMonths: 0, compareWRVU: 0 })));
+    let noThrow = false;
+    try { noThrow = sb.compProjection(undefined).show === false && sb.compProjection({}).show === false; } catch (e) { noThrow = false; }
+    const inp = P(), inpJ = JSON.stringify(inp);
+    sb.compProjection(inp);
+    const untouched = JSON.stringify(inp) === inpJ;
+    // The output fields are exactly the ones 5f-2 lets dashboard.js read.
+    const fields = Object.keys(r0).sort().join() === COMP_PROJ_FIELDS.slice().sort().join();
+    check("compProjection: Compare months -> the Recon card's pace vs the Recon goal (the OR goal, named, when unset); else the tracked pace vs the OR goal; no rate or no goal for that comparison hides; junk = not set; paces never cross tracks",
+      badCP.length === 0 && exact && reconJunk && orJunk && rateJunk && monthsJunk && nanPass && nb1 && nb2 && noThrow && untouched && fields,
+      JSON.stringify({ badCP: badCP, exact: exact, reconJunk: reconJunk, orJunk: orJunk, rateJunk: rateJunk, monthsJunk: monthsJunk, nanPass: nanPass, nb1: nb1, nb2: nb2, noThrow: noThrow, untouched: untouched, fields: fields, keys: Object.keys(r0) }));
   }
 
   {

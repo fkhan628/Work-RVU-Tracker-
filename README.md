@@ -14,7 +14,7 @@ A mobile-first Progressive Web App for physicians to track surgical procedure wo
 - **Analytics & Trends** — goal pacing, monthly bar charts, projected year-end totals, top procedures, and category breakdowns.
 - **History** — browse and edit past encounters, grouped by date.
 - **Compare** — compare RVU performance across time periods.
-- **Compensation tracking** — set your contracted $/RVU rate and annual wRVU goal (decimals supported) to see real earnings estimates.
+- **Compensation tracking** — set your contracted $/RVU rate and two yearly wRVU goals (decimals supported): an OR goal for the cases you log, and a Reconciliation goal for the hospital's monthly totals from Compare (incl. call + clinic). Home's Compensation card projects the year from this year's Compare months when you have them and compares that with the Reconciliation goal (or, if none is set, the OR goal); otherwise it projects your logged pace and compares it with the OR goal. The card names the goal it used, and is hidden with no rate or no goal to compare with.
 - **Offline-first** — all data stored in browser `localStorage`; works without a network connection after first load.
 - **Backup & Restore** — export/import your entire dataset as a base64 string via clipboard for easy cross-device transfer.
 - **PIN lock with encryption** — optional PIN-protected access with AES-GCM encrypted API key storage.
