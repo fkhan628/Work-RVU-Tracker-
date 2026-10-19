@@ -89,6 +89,13 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   // effect on close.
   const editSnap = useRef(null);
   const listScroll = useRef(null);
+  // editNotesLinked: the Notes box still starts with the Patient ID's "XX - "
+  // prefix (utils.js notesForInitials); set by startEdit / startAdd /
+  // addAnother, kept by the Patient ID and Notes onChanges.
+  // editNotesLinkable: the panel opened linked, so a Notes edit may restore
+  // the link (notesLinkAfterEdit); set with it by the three openers.
+  const editNotesLinked = useRef(false);
+  const editNotesLinkable = useRef(false);
   var ADD_SENTINEL = "__add__";
   // A "Logged, no credit" line elsewhere opens History on the No credit chip
   // with its date range (App's one-shot historyPreset, cleared after mount).
@@ -287,6 +294,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     setEditNotes(e.notes || "");
     setEditSearch("");
     setEditPatient(e.encounterId || "");
+    editNotesLinked.current = editNotesLinkable.current = notesHasInitials(e.notes, e.encounterId);
     setEditIsCall(!!e.isCall);
     setEditSite(entrySiteKey(e));
     setEditRederive(false);
@@ -320,7 +328,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   // Open the panel in add mode, inheriting the encounter context (date,
   // initials, call status, notes) from a source entry. Notes are copied
   // verbatim: siblings logged together share one identical notes string, and
-  // the encounter-count fallback keys on notes.substring(0,2).
+  // the encounter-count fallback keys on notes.substring(0,2). Patient ID
+  // edits keep the notes prefix in step (utils.js notesForInitials).
   var startAdd = function(src) {
     keepListScroll();
     setEditId(ADD_SENTINEL);
@@ -331,6 +340,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     setEditNotes(src.notes || "");
     setEditSearch("");
     setEditPatient(src.encounterId || "");
+    editNotesLinked.current = editNotesLinkable.current = notesHasInitials(src.notes, src.encounterId);
     setEditIsCall(!!src.isCall);
     setEditSite(entryAddSiteKey(src, fixKept));
     setEditRederive(false);
@@ -346,6 +356,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     // date, call site needed, unknown code without a wRVU - the button is
     // disabled then anyway) must never drop the edit.
     if (!saveEdit()) return;
+    // Add mode starts from the row just saved, as startAdd would.
+    editNotesLinked.current = editNotesLinkable.current = notesHasInitials(editNotes, editPatient);
     setAddSourceId(srcId);
     setEditId(ADD_SENTINEL);
     setEditCode("");
@@ -519,7 +531,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, call status and call site are carried over. Pick the CPT code below.</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} />{!editDateOk && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 4 }}>Pick a valid date</div>}</div></div>
-        <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { setEditPatient(e.target.value); }} placeholder="Initials" style={S.searchInput} /></div></div>
+        <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { var v = e.target.value; var r = notesForInitials(editNotes, editPatient, v, editNotesLinked.current); editNotesLinked.current = r.linked; setEditPatient(v); setEditNotes(r.notes); }} placeholder="Initials" style={S.searchInput} /></div></div>
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
         <button onClick={function() { setEditIsCall(false); setEditSite(""); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: !editIsCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !editIsCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !editIsCall ? "#0ea5e9" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Private</button>
@@ -560,7 +572,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
           : "Saved as no credit. " + (editSiteLbl ? "Call cases at " + editSiteLbl + " now earn credit." : "A call case with no site earns credit.")}</div>
         <button onClick={function() { setEditRederive(true); }} style={{ marginTop: 6, minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.4)", background: "transparent", color: "#f59e0b", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Apply site rule</button>
       </div>}
-      <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes</label><textarea value={editNotes} onChange={e => setEditNotes(e.target.value)} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes</label><textarea value={editNotes} onChange={e => { editNotesLinked.current = notesLinkAfterEdit(editNotesLinkable.current, e.target.value, editPatient); setEditNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
       {editMateOuts.length > 0 && <label style={{ display: "flex", alignItems: "center", gap: 10, minHeight: 44, fontSize: 12, color: "var(--text-primary)", cursor: "pointer", marginBottom: 8 }}>
         <input type="checkbox" checked={editApplyEnc} onChange={function(e) { setEditApplyEnc(e.target.checked); }} style={{ width: 20, height: 20, flexShrink: 0 }} />
         {"Also set the other " + editMateOuts.length + " procedure" + (editMateOuts.length === 1 ? "" : "s") + " for " + editOrig.encounterId + " on " + fmt(editOrig.date) + " to " + (editIsCall ? "Call" + (editSiteLbl ? " - " + editSiteLbl : "") : "Private") + (editMateOuts.some(isNoCredit) ? " (no credit)" : "")}

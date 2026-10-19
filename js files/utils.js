@@ -575,6 +575,38 @@ function countEncounters(entries) {
   return count;
 }
 
+// History's Patient ID box keeps Log's "<initials> - " notes prefix (log.js
+// save) in step with the initials, live in the Notes box. linked: the panel
+// opened on notes starting with exactly "<stored initials> - "
+// (notesHasInitials) and the prefix has not been edited away since. New
+// initials replace the prefix, cleared ones remove it, and while linked,
+// typing initials again puts it back. Anything else is left exactly as it
+// is - Log's bare "AB" (initials, no notes), imported notes, a prefix the
+// user removed. Returns { notes, linked }. A hand edit of the Notes box
+// (notesLinkAfterEdit) can only keep or restore the link on a panel that
+// opened linked (linkable): with initials, while the text starts with their
+// prefix (so a broken-then-retyped prefix re-links); with the initials
+// empty, unless the text now starts with a "<something> - " prefix of its
+// own (so a hand-typed prefix is never doubled, and a body edit keeps it).
+function notesHasInitials(notes, init) {
+  return typeof notes === "string" && typeof init === "string" && init !== "" && notes.indexOf(init + " - ") === 0;
+}
+function notesForInitials(notes, oldInit, newInit, linked) {
+  var n = typeof notes === "string" ? notes : "";
+  var o = typeof oldInit === "string" ? oldInit : "", w = typeof newInit === "string" ? newInit : "";
+  if (linked !== true) return { notes: n, linked: false };
+  var body = n;
+  if (o !== "") {
+    if (!notesHasInitials(n, o)) return { notes: n, linked: false };
+    body = n.substring(o.length + 3);
+  }
+  return { notes: w !== "" ? w + " - " + body : body, linked: true };
+}
+function notesLinkAfterEdit(linkable, notes, initials) {
+  if (linkable !== true || typeof notes !== "string") return false;
+  return typeof initials === "string" && initials !== "" ? notesHasInitials(notes, initials) : !/^\S+ - /.test(notes);
+}
+
 // --- Helpers ---
 const fontLink = document.createElement("link");
 fontLink.href = "https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,300;9..40,400;9..40,500;9..40,600;9..40,700&family=JetBrains+Mono:wght@400;500;600&display=swap";

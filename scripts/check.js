@@ -1684,6 +1684,116 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", ") + " " + JSON.stringify(byFile));
 }
 
+// 5f-11. History's Patient ID keeps Log's "<initials> - " notes prefix in
+// step (CLAUDE.md, History's edit / add panel). The ONE input with
+// value={editPatient} has an onChange that calls notesForInitials(editNotes,
+// editPatient, <new value>, editNotesLinked.current) once, stores r.linked in
+// editNotesLinked.current and calls setEditPatient(<new value>) and
+// setEditNotes(r.notes) - live, before Save; nothing else calls
+// notesForInitials. editNotesLinked and editNotesLinkable are History's
+// top-level useRef(false)s: the openers set both (plain =) - startEdit /
+// startAdd to notesHasInitials(<param>.notes, <param>.encounterId),
+// addAnother to notesHasInitials(editNotes, editPatient) (the row just
+// saved); otherwise only the link changes, in the Patient ID onChange
+// (r.linked) and the Notes textarea's onChange as
+// notesLinkAfterEdit(editNotesLinkable.current, new text, editPatient).
+// setEditNotes / setEditPatient run exactly once in each opener (from the
+// entry) and onChange and nowhere else, and one input shows editPatient. saveEdit and saveAdd write
+// notes: editNotes (the box as shown, no later .notes assignment). utils.js:
+// notesForInitials decides the link through notesHasInitials. The exact
+// shapes are intentional - update this gate with the code.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const isFn = a => !!a && (a.type === "FunctionDeclaration" || a.type === "FunctionExpression" || a.type === "ArrowFunctionExpression");
+  const isCall = (n, name) => !!n && n.type === "CallExpression" && isId(n.callee, name);
+  const attr = (el, name) => el.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === name)[0];
+  const bad = [];
+  const read = f => { try { const src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); return { f, src, ast: parser.parse(src, AST_OPTS) }; } catch (e) { bad.push(f + ": parse"); return null; } };
+  const files = fs.readdirSync(JS_DIR).filter(f => f.endsWith(".js")).sort().map(read).filter(Boolean);
+  const hi = files.filter(F => F.f === "history.js")[0], ut = files.filter(F => F.f === "utils.js")[0];
+  // (b) one notesForInitials call in the whole app, in History.
+  const calls = files.map(F => [F.f, deep(F.ast.program, n => isCall(n, "notesForInitials")).length]).filter(x => x[1]);
+  if (calls.length !== 1 || calls[0][0] !== "history.js" || calls[0][1] !== 1) bad.push("notesForInitials calls: " + JSON.stringify(calls) + " (want one, in History's Patient ID onChange)");
+  if (hi) {
+    const comp = hi.ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "History"))[0];
+    const fnOf = name => { const d = comp ? deep(comp, n => n.type === "VariableDeclarator" && isId(n.id, name) && isFn(n.init)) : []; return d.length === 1 ? d[0].init : null; };
+    // (a) the Patient ID input.
+    const inputs = comp ? deep(comp, n => n.type === "JSXOpeningElement" && n.name.name === "input" && attr(n, "value") && attr(n, "value").value && isId(attr(n, "value").value.expression, "editPatient")) : [];
+    const oc = inputs.length === 1 && attr(inputs[0], "onChange") && attr(inputs[0], "onChange").value ? attr(inputs[0], "onChange").value.expression : null;
+    let ok = false;
+    if (isFn(oc) && oc.params[0] && oc.params[0].type === "Identifier") {
+      const p = oc.params[0].name;
+      const isNew = x => (x && x.type === "MemberExpression" && !x.computed && x.property.name === "value" && isMem(x.object, p, "target")) ||
+        (x && x.type === "Identifier" && (() => { const d = deep(oc, n => n.type === "VariableDeclarator" && isId(n.id, x.name)); return d.length === 1 && d[0].init && d[0].init.type === "MemberExpression" && d[0].init.property.name === "value" && isMem(d[0].init.object, p, "target"); })());
+      const c = deep(oc, n => isCall(n, "notesForInitials"));
+      const rD = c.length === 1 ? deep(oc, n => n.type === "VariableDeclarator" && n.init === c[0]) : [];
+      const r = rD.length === 1 && rD[0].id.type === "Identifier" ? rD[0].id.name : null;
+      const a = c.length === 1 ? c[0].arguments : [];
+      ok = !!r && a.length === 4 && isId(a[0], "editNotes") && isId(a[1], "editPatient") && isNew(a[2]) && isMem(a[3], "editNotesLinked", "current") &&
+        deep(oc, n => n.type === "AssignmentExpression" && isMem(n.left, "editNotesLinked", "current") && isMem(n.right, r, "linked")).length === 1 &&
+        deep(oc, n => isCall(n, "setEditPatient") && n.arguments.length === 1 && isNew(n.arguments[0])).length === 1 &&
+        deep(oc, n => isCall(n, "setEditNotes") && n.arguments.length === 1 && isMem(n.arguments[0], r, "notes")).length === 1;
+    }
+    if (inputs.length !== 1 || !ok) bad.push("history.js: the Patient ID onChange does not keep the notes prefix in step (notesForInitials(editNotes, editPatient, new, editNotesLinked.current) -> link, setEditPatient(new), setEditNotes(r.notes))");
+    // (c) the link ref and its writers.
+    const decl = comp ? comp.body.body.filter(s => s.type === "VariableDeclaration" && s.declarations.some(d => isId(d.id, "editNotesLinked"))) : [];
+    const declOk = decl.length === 1 && (() => { const d = decl[0].declarations.filter(x => isId(x.id, "editNotesLinked"))[0]; return isCall(d.init, "useRef") && d.init.arguments.length === 1 && d.init.arguments[0].type === "BooleanLiteral" && d.init.arguments[0].value === false; })();
+    const allDecl = comp ? deep(comp, n => n.type === "VariableDeclarator" && isId(n.id, "editNotesLinked")).length : 0;
+    // Writers (plain `=` only): startEdit / startAdd from the entry, addAnother
+    // from the row just saved, the Patient ID onChange (r.linked) and the
+    // Notes onChange (notesLinkAfterEdit).
+    const writes = comp ? deep(comp, n => n.type === "AssignmentExpression" && isMem(n.left, "editNotesLinked", "current")) : [];
+    const plain = writes.every(n => n.operator === "=");
+    // Openers: editNotesLinked.current = editNotesLinkable.current = notesHasInitials(...).
+    const both = (n, a0, a1) => n.type === "AssignmentExpression" && n.operator === "=" && isMem(n.left, "editNotesLinked", "current") && n.right.type === "AssignmentExpression" && n.right.operator === "=" && isMem(n.right.left, "editNotesLinkable", "current") &&
+      isCall(n.right.right, "notesHasInitials") && n.right.right.arguments.length === 2 && a0(n.right.right.arguments[0]) && a1(n.right.right.arguments[1]);
+    const opener = nm => { const f = fnOf(nm); const pn = f && f.params[0] && f.params[0].type === "Identifier" ? f.params[0].name : null; return f ? deep(f, n => both(n, x => isMem(x, pn, "notes"), x => isMem(x, pn, "encounterId"))).length : 0; };
+    const aa = fnOf("addAnother");
+    const aaOk = aa ? deep(aa, n => both(n, x => isId(x, "editNotes"), x => isId(x, "editPatient"))).length : 0;
+    const lkDecl = comp ? comp.body.body.filter(s => s.type === "VariableDeclaration" && s.declarations.some(d => isId(d.id, "editNotesLinkable") && isCall(d.init, "useRef") && d.init.arguments.length === 1 && d.init.arguments[0].type === "BooleanLiteral" && d.init.arguments[0].value === false)).length : 0;
+    const lkAll = comp ? deep(comp, n => n.type === "VariableDeclarator" && isId(n.id, "editNotesLinkable")).length : 0;
+    const lkWrites = comp ? deep(comp, n => n.type === "AssignmentExpression" && isMem(n.left, "editNotesLinkable", "current")) : [];
+    if (lkDecl !== 1 || lkAll !== 1 || lkWrites.length !== 3 || lkWrites.some(n => n.operator !== "=")) bad.push("history.js: editNotesLinkable is not a top-level useRef(false) set only by the three openers (" + lkWrites.length + " writes)");
+    const ta = comp ? deep(comp, n => n.type === "JSXOpeningElement" && n.name.name === "textarea" && attr(n, "value") && attr(n, "value").value && isId(attr(n, "value").value.expression, "editNotes")) : [];
+    const toc = ta.length === 1 && attr(ta[0], "onChange") && attr(ta[0], "onChange").value ? attr(ta[0], "onChange").value.expression : null;
+    const tp = isFn(toc) && toc.params[0] ? toc.params[0].name : null;
+    const tval = x => !!x && x.type === "MemberExpression" && !x.computed && x.property.name === "value" && isMem(x.object, tp, "target");
+    const taOk = !!tp && deep(toc, n => n.type === "AssignmentExpression" && isMem(n.left, "editNotesLinked", "current") && isCall(n.right, "notesLinkAfterEdit") && n.right.arguments.length === 3 && isMem(n.right.arguments[0], "editNotesLinkable", "current") && tval(n.right.arguments[1]) && isId(n.right.arguments[2], "editPatient")).length === 1 &&
+      deep(toc, n => isCall(n, "setEditNotes") && n.arguments.length === 1 && tval(n.arguments[0])).length === 1;
+    if (!declOk || allDecl !== 1 || writes.length !== 5 || !plain || opener("startEdit") !== 1 || opener("startAdd") !== 1 || aaOk !== 1 || !taOk) bad.push("history.js: editNotesLinked is not a top-level useRef(false) set (plain =) only by startEdit / startAdd (notesHasInitials of the entry), addAnother (of the row just saved), the Patient ID onChange and the Notes onChange (notesLinkAfterEdit) (" + writes.length + " writes)");
+    // Nothing else rewrites the notes or the initials: setEditNotes only in
+    // startEdit / startAdd / the two onChanges, setEditPatient only in
+    // startEdit / startAdd / the Patient ID onChange; no other input reads editPatient.
+    const within = (n, f) => !!f && n.start >= f.start && n.end <= f.end;
+    const se2 = fnOf("startEdit"), sa2 = fnOf("startAdd");
+    const notesSet = comp ? deep(comp, n => isCall(n, "setEditNotes")) : [], patSet = comp ? deep(comp, n => isCall(n, "setEditPatient")) : [];
+    const strayNotes = notesSet.filter(n => !within(n, se2) && !within(n, sa2) && !within(n, oc) && !within(n, toc));
+    const strayPat = patSet.filter(n => !within(n, se2) && !within(n, sa2) && !within(n, oc));
+    // ...and exactly once each where allowed, the openers from the entry.
+    const inF = (list, f) => list.filter(n => within(n, f));
+    const pOf = f => f && f.params[0] && f.params[0].type === "Identifier" ? f.params[0].name : null;
+    const orEmpty = (x, p, k) => !!x && x.type === "LogicalExpression" && x.operator === "||" && isMem(x.left, p, k) && x.right.type === "StringLiteral" && x.right.value === "";
+    const openerSets = [se2, sa2].every(f => inF(notesSet, f).length === 1 && orEmpty(inF(notesSet, f)[0].arguments[0], pOf(f), "notes") && inF(patSet, f).length === 1 && orEmpty(inF(patSet, f)[0].arguments[0], pOf(f), "encounterId"));
+    if (notesSet.length !== 4 || patSet.length !== 3 || inF(notesSet, oc).length !== 1 || inF(patSet, oc).length !== 1 || inF(notesSet, toc).length !== 1 || !openerSets) bad.push("history.js: setEditNotes / setEditPatient are not called exactly once in each opener (from the entry) and onChange");
+    const patInputs = comp ? deep(comp, n => n.type === "JSXOpeningElement" && (n.name.name === "input" || n.name.name === "textarea") && attr(n, "value") && attr(n, "value").value && deep(attr(n, "value").value, m => isId(m, "editPatient")).length > 0) : [];
+    if (strayNotes.length || strayPat.length || patInputs.length !== 1) bad.push("history.js: notes or initials written outside the panel's openers / onChanges (" + strayNotes.concat(strayPat).map(n => n.loc.start.line).join(", ") + "), or " + patInputs.length + " Patient ID inputs");
+    // (d) Save writes the box as shown.
+    const se = fnOf("saveEdit"), sa = fnOf("saveAdd");
+    const notesProp = f => f ? deep(f, n => n.type === "ObjectProperty" && n.key && n.key.name === "notes") : [];
+    const notesAssign = f => f ? deep(f, n => n.type === "AssignmentExpression" && n.left.type === "MemberExpression" && !n.left.computed && n.left.property.name === "notes") : [];
+    if (!notesProp(se).length || notesProp(se).some(p => !isId(p.value, "editNotes")) || !notesProp(sa).length || notesProp(sa).some(p => !isId(p.value, "editNotes")) || notesAssign(se).length || notesAssign(sa).length) bad.push("history.js: saveEdit / saveAdd do not write notes: editNotes (as shown)");
+  }
+  if (ut) {
+    const nfi = ut.ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "notesForInitials"));
+    const nhi = ut.ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "notesHasInitials"));
+    if (nfi.length !== 1 || nhi.length !== 1 || !deep(nfi[0], n => isCall(n, "notesHasInitials")).length) bad.push("utils.js: notesForInitials / notesHasInitials missing, or the link not decided by notesHasInitials");
+  }
+  check("5f-11: History's Patient ID keeps the notes' 'XX - ' prefix in step - one notesForInitials call in its onChange; the link (and linkable) set by startEdit / startAdd / addAnother from notesHasInitials and kept by the Patient ID and Notes onChanges (notesLinkAfterEdit); notes / initials written only there; saves write the box as shown",
+    bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
@@ -3666,6 +3776,65 @@ if (sb) {
     check("entryEncounterMates: same date + exact non-empty encounterId, self excluded", got === "m1,m6" &&
       sb.entryEncounterMates([m0, m4], m4).length === 0 && sb.entryEncounterMates([m0, m5], m5).length === 0 &&
       sb.entryEncounterMates(null, m0).length === 0 && sb.entryEncounterMates([m0], null).length === 0, got);
+  }
+
+  {
+    // History's Patient ID keeps Log's "<initials> - " notes prefix in step
+    // (notesHasInitials / notesForInitials). Made-up notes.
+    const H = sb.notesHasInitials, N = (a, b, c, d) => { const r = sb.notesForInitials(a, b, c, d); return r.notes + "|" + r.linked; };
+    const has = H("AB - x", "AB") && !H("AB", "AB") && !H("AB - x", "A") && !H(" AB - x", "AB") && !H("x", "") && !H(undefined, "AB") && !H("AB - x", undefined) && !H("ab - x", "AB");
+    // Letter by letter, each step feeding the last: AB -> A -> "" -> A -> AC.
+    const steps = [["AB", "A"], ["A", ""], ["", "A"], ["A", "AC"]];
+    let st = { notes: "AB - lap chole", linked: true }; const walked = [];
+    steps.forEach(s => { st = sb.notesForInitials(st.notes, s[0], s[1], st.linked); walked.push(st.notes + "|" + st.linked); });
+    const T = [ // [args, expected "notes|linked"]
+      [["AB - lap chole", "AB", "AC", true], "AC - lap chole|true"],
+      [["AB - lap chole", "AB", "", true], "lap chole|true"],
+      [["AB - lap chole", "AB", "C", true], "C - lap chole|true"],
+      [["AC - lap chole", "AC", "AB", true], "AB - lap chole|true"],
+      [["AB - lap chole", "AB", "AC", false], "AB - lap chole|false"],
+      [["AB - lap chole", "AB", "AC", "yes"], "AB - lap chole|false"],
+      [["lap chole", "AB", "AC", true], "lap chole|false"],
+      [["lap chole", "", "XY", false], "lap chole|false"],
+      [["AB", "AB", "AC", true], "AB|false"],
+      [["ab - x", "AB", "AC", true], "ab - x|false"],
+      [["AB - AB - x", "AB", "CD", true], "CD - AB - x|true"],
+      [["AB - ", "AB", "", true], "|true"],
+      [["", "", "CD", true], "CD - |true"],
+      [[undefined, "AB", "CD", true], "|false"],
+      [[42, "AB", "CD", true], "|false"],
+    ];
+    const badN = T.filter(t => N.apply(null, t[0]) !== t[1]).map(t => JSON.stringify(t[0]) + " got " + N.apply(null, t[0]));
+    const walkOk = walked.join(",") === "A - lap chole|true,lap chole|true,A - lap chole|true,AC - lap chole|true";
+    // A hand edit of the Notes box (notesLinkAfterEdit) can keep or restore the
+    // link only on a panel that opened linked: with initials, while the text
+    // starts with their prefix; with none, unless the text starts with a
+    // "<x> - " prefix of its own.
+    const L = sb.notesLinkAfterEdit;
+    const linkOk = L(true, "AC - lap chole x", "AC") === true && L(true, "lap chole", "AC") === false && L(true, "XY - lap chole", "") === false &&
+      L(true, "lap chole", "") === true && L(false, "AC - x", "AC") === false && L(false, "lap chole", "") === false && L("yes", "AC - x", "AC") === false && L(true, undefined, "") === false;
+    // Walks the History panel does (the panel opened linked on these notes):
+    // (1) clear, hand-type "XY - " into Notes, then type X, Y - never doubled;
+    // (2) a one-letter lead ("L - ") survives typing L, M; (3) clear, fix a
+    // body typo, retype AB - the prefix comes back; (4) break the prefix by
+    // hand and retype it, then change AB -> CD - it re-linked and follows.
+    const walk = (notes, ops) => { const linkable = sb.notesHasInitials(notes, ops[0]); let s = { notes: notes, linked: linkable }, init = ops[0]; ops.slice(1).forEach(op => {
+      if (op.notes !== undefined) s = { notes: op.notes, linked: L(linkable, op.notes, init) };
+      else { s = sb.notesForInitials(s.notes, init, op.init, s.linked); init = op.init; } }); return s.notes; };
+    const handTyped = walk("AB - lap chole", ["AB", { init: "" }, { notes: "XY - lap chole" }, { init: "X" }, { init: "XY" }]);
+    const oneLetter = walk("AB - L - inguinal hernia", ["AB", { init: "" }, { init: "L" }, { init: "LM" }]);
+    const typoFix = walk("AB - lap cholle", ["AB", { init: "" }, { notes: "lap chole" }, { init: "A" }, { init: "AB" }]);
+    const reTyped = walk("AB - lap chole", ["AB", { notes: "A - lap chole" }, { notes: "AB - lap chole" }, { init: "C" }, { init: "CD" }]);
+    const imported = walk("AB - Main OR", ["", { init: "A" }, { init: "AB" }, { notes: "AB - Main OR x" }, { init: "CD" }]);
+    const walks = handTyped === "XY - lap chole" && oneLetter === "LM - L - inguinal hernia" && typoFix === "AB - lap chole" && reTyped === "CD - lap chole" && imported === "AB - Main OR x";
+    // The documented consequence of clearing: the stripped notes key the case
+    // on their own first two letters (encounterKey's fallback) - split from
+    // the old patient, and joined to a same-day patient with those initials.
+    const D = "2026-10-05", e2 = { date: D, encounterId: "AB", notes: "AB - lap chole" }, e3 = { date: D, encounterId: "LA", notes: "LA - appy" };
+    const enc = [sb.countEncounters([{ date: D, notes: "AB - lap chole" }, e2]), sb.countEncounters([{ date: D, notes: "lap chole" }, e2]),
+      sb.countEncounters([{ date: D, notes: "lap chole" }, e2, e3]), sb.countEncounters([{ date: D, notes: "x" }, e2])].join(",") === "1,2,2,2";
+    check("notesForInitials: History's initials keep the notes' 'XX - ' prefix in step (replace / clear / retype, linked only, exact prefix only, bare 'AB' untouched, a hand edit keeps the link only on the prefix)",
+      has && badN.length === 0 && walkOk && linkOk && walks && enc, JSON.stringify({ has: has, badN: badN, walked: walked, linkOk: linkOk, handTyped: handTyped, oneLetter: oneLetter, typoFix: typoFix, reTyped: reTyped, imported: imported, enc: enc }));
   }
 
   {
