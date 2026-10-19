@@ -67,6 +67,9 @@ function App() {
   const [loaded, setLoaded] = useState(false);
   const [undoAction, setUndoAction] = useState(null);
   const undoTimer = useRef(null);
+  // Bumped per toast: keys the live region's text so a repeat of the same
+  // message is a fresh insertion that screen readers announce again.
+  const undoSeq = useRef(0);
   const contentRef = useRef(null);
   const [theme, setTheme] = useState(function() {
     try { return localStorage.getItem("rvu-theme") || "dark"; } catch(e) { return "dark"; }
@@ -101,6 +104,7 @@ function App() {
 
   var showUndo = function(action) {
     if (undoTimer.current) clearTimeout(undoTimer.current);
+    if (action) undoSeq.current++;
     setUndoAction(action);
     undoTimer.current = setTimeout(function() { setUndoAction(null); }, 8000);
   };
@@ -204,7 +208,12 @@ function App() {
           : <div style={S.page}>Directorships did not load - reload the app.</div>}</ErrorBoundary>}
       </div>
 
-      {/* Undo toast - above the nav; on Log, above the pinned save bar (log.js: 64px bar on the ~71px nav), so Undo never covers Save */}
+      {/* Screen readers: an always-mounted, visually hidden live region
+          announces each toast (one inserted with its text is often missed).
+          The keyed child makes a repeated message a new insertion. */}
+      <span role="status" aria-live="polite" style={{ position: "absolute", width: 1, height: 1, margin: -1, padding: 0, border: 0, overflow: "hidden", clip: "rect(0 0 0 0)", clipPath: "inset(50%)", whiteSpace: "nowrap" }}>{undoAction ? <span key={undoSeq.current}>{undoAction.message}</span> : null}</span>
+      {/* Undo toast - above the nav; on Log, above the pinned save bar (log.js: 64px bar on the ~71px nav), so Undo never covers Save.
+          Undo and Dismiss are 44px targets; the toast grows upward from its fixed bottom offset. */}
       {undoAction && <div style={{
         position: "absolute", bottom: view === "log" && logBar ? 148 : 64, left: "50%", transform: "translateX(-50%)",
         zIndex: 9990, background: "var(--bg-card)", border: "1px solid var(--border-default)",
@@ -212,9 +221,9 @@ function App() {
         gap: 12, boxShadow: "0 4px 24px rgba(0,0,0,0.5)", maxWidth: 360, width: "90%",
         animation: "rvuSlideUp 0.25s ease-out"
       }}>
-        <span style={{ fontSize: 13, color: "var(--text-primary)", flex: 1 }}>{undoAction.message}</span>
-        <button onClick={doUndo} style={{ padding: "6px 16px", borderRadius: 8, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Undo</button>
-        <button onClick={function() { setUndoAction(null); }} style={{ background: "none", border: "none", color: "var(--text-faint)", fontSize: 16, cursor: "pointer", padding: "0 4px", lineHeight: 1 }}>{"\u2715"}</button>
+        <span style={{ fontSize: 13, color: "var(--text-primary)", flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{undoAction.message}</span>
+        <button onClick={doUndo} style={{ minHeight: 44, flexShrink: 0, padding: "0 16px", borderRadius: 8, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Undo</button>
+        <button onClick={function() { if (undoTimer.current) clearTimeout(undoTimer.current); setUndoAction(null); }} aria-label="Dismiss" style={{ minWidth: 44, minHeight: 44, flexShrink: 0, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--text-faint)", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>{"\u2715"}</button>
       </div>}
 
       {/* Nav bar - flex child, always at bottom */}

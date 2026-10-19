@@ -1230,6 +1230,152 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", "));
 }
 
+// 5f-8. Undo toast and small readability fixes (CLAUDE.md, beside Log's save
+// bar, and the Trends Monthly Report bullet). App renders, straight in its
+// own return (no ternary / && / || / if / key above it, no key, hidden or
+// undoAction-driven attribute on it), a visually hidden role="status"
+// aria-live="polite" region whose undoAction.message sits in a child keyed
+// by undoSeq.current, which showUndo bumps (++ or += n, under at most an
+// `if (action)`), so a repeated message is a fresh insertion that is
+// announced again; the toast's Undo and its
+// aria-labelled "Dismiss" are 44px targets. Log's post-save reset closes the
+// template form, and its Encounter Summary card background is the theme's
+// card tokens. Trends' Monthly Report title, Private / Call lines and the
+// Top Encounters heading, descriptions and wRVU use theme text tokens, and a
+// cleared month input keeps the previous month.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const attr = (el, name) => el.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === name)[0];
+  const strAttr = (el, name) => { const a = attr(el, name); return a && a.value && a.value.type === "StringLiteral" ? a.value.value : null; };
+  // The value that wins at runtime: the LAST property of that name, and none
+  // when a spread follows it (the spread could override it).
+  const styleProp = (el, key) => {
+    const a = attr(el, "style"); const o = a && a.value && a.value.expression;
+    if (!o || o.type !== "ObjectExpression") return null;
+    let idx = -1;
+    o.properties.forEach((x, i) => { if (x.type === "ObjectProperty" && x.key && (x.key.name === key || x.key.value === key)) idx = i; });
+    if (idx === -1 || o.properties.slice(idx + 1).some(x => x.type === "SpreadElement")) return null;
+    return o.properties[idx].value;
+  };
+  const isFn = a => a.type === "FunctionDeclaration" || a.type === "FunctionExpression" || a.type === "ArrowFunctionExpression";
+  const styleNum = (el, key) => { const v = styleProp(el, key); return v && v.type === "NumericLiteral" ? v.value : null; };
+  const styleStr = (el, key) => { const v = styleProp(el, key); return v && v.type === "StringLiteral" ? v.value : null; };
+  const mentions = (root, name) => !!root && deep(root, m => isId(m, name)).length > 0;
+  const bad = [];
+  const parse = f => { try { const src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); return { src, ast: parser.parse(src, AST_OPTS) }; } catch (e) { bad.push(f + ": parse"); return null; } };
+  const app = parse("app.js"), log = parse("log.js"), an = parse("analytics.js");
+  if (app) {
+    let live = 0, keyed = 0;
+    walkStack(app.src, (n, stack) => {
+      if (n.type !== "JSXElement" || strAttr(n.openingElement, "role") !== "status" || strAttr(n.openingElement, "aria-live") !== "polite") return;
+      // Anything that can mount, remount or hide it together with its text
+      // defeats the announcement: a condition or key above it, a key /
+      // hidden / undoAction-driven attribute on it, or a home other than
+      // App's own body (a helper can return early).
+      const fns = stack.filter(isFn);
+      const inApp = fns.length === 1 && fns[0].type === "FunctionDeclaration" && isId(fns[0].id, "App");
+      const el = n.openingElement;
+      const gated = !inApp
+        || stack.some(a => a.type === "ConditionalExpression" || a.type === "LogicalExpression" || a.type === "IfStatement" || (a.type === "JSXElement" && !!attr(a.openingElement, "key")))
+        || !!attr(el, "key") || !!attr(el, "hidden") || !!attr(el, "aria-hidden")
+        || el.attributes.some(a => mentions(a, "undoAction"));
+      const msgs = deep(n.children, m => isMem(m, "undoAction", "message")).length;
+      if (gated || !msgs) return;
+      live++;
+      const kids = deep(n.children, m => {
+        if (m.type !== "JSXElement") return false;
+        const k = attr(m.openingElement, "key");
+        return !!(k && k.value && k.value.type === "JSXExpressionContainer" && deep(k.value.expression, x => isMem(x, "undoSeq", "current")).length);
+      });
+      if (kids.length && kids.reduce((s, k) => s + deep(k.children, m => isMem(m, "undoAction", "message")).length, 0) === msgs) keyed++;
+    });
+    if (live !== 1) bad.push("app.js: no always-mounted role=status live region for the toast");
+    else if (keyed !== 1) bad.push("app.js: the live region's message is not in a child keyed by undoSeq.current");
+    // The bump: undoSeq.current++ (or += a positive number) directly in
+    // showUndo's own body (not a nested callback such as its timer), guarded
+    // by nothing but `if (action)` / `action &&`.
+    let bumps = 0;
+    walkStack(app.src, (n, stack) => {
+      const isBump = (n.type === "UpdateExpression" && n.operator === "++" && isMem(n.argument, "undoSeq", "current"))
+        || (n.type === "AssignmentExpression" && n.operator === "+=" && isMem(n.left, "undoSeq", "current") && n.right.type === "NumericLiteral" && n.right.value > 0);
+      if (!isBump) return;
+      const fns = stack.filter(isFn), inner = fns[fns.length - 1];
+      const at = inner ? stack.indexOf(inner) : -1, decl = at > 0 ? stack[at - 1] : null;
+      if (!decl || decl.type !== "VariableDeclarator" || !isId(decl.id, "showUndo") || decl.init !== inner) return;
+      const guardsOk = stack.slice(at + 1).every(a =>
+        (a.type === "IfStatement" && isId(a.test, "action") && stack.indexOf(a.consequent) !== -1)
+        || (a.type === "LogicalExpression" && a.operator === "&&" && isId(a.left, "action") && (a.right === n || stack.indexOf(a.right) !== -1))
+        || (a.type !== "IfStatement" && a.type !== "LogicalExpression" && a.type !== "ConditionalExpression"));
+      if (guardsOk) bumps++;
+    });
+    if (bumps !== 1) bad.push("app.js: showUndo does not bump undoSeq.current once per toast");
+    const undoBtn = deep(app.ast.program, n => n.type === "JSXOpeningElement" && n.name && n.name.name === "button" && attr(n, "onClick") && attr(n, "onClick").value && isId(attr(n, "onClick").value.expression, "doUndo"))[0];
+    if (!undoBtn || !(styleNum(undoBtn, "minHeight") >= 44)) bad.push("app.js: Undo is not a 44px target");
+    const dismiss = deep(app.ast.program, n => n.type === "JSXOpeningElement" && n.name && n.name.name === "button" && strAttr(n, "aria-label") === "Dismiss")[0];
+    if (!dismiss || !(styleNum(dismiss, "minWidth") >= 44) || !(styleNum(dismiss, "minHeight") >= 44)) bad.push("app.js: the toast's Dismiss is not a labelled 44px target");
+  }
+  if (log) {
+    const resets = deep(log.ast.program, n => n.type === "CallExpression" && isId(n.callee, "setTimeout") && n.arguments[0] && deep(n.arguments[0], m => m.type === "CallExpression" && isId(m.callee, "setNotes")).length > 0);
+    if (!resets.length || !resets.some(r => deep(r, m => m.type === "CallExpression" && isId(m.callee, "setTplSaving") && m.arguments[0] && m.arguments[0].type === "BooleanLiteral" && m.arguments[0].value === false).length > 0)) bad.push("log.js: the post-save reset does not close the template form");
+    // The nearest element above the "Encounter Summary" label that sets a
+    // background must use both card tokens and no hex colour.
+    let cardOk = 0, cardBad = 0;
+    walkStack(log.src, (n, stack) => {
+      if (n.type !== "JSXText" || n.value.trim() !== "Encounter Summary") return;
+      for (let i = stack.length - 1; i >= 0; i--) {
+        const a = stack[i];
+        if (a.type !== "JSXElement" || !styleProp(a.openingElement, "background")) continue;
+        const bg = styleStr(a.openingElement, "background");
+        // A longhand set after it would win; it may not bring a hex colour back.
+        const longhand = ["backgroundImage", "backgroundColor"].some(k => { const v = styleProp(a.openingElement, k); return !!v && !(v.type === "StringLiteral" && v.value.indexOf("#") === -1); });
+        if (bg && bg.indexOf("var(--card-main-from)") !== -1 && bg.indexOf("var(--card-main-to)") !== -1 && bg.indexOf("#") === -1 && !longhand) cardOk++; else cardBad++;
+        return;
+      }
+      cardBad++;
+    });
+    if (cardOk !== 1 || cardBad) bad.push("log.js: the Encounter Summary card background is not the theme's card tokens");
+  }
+  if (an) {
+    // The month input's onChange sets the month only when the value is non-empty.
+    const monthIn = deep(an.ast.program, n => n.type === "JSXOpeningElement" && strAttr(n, "type") === "month");
+    const fn = monthIn.length === 1 && attr(monthIn[0], "onChange") && attr(monthIn[0], "onChange").value ? attr(monthIn[0], "onChange").value.expression : null;
+    const tv = t => !!t && t.type === "MemberExpression" && !t.computed && t.property.name === "value" && t.object.type === "MemberExpression" && !t.object.computed && t.object.property.name === "target";
+    const nonEmpty = t => tv(t) || (!!t && t.type === "BinaryExpression" && (t.operator === "!==" || t.operator === "!=") && tv(t.left) && t.right.type === "StringLiteral" && t.right.value === "");
+    const setsMonth = r => !!r && deep(r, m => m.type === "CallExpression" && isId(m.callee, "setSummaryMonth")).length > 0;
+    let guardOk = false;
+    if (fn && (fn.type === "FunctionExpression" || fn.type === "ArrowFunctionExpression")) {
+      const b = fn.body;
+      if (b.type === "BlockStatement") guardOk = b.body.length === 1 && b.body[0].type === "IfStatement" && !b.body[0].alternate && nonEmpty(b.body[0].test) && setsMonth(b.body[0].consequent);
+      else guardOk = b.type === "LogicalExpression" && b.operator === "&&" && nonEmpty(b.left) && setsMonth(b.right) && !setsMonth(b.left);
+    }
+    if (!guardOk) bad.push("analytics.js: a cleared month input is not ignored");
+    const direct = (el, pred) => el.children.some(c => c.type === "JSXExpressionContainer" && pred(c.expression));
+    // The element that renders the value itself: a direct {expression} child
+    // with no JSX inside it (an outer `cond && <div>...` does not count).
+    const noJsx = x => !deep(x, m => m.type === "JSXElement" || m.type === "JSXFragment").length;
+    const want = (root, label, pred, token) => {
+      const els = deep(root, n => n.type === "JSXElement" && direct(n, x => noJsx(x) && pred(x)));
+      if (!els.length || els.some(e => styleStr(e.openingElement, "color") !== token)) bad.push("analytics.js: the " + label + " is not " + token);
+    };
+    want(an.ast.program, "Monthly Report title", x => x.type === "CallExpression" && isId(x.callee, "summaryMonthName"), "var(--text-bright)");
+    want(an.ast.program, "Private line", x => deep(x, m => isMem(m, "summaryData", "privateRVU")).length > 0, "var(--text-primary)");
+    want(an.ast.program, "Call line", x => deep(x, m => isMem(m, "summaryData", "callRVU")).length > 0, "var(--text-primary)");
+    const tp = deep(an.ast.program, n => n.type === "CallExpression" && n.callee.type === "MemberExpression" && !n.callee.computed && n.callee.property.name === "map" && isMem(n.callee.object, "summaryData", "topProcs"));
+    if (tp.length !== 1) bad.push("analytics.js: the Top Encounters map was not found");
+    else {
+      want(tp[0], "top-encounter wRVU", x => deep(x, m => isMem(m, "p", "rvu")).length > 0, "var(--text-primary)");
+      want(tp[0], "top-encounter description", x => deep(x, m => isMem(m, "p", "desc")).length > 0, "var(--text-muted)");
+      // The heading is a sibling of the map inside the same element.
+      const box = deep(an.ast.program, n => n.type === "JSXElement" && direct(n, x => x === tp[0]))[0];
+      const head = box ? box.children.filter(c => c.type === "JSXElement" && c.children.some(t => t.type === "JSXText" && t.value.trim() === "Top Encounters")) : [];
+      if (head.length !== 1 || styleStr(head[0].openingElement, "color") !== "var(--text-muted)") bad.push("analytics.js: the Monthly Report's Top Encounters heading is not var(--text-muted)");
+    }
+  }
+  check("5f-8: Undo toast - always-mounted live region keyed per toast, 44px Undo and labelled Dismiss; Log's template form resets after Save and its summary card uses theme tokens; Trends' report text uses theme tokens and a cleared month is ignored", bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {

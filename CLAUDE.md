@@ -417,7 +417,19 @@ the per-file gates below. Run it after EVERY file change.
   bottom 148 so Undo never covers Save; otherwise the toast stays at 64.
   After the post-save reset, the next case's first code dismisses that
   save's pending Undo (same Log visit; Call Pay precedent). Change the bar height, nav height or toast offset together;
-  never hide the bar on input focus.
+  never hide the bar on input focus. The toast's Undo and aria-labelled
+  Dismiss are 44px targets; it grows upward from its fixed bottom offset,
+  and an always-mounted, visually hidden role="status" region in App
+  announces each message: its text is a child keyed by undoSeq, which
+  showUndo bumps, so a repeat of the same text is announced again. The
+  post-save reset also closes the Save-as-template form, and the
+  Encounter Summary card uses --card-main-from / --card-main-to, never a
+  hard-coded gradient (check.js 5f-8).
+- Trends' Monthly Report sits on a theme card, so its text uses theme
+  tokens: title --text-bright; Private / Call lines and top-encounter wRVU
+  --text-primary; Top Encounters heading and descriptions --text-muted
+  (the dark stat tiles stay dark in both themes). Its month input ignores
+  a cleared value and keeps the previous month (check.js 5f-8).
 - Unsaved forms survive a tab switch through App's MEMORY-ONLY refs (never
   persisted): Log's encounter (logDraft) and Call Pay's shift form
   (callPayDraft, passed as `keep`). CallPay reads keep.current ONCE in a

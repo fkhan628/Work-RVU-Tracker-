@@ -633,6 +633,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       setProcs([{ id: nextId.current++, code: null, search: "", mods: [] }]);
       setActiveProc(0);
       setNotes("");
+      // A "Save as template" form left open must not carry this case's note
+      // into the next case (it closed only by its own buttons before).
+      setTplSaving(false);
+      setTplName("");
+      setTplNote("");
       setPatientId("");
       setIsCall(false);
       setCallSite("");
@@ -947,7 +952,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     <div style={S.modGrid}>{MODIFIERS.map(function(m) { return <button key={m.code} onClick={function() { toggleMod(m.code); }} style={curMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span><span style={S.modFactor}>{m.desc}</span></button>; })}</div></div></>}
 
     {/* Encounter summary */}
-    {canSave && <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: isCall ? "1px solid rgba(139,92,246,0.3)" : "1px solid var(--border-default)", marginTop: 8 }}>
+    {canSave && <div style={{ ...S.card, background: "linear-gradient(135deg, var(--card-main-from), var(--card-main-to))", border: isCall ? "1px solid rgba(139,92,246,0.3)" : "1px solid var(--border-default)", marginTop: 8 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={S.cardLabel}>Encounter Summary</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
