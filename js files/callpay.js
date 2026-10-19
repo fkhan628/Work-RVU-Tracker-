@@ -15,12 +15,14 @@
 // shift types: a flat amount, plus call-in pay once the night's time in
 // reaches a threshold). A legacy shift dated where a typed version is in
 // force "needs a type": it is never guessed and never summed until it is
-// set here. Nav-less view opened from Log, Home or Settings; onBack returns
-// to whichever opened it; `focus` (App's one-shot ref) scrolls to the Call
-// pay rates card. Dollar amounts follow the app's show-$ toggle; with $
+// set here. Opened from Log, Home or Settings; onBack returns to whichever
+// opened it. The nav stays visible, so an unsaved shift form is parked in
+// App's memory-only `keep` ref across a tab switch (utils.js payParkedDraft
+// decides whether it can come back). `focus` (App's one-shot ref) scrolls
+// to the Call pay rates card once the list shows. Dollar amounts follow the app's show-$ toggle; with $
 // hidden every rate amount shown without being opened is masked too (only
 // an opened rate form shows amounts).
-function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
+function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, keep }) {
   var sites = data.paySites || [];
   var shifts = data.payShifts || [];
   var today = todayLocal();
@@ -40,9 +42,14 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
   const [renaming, setRenaming] = useState(null);
   const [renameDraft, setRenameDraft] = useState("");
   const [rateForm, setRateForm] = useState(null); // { siteId, rateId, editing, kind: "legacy" | "typed", f } - f: legacy text fields, or the typed form (utils.js payTypedFormFromVersion)
-  const [draft, setDraft] = useState(null);       // shift form draft (text as typed) or null
-  const [draftInit, setDraftInit] = useState(""); // draft JSON when opened, for the discard check
-  const [editOrig, setEditOrig] = useState(null); // the saved shift being edited (null = new)
+  // A shift form parked by a tab switch: read ONCE and cleared at once, so a
+  // form that throws while rendering is never restored again (the effect
+  // above the form's return parks it only after a render that committed).
+  const [parked] = useState(function() { var p = keep ? keep.current : null; if (keep) keep.current = null; return payParkedDraft(p, data.payShifts || [], data.paySites); });
+  const [draft, setDraft] = useState(parked ? parked.draft : null);             // shift form draft (text as typed) or null
+  const [draftInit, setDraftInit] = useState(parked ? parked.draftInit : "");   // draft JSON when opened, for the discard check
+  const [draftBase, setDraftBase] = useState(parked && typeof parked.draftBase === "string" ? parked.draftBase : ""); // the saved shift's JSON before "+ Call-in" added its row ("" otherwise)
+  const [editOrig, setEditOrig] = useState(parked ? parked.editOrig : null);    // the saved shift being edited (null = new)
   const savingRef = useRef(false);                // double-tap guard on Save
   const [allShifts, setAllShifts] = useState(false); // Recent: newest 5 vs every shift
   const [flagOnly, setFlagOnly] = useState(false);   // Recent: only the shifts that need Day or Night
@@ -52,8 +59,8 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
   const [creditHidden, setCreditHidden] = useState(false); // "Not now" on the Built-in credit rule card (this visit)
   const [typedOfferHidden, setTypedOfferHidden] = useState(false); // "Not now" on the "Use new Davenport rates" card (this visit)
   const [typeCardHidden, setTypeCardHidden] = useState(false);     // "Not now" on the Day-or-Night card (this visit)
-  const [hoursOpen, setHoursOpen] = useState(false);     // shift form: hours-on-call input shown
-  const [moreOpen, setMoreOpen] = useState({});          // shift form: call-in index -> "More options" open
+  const [hoursOpen, setHoursOpen] = useState(parked ? !!parked.hoursOpen : false);   // shift form: hours-on-call input shown
+  const [moreOpen, setMoreOpen] = useState(parked && parked.moreOpen ? parked.moreOpen : {}); // shift form: call-in index -> "More options" open
   const [payYear, setPayYear] = useState("");     // Totals year chip ("" = newest)
   const [openMonth, setOpenMonth] = useState(""); // expanded Totals month "YYYY-MM"
   const ratesCardRef = useRef(null);              // the Call pay rates card (Settings' button scrolls here)
@@ -61,9 +68,10 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
   var yr = payYears.indexOf(payYear) !== -1 ? payYear : (payYears[0] || "");
   const totals = useMemo(function() { return yr ? payMonthTotals(shifts, yr, sites) : null; }, [data.payShifts, data.paySites, yr]);
   // Settings' "Call pay rates" button opens this view scrolled to the rates
-  // card (one-shot ref; the timeout lands after App's scroll-to-top).
+  // card (one-shot ref; the timeout lands after App's scroll-to-top). A
+  // restored shift form is shown first: the jump waits for the list.
   useEffect(function() {
-    if (!focus || !focus.current) return;
+    if (draft || !focus || !focus.current) return;
     focus.current = false;
     var t = setTimeout(function() {
       var el = ratesCardRef.current, c = el && el.closest ? el.closest(".rvu-content") : null;
@@ -74,7 +82,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
       if (c.scrollTo) c.scrollTo({ top: top, behavior: "instant" }); else c.scrollTop = top;
     }, 80);
     return function() { clearTimeout(t); };
-  }, []);
+  }, [draft]);
 
   var money = function(v) { return "$" + Number(v).toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 }); };
   var btn = function(extra) { return { minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", ...extra }; };
@@ -376,14 +384,20 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
     setHoursOpen(false);
     setMoreOpen({});
     setDraftInit(JSON.stringify(d));
+    setDraftBase("");
     setDraft(d);
     formOpened();
   };
   var openEdit = function(s, addCallIn) {
     if (showUndo) showUndo(null);
     var d = { ...payDraftFromShift(s, siteFor(s.siteId, s)), id2: payDraftId2(s.id, shifts) };
-    setDraftInit(JSON.stringify(d));
+    // "+ Call-in" adds a blank row. Both the form with that row and the saved
+    // shift without it count as unchanged (utils.js payDraftDirty): an
+    // untouched row, or one added then removed, is not a change.
+    var base = addCallIn ? JSON.stringify(d) : "";
     if (addCallIn) d = payShiftIsTyped(s) ? { ...d, ciRows: d.ciRows.concat([{ h: "", m: "" }]) } : { ...d, events: d.events.concat([trip(d, s)]) };
+    setDraftInit(JSON.stringify(d));
+    setDraftBase(base);
     setEditOrig(s);
     setHoursOpen(false);
     setMoreOpen({});
@@ -391,7 +405,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
     formOpened();
   };
   var closeDraft = function() {
-    if (draft && JSON.stringify(draft) !== draftInit && !confirm("Discard changes to this shift?")) return;
+    if (payDraftDirty(draft, draftInit, draftBase) && !confirm("Discard changes to this shift?")) return;
     setDraft(null);
     formClosed();
     setEditOrig(null);
@@ -1014,6 +1028,17 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus }) {
   // the expanded month share the words).
   var nightsLine = payBucketInLine;
   var countsLine = function(x) { return x.split.map(function(b) { return b.label + " " + b.shifts; }).concat(x.needsType ? [x.needsType + " need" + (x.needsType === 1 ? "s" : "") + " type"] : []).join(DOT); };
+
+  // Park the shift form in App's memory-only ref while it is changed
+  // (utils.js payDraftDirty), so a tab switch does not throw away what was
+  // typed (Log's draft precedent). Runs only after a render that committed;
+  // Save, Delete and Cancel null the draft, which clears the ref.
+  useEffect(function() {
+    if (!keep) return;
+    keep.current = payDraftDirty(draft, draftInit, draftBase)
+      ? { draft: draft, draftInit: draftInit, draftBase: draftBase, editOrig: editOrig, hoursOpen: hoursOpen, moreOpen: moreOpen, sites: data.paySites }
+      : null;
+  }, [draft, draftInit, draftBase, editOrig, hoursOpen, moreOpen, data.paySites]);
 
   // Every hook is declared above this line (CLAUDE.md: hooks before any
   // conditional return).

@@ -2329,6 +2329,37 @@ function payDraftUseSaved(d) {
   var rows = (Array.isArray(d.savedTrips) ? d.savedTrips : []).map(function(t) { var m = payWholeMin(t && t.minutes); return m === null ? null : { h: String(Math.floor(m / 60)), m: String(m % 60).padStart(2, "0") }; }).filter(Boolean);
   return { ...d, ciRows: rows };
 }
+// Is the shift form changed from how it opened? Its JSON differs from the
+// baseline (init) - and, when "+ Call-in" opened it with a blank row added,
+// also from the saved shift without that row (base), so adding then
+// removing that row is not a change. Cancel's prompt and the tab-switch
+// parking share this one rule.
+function payDraftDirty(draft, init, base) {
+  if (!draft || typeof draft !== "object") return false;
+  var j = JSON.stringify(draft);
+  return j !== init && !(typeof base === "string" && base !== "" && j === base);
+}
+// Call Pay's shift form parked across a tab switch (App's memory-only
+// callPayDraft ref - never stored): { draft, draftInit, draftBase, editOrig,
+// hoursOpen, moreOpen, sites }. Restored only while it can still be
+// trusted: the site list is the SAME object it was parked with (ANY
+// paySites write replaces it - a rates or site edit in Call Pay, Log's or
+// History's built-in credit-rule confirm, a restore - and the form is then
+// dropped: fail-safe, since its site-derived fields could be stale), and a
+// parked EDIT's shift is still saved exactly as it was (it then comes back
+// as the live shift object). Anything else - or junk - is null (the list
+// shows). The changed-shift and lost-site branches are defence in depth:
+// with today's writers the site-list check already covers them.
+function payParkedDraft(p, shifts, sites) {
+  if (!p || typeof p !== "object" || !p.draft || typeof p.draft !== "object" || p.sites !== sites) return null;
+  if (p.editOrig) {
+    var live = (Array.isArray(shifts) ? shifts : []).filter(function(s) { return s && s.id === p.editOrig.id; })[0];
+    if (!live || JSON.stringify(live) !== JSON.stringify(p.editOrig)) return null;
+    return { ...p, editOrig: live };
+  }
+  var siteOk = !p.draft.siteId || (Array.isArray(sites) ? sites : []).some(function(s) { return s && s.id === p.draft.siteId; });
+  return siteOk ? p : { ...p, draft: { ...p.draft, siteId: "" } };
+}
 // ---- Shift-form draft logic (pure; callpay.js only holds the state) ----
 // A draft call-in is { date, rel: "same"|"next"|"other" (or "" while the
 // midnight question is open), relSet?, time, timeAuto, cls, clsSet, dn?,

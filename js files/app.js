@@ -149,12 +149,17 @@ function App() {
   // opened it so Back returns there, not to a fixed tab.
   const [acuteFrom, setAcuteFrom] = useState("dashboard");
   var openAcute = function(from) { setAcuteFrom(from === "settings" ? "settings" : "dashboard"); setView("acute"); };
-  // Nav-less call pay view (callpay.js); opened from Log or Settings, Back
-  // returns to whichever opened it.
+  // Call pay view (callpay.js); opened from Log, Home or Settings, Back
+  // returns to whichever opened it. The nav stays visible there.
   const [callPayFrom, setCallPayFrom] = useState("settings");
   // Log's unsaved encounter, kept across tab switches (memory only - never
   // persisted; LogProc clears it on save).
   const logDraft = useRef(null);
+  // Call Pay's unsaved shift form, the same way (memory only, never
+  // persisted): CallPay reads it ONCE on mount and clears it, and parks it
+  // again only after a render that committed and only while it is dirty, so
+  // a form that crashes never reopens (utils.js payParkedDraft).
+  const callPayDraft = useRef(null);
   // Log's save bar is pinned (LogProc reports it via setLogBar): lifts the undo toast above it.
   const [logBar, setLogBar] = useState(false);
   // focus "rates" (Settings' "Call pay rates" button) scrolls Call Pay to
@@ -193,7 +198,7 @@ function App() {
         {view === "history" && <ErrorBoundary name="History" onRetry={goHome} key="eb-history"><History data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} showUndo={showUndo} historyPreset={historyPreset} /></ErrorBoundary>}
         {view === "settings" && <ErrorBoundary name="Settings" onRetry={goHome} key="eb-settings"><Settings data={data} db={db} cptMap={cptMap} categories={categories} upd={upd} setView={setView} theme={theme} toggleTheme={toggleTheme} showComp={showComp} toggleComp={toggleComp} openAcute={openAcute} openCallPay={openCallPay} showUndo={showUndo} openHistory={openHistory} backupFocus={backupFocus} openDirectorships={openDirectorships} /></ErrorBoundary>}
         {view === "acute" && <ErrorBoundary name="Acute Care History" onRetry={goHome} key="eb-acute"><AcuteHistory data={data} onBack={function() { setView(acuteFrom); }} /></ErrorBoundary>}
-        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={goHome} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} focus={callPayFocus} /></ErrorBoundary>}
+        {view === "callpay" && <ErrorBoundary name="Call Pay" onRetry={function() { callPayDraft.current = null; goHome(); }} key="eb-callpay"><CallPay data={data} upd={upd} onBack={function() { setView(callPayFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} focus={callPayFocus} keep={callPayDraft} /></ErrorBoundary>}
         {view === "directorships" && <ErrorBoundary name="Directorships" onRetry={goHome} key="eb-dir">{typeof Directorships === "function"
           ? <Directorships data={data} upd={upd} onBack={function() { setView(dirFrom); }} showComp={showComp} toggleComp={toggleComp} showUndo={showUndo} dirMonth={dirMonth} />
           : <div style={S.page}>Directorships did not load - reload the app.</div>}</ErrorBoundary>}

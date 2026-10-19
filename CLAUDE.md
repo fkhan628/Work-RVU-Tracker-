@@ -390,6 +390,22 @@ the per-file gates below. Run it after EVERY file change.
   After the post-save reset, the next case's first code dismisses that
   save's pending Undo (same Log visit; Call Pay precedent). Change the bar height, nav height or toast offset together;
   never hide the bar on input focus.
+- Unsaved forms survive a tab switch through App's MEMORY-ONLY refs (never
+  persisted): Log's encounter (logDraft) and Call Pay's shift form
+  (callPayDraft, passed as `keep`). CallPay reads keep.current ONCE in a
+  useState initialiser that clears it and returns utils.js payParkedDraft
+  (the same site-list object - ANY paySites write drops the form, fail-safe:
+  a rates or site edit, Log's or History's built-in credit-rule confirm, a
+  restore - and for an edit a shift still saved exactly as parked), so a
+  form that crashes is restored at most once; ONE effect parks it again
+  only after a committed render and only while utils.js payDraftDirty says
+  it changed (the same rule as Cancel's prompt: "+ Call-in"'s blank row,
+  untouched or added then removed, is not a change); Save, Delete and
+  Cancel null the draft, which clears it; the Call Pay error boundary's Go
+  Home (its onRetry) clears it too - its Retry remounts and restores the
+  last committed form once. With a form parked, every way into Call Pay
+  opens the form, and Settings' rates focus waits for the list (check.js
+  5f-4).
 - PIN pad DOM is appendChild-only (never `innerHTML +=`); clipboard writes
   need a catch fallback; no `viewport-fit=cover`; chunked u8toB64 in
   crypto paths.

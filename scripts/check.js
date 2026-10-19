@@ -922,6 +922,106 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", "));
 }
 
+// 5f-4. Call Pay's parked shift form (CLAUDE.md, beside Log's save bar). App
+// passes its memory-only callPayDraft ref as `keep` and clears it on the Call
+// Pay error boundary's Go Home (its onRetry prop); callPayDraft appears
+// nowhere else. In CallPay, `keep` appears only as the prop, in truthiness
+// tests and as keep.current; keep.current appears in exactly two hooks: ONE
+// useState initialiser (one read into a var, one `= null`, returning
+// payParkedDraft(<that var>, .., data.paySites)) and ONE useEffect that parks
+// `payDraftDirty(draft, draftInit, draftBase) ? { draft, draftInit,
+// draftBase, editOrig, hoursOpen, moreOpen, sites: data.paySites } : null`
+// with all of those in its deps. Cancel uses the same payDraftDirty. The
+// rates focus effect returns while a draft shows BEFORE it consumes the
+// one-shot focus, and re-runs on draft.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression");
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const orOps = t => (t && t.type === "LogicalExpression" && t.operator === "||") ? orOps(t.left).concat(orOps(t.right)) : [t];
+  const PARK = ["draft", "draftInit", "draftBase", "editOrig", "hoursOpen", "moreOpen"];
+  const dirtyCall = c => !!c && c.type === "CallExpression" && isId(c.callee, "payDraftDirty") && c.arguments.length === 3 && isId(c.arguments[0], "draft") && isId(c.arguments[1], "draftInit") && isId(c.arguments[2], "draftBase");
+  const bad = [];
+  let appSrc = "", cpSrc = "";
+  try { appSrc = fs.readFileSync(path.join(JS_DIR, "app.js"), "utf8"); cpSrc = fs.readFileSync(path.join(JS_DIR, "callpay.js"), "utf8"); parser.parse(appSrc, AST_OPTS); parser.parse(cpSrc, AST_OPTS); } catch (e) { bad.push("parse"); appSrc = ""; cpSrc = ""; }
+  if (appSrc) {
+    let keepProp = 0, retryClears = 0, ids = 0;
+    walk(parser.parse(appSrc, AST_OPTS).program, n => {
+      if (isId(n, "callPayDraft")) ids++;
+      if (n.type !== "JSXOpeningElement" || !n.name) return;
+      if (n.name.name === "CallPay") n.attributes.forEach(a => { if (a.type === "JSXAttribute" && a.name && a.name.name === "keep" && a.value && a.value.type === "JSXExpressionContainer" && isId(a.value.expression, "callPayDraft")) keepProp++; });
+      if (n.name.name === "ErrorBoundary" && n.attributes.some(a => a.type === "JSXAttribute" && a.name && a.name.name === "name" && a.value && a.value.value === "Call Pay")) {
+        const r = n.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === "onRetry")[0];
+        if (r && deep(r.value, m => m.type === "AssignmentExpression" && isMem(m.left, "callPayDraft", "current") && m.right.type === "NullLiteral").length === 1) retryClears++;
+      }
+    });
+    if (keepProp !== 1) bad.push("app.js: CallPay keep={callPayDraft} x" + keepProp);
+    if (retryClears !== 1) bad.push("app.js: the Call Pay boundary's Go Home (onRetry) does not clear callPayDraft");
+    if (ids !== 3) bad.push("app.js: callPayDraft used " + ids + " times (declaration, keep prop, Go Home clear only)");
+  }
+  if (cpSrc) {
+    const hosts = new Map();
+    let focusOk = 0;
+    walkStack(cpSrc, (n, stack) => {
+      const parent = stack[stack.length - 1], gp = stack[stack.length - 2];
+      if (n.type === "CallExpression" && isId(n.callee, "useEffect") && isFn(n.arguments[0]) && deep(n.arguments[0], m => isMem(m, "focus", "current")).length) {
+        const guard = deep(n.arguments[0].body, m => m.type === "IfStatement")[0];
+        const consume = deep(n.arguments[0].body, m => m.type === "AssignmentExpression" && isMem(m.left, "focus", "current"))[0];
+        const deps = n.arguments[1];
+        if (guard && orOps(guard.test).some(o => isId(o, "draft")) && guard.consequent.type === "ReturnStatement" && consume && consume.start > guard.end &&
+          deps && deps.type === "ArrayExpression" && deps.elements.some(e => isId(e, "draft"))) focusOk++;
+      }
+      if (isId(n, "keep")) {
+        const ok = (parent.type === "ObjectProperty" && gp && gp.type === "ObjectPattern") ||
+          (parent.type === "MemberExpression" && parent.object === n && !parent.computed && parent.property.name === "current") ||
+          (parent.type === "IfStatement" && parent.test === n) || (parent.type === "ConditionalExpression" && parent.test === n) ||
+          (parent.type === "UnaryExpression" && parent.operator === "!") || (parent.type === "LogicalExpression" && parent.operator === "&&" && parent.left === n);
+        if (!ok) bad.push(n.loc.start.line + ": keep used other than as the prop, a truthiness test or keep.current");
+      }
+      if (!isMem(n, "keep", "current")) return;
+      let fn = null, host = null;
+      for (let i = stack.length - 1; i > 0; i--) { if (isFn(stack[i])) { fn = stack[i]; host = stack[i - 1]; break; } }
+      const hostName = host && host.type === "CallExpression" && host.callee.type === "Identifier" && host.arguments[0] === fn ? host.callee.name : null;
+      if (!fn || (hostName !== "useState" && hostName !== "useEffect")) { bad.push(n.loc.start.line + ": keep.current outside the read-once initialiser / park effect"); return; }
+      if (!hosts.has(fn)) hosts.set(fn, { kind: hostName, call: host, uses: [] });
+      hosts.get(fn).uses.push({ n: n, assignedBy: parent.type === "AssignmentExpression" && parent.left === n ? parent : null });
+    });
+    let inits = 0, parks = 0;
+    hosts.forEach((h, fn) => {
+      if (h.kind === "useState") {
+        inits++;
+        const reads = h.uses.filter(u => !u.assignedBy), clears = h.uses.filter(u => u.assignedBy && u.assignedBy.right.type === "NullLiteral");
+        if (h.uses.length !== 2 || reads.length !== 1 || clears.length !== 1) { bad.push("initialiser: keep.current must be read once and set to null once"); return; }
+        const decl = deep(fn, m => m.type === "VariableDeclarator" && m.id.type === "Identifier" && m.init && deep(m.init, x => x === reads[0].n).length > 0)[0];
+        const ret = fn.body.body ? fn.body.body.filter(s => s.type === "ReturnStatement").pop() : null;
+        const c = ret && ret.argument;
+        if (!decl || !c || c.type !== "CallExpression" || !isId(c.callee, "payParkedDraft") || !isId(c.arguments[0], decl.id.name) || !isMem(c.arguments[2], "data", "paySites"))
+          bad.push("initialiser: must return payParkedDraft(<the read>, .., data.paySites)");
+      } else {
+        parks++;
+        if (h.uses.length !== 1 || !h.uses[0].assignedBy) { bad.push("park effect: keep.current must only be assigned, once"); return; }
+        const r = h.uses[0].assignedBy.right;
+        const obj = r && r.type === "ConditionalExpression" ? r.consequent : null;
+        const keys = obj && obj.type === "ObjectExpression" ? obj.properties.map(p => p.key && p.key.name).sort().join() : "";
+        const valsOk = !!obj && obj.type === "ObjectExpression" && obj.properties.every(p => p.key && (p.key.name === "sites" ? isMem(p.value, "data", "paySites") : isId(p.value, p.key.name)));
+        if (!r || r.type !== "ConditionalExpression" || !dirtyCall(r.test) || r.alternate.type !== "NullLiteral" || keys !== PARK.concat(["sites"]).sort().join() || !valsOk)
+          bad.push("park effect: must park payDraftDirty(draft, draftInit, draftBase) ? { draft, draftInit, draftBase, editOrig, hoursOpen, moreOpen, sites: data.paySites } : null");
+        const deps = h.call.arguments[1];
+        if (!deps || deps.type !== "ArrayExpression" || !PARK.every(k => deps.elements.some(e => isId(e, k))) || !deps.elements.some(e => isMem(e, "data", "paySites")))
+          bad.push("park effect: deps must hold " + PARK.join(", ") + " and data.paySites");
+      }
+    });
+    if (inits !== 1) bad.push("read-once initialisers x" + inits);
+    if (parks !== 1) bad.push("park effects x" + parks);
+    const dirties = deep(parser.parse(cpSrc, AST_OPTS).program, m => m.type === "CallExpression" && isId(m.callee, "payDraftDirty"));
+    if (dirties.length !== 2 || !dirties.every(dirtyCall)) bad.push("payDraftDirty(draft, draftInit, draftBase) must be the one dirty rule (park effect + Cancel)");
+    if (focusOk !== 1) bad.push("rates focus effect does not wait for the list before consuming focus");
+  }
+  check("5f-4: Call Pay's shift form is parked in App's memory-only ref - passed as keep, cleared on Go Home, read once (cleared, returned through payParkedDraft), parked only while payDraftDirty with its full payload and deps, rates focus waits for the list",
+    bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
@@ -3176,6 +3276,38 @@ if (sb) {
     const pure = JSON.stringify(rows) === rowsJ && e6.totalOnly === undefined && r6 !== rows && r6[0] === A;
     check("Compare month rows: one row per month, rows by identity (an edit or delete never lands on another month), totalOnly kept on a split-0 edit, inputs untouched",
       badIS.length === 0 && same && pure, JSON.stringify({ badIS: badIS, same: same, pure: pure }));
+  }
+
+  {
+    // Call Pay's parked shift form (payParkedDraft): restored only with the
+    // SAME site list and, for an edit, while its shift is still saved exactly
+    // as parked (then as the live shift object); a new draft whose site is
+    // gone loses the site; junk is null.
+    const sites = [{ id: "st-a", name: "A" }], shifts = [{ id: "s1", siteId: "st-a", date: "2026-10-01" }, { id: "s2", siteId: "st-a", date: "2026-10-02" }];
+    const nd = { draft: { id: "shift-x", siteId: "st-a", date: "2026-10-03" }, draftInit: "{}", editOrig: null, hoursOpen: true, moreOpen: { 0: true }, sites: sites };
+    const ed = { draft: { id: "s1", siteId: "st-a", date: "2026-10-05" }, draftInit: "{}", editOrig: JSON.parse(JSON.stringify(shifts[0])), hoursOpen: false, moreOpen: {}, sites: sites };
+    const r1 = sb.payParkedDraft(nd, shifts, sites);
+    const r2 = sb.payParkedDraft(ed, shifts, sites);
+    const r3 = sb.payParkedDraft(ed, [{ id: "s1", siteId: "st-a", date: "2026-10-09" }, shifts[1]], sites); // shift changed meanwhile
+    const r4 = sb.payParkedDraft(ed, [shifts[1]], sites);                                                   // shift deleted meanwhile
+    const r5 = sb.payParkedDraft(nd, shifts, sites.slice());                                                // site list replaced (any paySites write)
+    const r5e = sb.payParkedDraft(ed, shifts, sites.slice());                                               // ...for a parked edit too
+    const lost = Object.assign({}, nd, { draft: Object.assign({}, nd.draft, { siteId: "st-gone" }) });
+    const r6 = sb.payParkedDraft(lost, shifts, sites);
+    const junk = [null, undefined, 5, "x", {}, { draft: null, sites: sites }, { draft: "x", sites: sites }].every(v => sb.payParkedDraft(v, shifts, sites) === null);
+    const ok = r1 === nd && !!r2 && r2.editOrig === shifts[0] && r2.draft === ed.draft && r2.hoursOpen === false && r3 === null && r4 === null && r5 === null && r5e === null &&
+      !!r6 && r6.draft.siteId === "" && r6.draft.date === "2026-10-03" && r6.hoursOpen === true && lost.draft.siteId === "st-gone" && junk;
+    // payDraftDirty: changed = differs from the baseline AND (when "+ Call-in"
+    // opened it) from the saved shift without that row.
+    const J = o => JSON.stringify(o), saved = { note: "a", rows: [] }, withRow = { note: "a", rows: [{ h: "" }] };
+    const DD = [ // [draft, init, base, expected]
+      [saved, J(saved), "", false], [{ note: "b", rows: [] }, J(saved), "", true],
+      [withRow, J(withRow), J(saved), false], [saved, J(withRow), J(saved), false], [{ note: "b", rows: [{ h: "" }] }, J(withRow), J(saved), true],
+      [{ note: "a", rows: [{ h: "2" }] }, J(withRow), J(saved), true], [null, J(saved), "", false], [undefined, "", "", false], ["x", "", "", false],
+    ];
+    const badDD = DD.filter(t => sb.payDraftDirty(t[0], t[1], t[2]) !== t[3]).map(t => J(t));
+    check("payParkedDraft: a parked Call Pay form comes back only with the same site list (new or edit) and an unchanged shift (as the live shift); a lost site is cleared; junk is null. payDraftDirty: a '+ Call-in' row added then untouched or removed is not a change",
+      ok && badDD.length === 0, JSON.stringify({ r1: r1 === nd, r2: !!r2 && r2.editOrig === shifts[0], r3: r3, r4: r4, r5: r5, r5e: r5e, r6: r6 && r6.draft.siteId, junk: junk, badDD: badDD }));
   }
 
   {
