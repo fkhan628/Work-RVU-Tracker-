@@ -364,11 +364,20 @@ the per-file gates below. Run it after EVERY file change.
   before Year Start) and, when one of them has a row, shows a month's
   Compare total where it has a row (0 included) and its logged figure
   (Tracked colour, narrow in-flow bar) where it does not - otherwise it is
-  the plain tracked chart; vs. Prior Year compares Compare months only when
-  the selected window has some (reconCount > 0), else the logged span, and
-  its label names the source ("Compare - ..." / "Tracked OR - ..."); the
-  footer tags Compare when either has one (check.js 5f-5 pins the reads,
-  chartInst, the bar guards, the yoy switch and the footer). The any-year
+  the plain tracked chart; vs. Prior Year (utils.js yoyTotals - Home only
+  labels it) compares the window's Compare months that also have the month
+  a year earlier, and when there are none (no Compare month in the window,
+  or none with last year's month) the logged span instead (priorSpanYMD:
+  the window cut at today while today is inside it, else whole years, vs
+  the same span a year earlier; credited wRVU) - never both; one matched
+  month (a stored 0 included) keeps it on Compare. Its label names the
+  source ("Compare - same N months, prior year" / "Tracked OR - ..."); the
+  card is wRVU only (no $, nothing to mask), shows only yoy's figures and
+  hides when the prior side rounds to 0. The footer tags Compare when the
+  window has a Compare month or the chart does (reconCount > 0 ||
+  chartInst). check.js 5f-5 pins the reads, chartInst, the bar guards,
+  yoySpan, the yoyTotals call and its yoy.source label, a read-only yoy, the
+  $-free card and the footer; value tests pin yoyTotals. The any-year
   hasInst is left only for the Prior Year (Institution) card and the "Add
   Institution Data" card (which opens Compare when tapped). Today and This
   Week compare date keys (This Week = localYMD(Sunday)..localYMD(today),

@@ -1030,8 +1030,16 @@ const COMP_MONEY_PIN = 8;
 // trackedMRVU, and styles itself on its OWN months - chartInst =
 // months.some(m => m.hasRow) - in the legend and every bar guard (nothing in
 // the months.map render reads reconCount, hasInst or instData). vs. Prior
-// Year switches on yoyCompare = reconCount > 0 (the if around reconKeys and
-// yoyLabel's test); the footer's Compare tag is reconCount > 0 || chartInst.
+// Year is exactly var yoySpan = priorSpanYMD(cpFrom, todayLocal()) and var
+// yoy = yoyTotals(reconKeys, instByMonth, entries, yoySpan) (utils.js, one
+// top-level function using creditedRVU, never raw .adjustedRVU; value tests
+// pin Compare-matched-else-logged), yoyLabel's test is yoy.source ===
+// "compare", dashboard.js only reads yoy (one declarator; no write,
+// reassignment or alias) and has no yoyCompare, and the card
+// (Math.round(yoy.prev) > 0 && ...) shows wRVU only from yoy.cur / yoy.prev
+// / yoyLabel - no other total, no fmtDollar / showComp / ratePerRVU / "$"
+// (in the card or yoyLabel). The footer's Compare tag is reconCount > 0 ||
+// chartInst.
 // hasInst is read only by the Prior Year (Institution) card and the "Add
 // Institution Data" card, and instData.length only builds hasInst.
 {
@@ -1040,11 +1048,12 @@ const COMP_MONEY_PIN = 8;
   const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
   const lead = t => { while (t && t.type === "LogicalExpression" && t.operator === "&&") t = t.left; return t; };
   const isGt0 = t => !!t && t.type === "BinaryExpression" && t.operator === ">" && isId(t.left, "reconCount") && t.right.type === "NumericLiteral" && t.right.value === 0;
+  const isDollar = m => isId(m, "fmtDollar") || isId(m, "showComp") || isId(m, "ratePerRVU") || (m.type === "StringLiteral" && m.value.indexOf("$") !== -1) || (m.type === "JSXText" && m.value.indexOf("$") !== -1) || (m.type === "TemplateElement" && String(m.value.cooked != null ? m.value.cooked : m.value.raw).indexOf("$") !== -1);
   const bad = [];
   let dsrc = "";
   try { dsrc = fs.readFileSync(path.join(JS_DIR, "dashboard.js"), "utf8"); parser.parse(dsrc, AST_OPTS); } catch (e) { bad.push("parse"); dsrc = ""; }
   if (dsrc) {
-    const c = { hasInstReads: 0, hasRowDecl: 0, instDecl: 0, pushHasRow: 0, primary: 0, chartInst: 0, yoyDecl: 0, yoyIf: 0, yoyLabel: 0, footer: 0, legend: 0, mapRender: 0 };
+    const c = { hasInstReads: 0, hasRowDecl: 0, instDecl: 0, pushHasRow: 0, primary: 0, chartInst: 0, yoySpan: 0, yoyCall: 0, yoyDecls: 0, yoyLabel: 0, yoyCard: 0, footer: 0, legend: 0, mapRender: 0 };
     let barGuards = 0;
     walkStack(dsrc, (n, stack) => {
       const parent = stack[stack.length - 1];
@@ -1060,9 +1069,27 @@ const COMP_MONEY_PIN = 8;
         const body = f && (f.body.type === "BlockStatement" ? (f.body.body.length === 1 && f.body.body[0].type === "ReturnStatement" ? f.body.body[0].argument : null) : f.body);
         if (p && isMem(body, p, "hasRow")) c.chartInst++;
       }
-      if (n.type === "VariableDeclarator" && isId(n.id, "yoyCompare") && isGt0(n.init)) c.yoyDecl++;
-      if (n.type === "IfStatement" && isId(n.test, "yoyCompare") && deep(n.consequent, m => m.type === "CallExpression" && isMem(m.callee, "reconKeys", "forEach")).length) c.yoyIf++;
-      if (n.type === "VariableDeclarator" && isId(n.id, "yoyLabel") && n.init && n.init.type === "ConditionalExpression" && isId(n.init.test, "yoyCompare")) c.yoyLabel++;
+      if (n.type === "VariableDeclarator" && isId(n.id, "yoySpan") && n.init && n.init.type === "CallExpression" && isId(n.init.callee, "priorSpanYMD") && n.init.arguments.length === 2 && isId(n.init.arguments[0], "cpFrom") && n.init.arguments[1].type === "CallExpression" && isId(n.init.arguments[1].callee, "todayLocal") && n.init.arguments[1].arguments.length === 0) c.yoySpan++;
+      if (n.type === "VariableDeclarator" && isId(n.id, "yoy") && n.init && n.init.type === "CallExpression" && isId(n.init.callee, "yoyTotals") && n.init.arguments.length === 4 && ["reconKeys", "instByMonth", "entries", "yoySpan"].every((nm, i) => isId(n.init.arguments[i], nm))) c.yoyCall++;
+      if (n.type === "VariableDeclarator" && isId(n.id, "yoyLabel") && n.init && n.init.type === "ConditionalExpression" && n.init.test.type === "BinaryExpression" && n.init.test.operator === "===" && isMem(n.init.test.left, "yoy", "source") && n.init.test.right.type === "StringLiteral" && n.init.test.right.value === "compare" && JSON.stringify(n.init.consequent).indexOf("Compare - same ") !== -1 && JSON.stringify(n.init.alternate).indexOf("Tracked OR - ") !== -1) c.yoyLabel++;
+      if (isId(n, "yoyCompare")) bad.push(n.loc.start.line + ": yoyCompare (the switch lives in utils.js yoyTotals)");
+      // yoy is read-only here: it appears only as its own declarator id or as
+      // the object of a non-computed member read (no reassignment, alias,
+      // Object.assign, destructuring or member write).
+      if (isId(n, "yoy")) {
+        const okDecl = parent.type === "VariableDeclarator" && parent.id === n;
+        const okRead = parent.type === "MemberExpression" && parent.object === n && !parent.computed && !stack.some((a, i) => (a.type === "AssignmentExpression" && stack[i + 1] === a.left) || (a.type === "UpdateExpression"));
+        if (okDecl) c.yoyDecls++;
+        else if (!okRead) bad.push(n.loc.start.line + ": dashboard.js writes or aliases yoy (yoyTotals is the one rule)");
+      }
+      if (n.type === "LogicalExpression" && n.operator === "&&" && n.right.type === "JSXElement" && n.left.type === "BinaryExpression" && n.left.operator === ">" && n.left.left.type === "CallExpression" && isMem(n.left.left.callee, "Math", "round") && isMem(n.left.left.arguments[0], "yoy", "prev") && n.left.right.type === "NumericLiteral" && n.left.right.value === 0) {
+        c.yoyCard++;
+        if (deep(n.right, isDollar).length) bad.push(n.loc.start.line + ": the vs. Prior Year card shows $ (it is wRVU only)");
+        // Its figures come from yoy (and yoyLabel) only - no other total blended in.
+        const other = deep(n.right, m => ["trackedRVU", "reconYTD", "ye", "entries", "instByMonth", "reconKeys", "prevYearRVU", "instData"].some(k => isId(m, k)));
+        if (other.length || deep(n.right, m => isMem(m, "yoy", "cur")).length !== 1) bad.push(n.loc.start.line + ": the vs. Prior Year card reads a figure other than yoy.cur / yoy.prev / yoyLabel");
+      }
+      if (n.type === "VariableDeclarator" && isId(n.id, "yoyLabel") && n.init && deep(n.init, isDollar).length) bad.push(n.loc.start.line + ": yoyLabel shows $ (the card is wRVU only)");
       if (n.type === "ConditionalExpression" && n.consequent.type === "StringLiteral" && n.consequent.value === " | Compare" && n.test.type === "LogicalExpression" && n.test.operator === "||" && isGt0(n.test.left) && isId(n.test.right, "chartInst")) c.footer++;
       if (n.type === "LogicalExpression" && n.operator === "&&" && isId(n.left, "chartInst") && n.right.type === "JSXElement" && JSON.stringify(n.right).indexOf("Inst (Compare)") !== -1) c.legend++;
       if (n.type === "CallExpression" && isMem(n.callee, "months", "map") && stack.some(a => a.type === "JSXExpressionContainer")) {
@@ -1080,7 +1107,14 @@ const COMP_MONEY_PIN = 8;
     if (barGuards !== 4) bad.push("chart bar guards x" + barGuards + " (expected 4, each led by chartInst)");
     Object.keys(c).filter(k => k !== "hasInstReads").forEach(k => { if (c[k] !== 1) bad.push(k + " x" + c[k]); });
   }
-  check("5f-5: Home's chart reads instByMonth per month (hasRow, instMRVU, tracked fallback) and styles itself on its own months (chartInst in the legend and every bar guard); vs. Prior Year switches on reconCount > 0; the footer tags Compare on reconCount > 0 || chartInst; hasInst only on its two cards",
+  // utils.js: one top-level yoyTotals(4 params) that counts creditedRVU and never raw .adjustedRVU.
+  try {
+    const uast = parser.parse(fs.readFileSync(path.join(JS_DIR, "utils.js"), "utf8"), AST_OPTS);
+    const yt = uast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "yoyTotals"));
+    if (yt.length !== 1 || yt[0].params.length !== 4) bad.push("utils.js: yoyTotals declared x" + yt.length);
+    else if (!deep(yt[0], m => m.type === "CallExpression" && isId(m.callee, "creditedRVU")).length || deep(yt[0], m => m.type === "MemberExpression" && !m.computed && m.property.name === "adjustedRVU").length) bad.push("utils.js: yoyTotals does not count creditedRVU (or reads raw adjustedRVU)");
+  } catch (e) { bad.push("utils.js: parse"); }
+  check("5f-5: Home's chart reads instByMonth per month (hasRow, instMRVU, tracked fallback) and styles itself on its own months (chartInst in the legend and every bar guard); vs. Prior Year is yoyTotals(reconKeys, instByMonth, entries, priorSpanYMD(cpFrom, todayLocal())) labelled on yoy.source, never written in dashboard.js, card wRVU only; the footer tags Compare on reconCount > 0 || chartInst; hasInst only on its two cards",
     bad.length === 0, bad.join(", "));
 }
 
@@ -3800,6 +3834,32 @@ if (sb) {
     const nullPS = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.priorSpanYMD(v, "2026-10-14") === null);
     check("priorSpanYMD: to-date same span a year back while today is in the year, whole years otherwise, never overlapping; null for a bad start",
       badPS.length === 0 && nullPS, JSON.stringify({ badPS: badPS, nullPS: nullPS }));
+  }
+
+  {
+    // vs. Prior Year totals (yoyTotals): the window's Compare months that also
+    // have last year's month when any match, else logged credited wRVU over
+    // priorSpanYMD's inclusive span - never both. Made-up data, today 2026-10-14.
+    const span = sb.priorSpanYMD("2026-01-01", "2026-10-14");
+    const E = [{ date: "2026-01-01", adjustedRVU: 1 }, { date: "2026-03-05", adjustedRVU: 100 }, { date: "2026-10-14", adjustedRVU: 20 }, { date: "2026-10-15", adjustedRVU: 999 },
+      { date: "2025-01-01", adjustedRVU: 2 }, { date: "2025-02-01", adjustedRVU: 80 }, { date: "2025-10-14", adjustedRVU: 10 }, { date: "2025-10-15", adjustedRVU: 500 },
+      { date: "2025-06-01", adjustedRVU: 40, noCredit: true }, { date: "2024-12-31", adjustedRVU: 7 }];
+    const T = [ // [label, reconKeys, instByMonth, entries, span, cur, prev, months, source]
+      ["no Compare: logged, inclusive bounds, credited only", [], {}, E, span, 121, 92, 0, "logged"],
+      ["Compare months, none matched: logged (the card used to hide)", ["2026-01", "2026-02"], { "2026-01": 300, "2026-02": 310 }, E, span, 121, 92, 0, "logged"],
+      ["a prior Compare month outside the window's months is no match", ["2026-01"], { "2026-01": 300, "2025-03": 999 }, E, span, 121, 92, 0, "logged"],
+      // Matching runs over the window's reconKeys only: an older matched pair (2025-03 / 2024-03) never counts.
+      ["an out-of-window matched pair is ignored", ["2026-01"], { "2026-01": 300, "2025-03": 999, "2024-03": 5 }, E, span, 121, 92, 0, "logged"],
+      ["one matched month keeps it on Compare", ["2026-01", "2026-02"], { "2026-01": 300, "2026-02": 310, "2025-02": 250 }, E, span, 310, 250, 1, "compare"],
+      ["all matched (an older 2024 row changes nothing)", ["2026-01", "2026-02"], { "2026-01": 300, "2026-02": 310, "2025-01": 280, "2025-02": 250, "2024-01": 9 }, E, span, 610, 530, 2, "compare"],
+      ["a matched prior month of 0 stays Compare (the card hides)", ["2026-01"], { "2026-01": 300, "2025-01": 0 }, E, span, 300, 0, 1, "compare"],
+      ["neither source", ["2026-01"], { "2026-01": 300 }, [], span, 0, 0, 0, "logged"],
+      ["no span, no match", ["2026-01"], { "2026-01": 300 }, E, null, 0, 0, 0, "logged"],
+    ];
+    const badYT = T.filter(t => { const r = sb.yoyTotals(t[1], t[2], t[3], t[4]); return !r || r.cur !== t[5] || r.prev !== t[6] || r.months !== t[7] || r.source !== t[8]; })
+      .map(t => t[0] + " got " + JSON.stringify(sb.yoyTotals(t[1], t[2], t[3], t[4])));
+    check("yoyTotals: Compare months with last year's month when any match, else logged credited wRVU over the inclusive same span - never blended",
+      badYT.length === 0, JSON.stringify(badYT));
   }
 
   {

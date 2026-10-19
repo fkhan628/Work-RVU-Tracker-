@@ -190,32 +190,17 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     return { instTotal: prevInstTotal, instWork: prevInstWork, instSplit: prevInstSplit, monthCount: prevInst.length };
   }, [instData, ys]);
 
-  // vs. Prior Year: the SAME span on both sides, string date keys only.
-  // Tracked: the year window (cpFrom) cut at today while today is inside it,
-  // vs the same span a year earlier (priorSpanYMD); a past-year chip, or a
-  // year already over, compares whole years. Credited wRVU only
-  // (creditedRVU). When THIS window has Compare months (reconCount - the
-  // tracks never blend; Compare data from other years does not count) it
-  // compares Compare months instead: this period's entered months
-  // (reconKeys) that ALSO have the month a year earlier, so a month missing
-  // on either side drops out of both (no matched month hides the card). The
-  // label names the source.
+  // vs. Prior Year: the SAME span on both sides (utils.js yoyTotals over
+  // priorSpanYMD, string date keys only). This window's Compare months that
+  // ALSO have the month a year earlier (a month missing on either side drops
+  // out of both); when there are none - no Compare month here, or none with
+  // last year's month - logged cases (creditedRVU) over the year window cut
+  // at today vs the same span a year earlier (a past-year chip, or a year
+  // already over, compares whole years). The label names the source; the
+  // tracks never blend.
   var yoySpan = priorSpanYMD(cpFrom, todayLocal());
-  var yoy = { cur: 0, prev: 0, months: 0 };
-  var yoyCompare = reconCount > 0;
-  if (yoyCompare) {
-    reconKeys.forEach(function(k) {
-      var pk = (+k.slice(0, 4) - 1) + k.slice(4);
-      if (instByMonth[pk] === undefined) return;
-      yoy.cur += instByMonth[k]; yoy.prev += instByMonth[pk]; yoy.months++;
-    });
-  } else if (yoySpan) {
-    entries.forEach(function(e) {
-      if (e.date >= yoySpan.cur.start && e.date <= yoySpan.cur.end) yoy.cur += creditedRVU(e);
-      else if (e.date >= yoySpan.prev.start && e.date <= yoySpan.prev.end) yoy.prev += creditedRVU(e);
-    });
-  }
-  var yoyLabel = yoyCompare ? "Compare - same " + yoy.months + " month" + (yoy.months === 1 ? "" : "s") + ", prior year"
+  var yoy = yoyTotals(reconKeys, instByMonth, entries, yoySpan);
+  var yoyLabel = yoy.source === "compare" ? "Compare - same " + yoy.months + " month" + (yoy.months === 1 ? "" : "s") + ", prior year"
     : "Tracked OR - " + (yoySpan && yoySpan.toDate ? "same period last year (to " + fmtShort(yoySpan.cur.end) + ")" : "prior full year");
 
   // Compensation card figures come from proj (compProjection) above.

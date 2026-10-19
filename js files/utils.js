@@ -1927,6 +1927,33 @@ function priorSpanYMD(ys, today) {
   return { cur: { start: fy.start, end: end }, prev: { start: back(fy.start), end: end === fy.end ? addDaysYMD(fy.start, -1) : back(end) }, toDate: end !== fy.end };
 }
 
+// vs. Prior Year (Home) totals: { cur, prev, months, source }. The window's
+// Compare months (reconKeys; one total per month in instByMonth) that ALSO
+// have the month a year earlier, month for month (source "compare", months =
+// how many matched). When the window has no Compare month, or none of them
+// has its month a year earlier, logged cases (creditedRVU) over span =
+// priorSpanYMD(...): cur.start..cur.end vs prev.start..prev.end, inclusive
+// date strings (source "logged", months 0). The sources never blend: one
+// matched Compare month keeps the comparison on Compare months only. No span
+// and no match gives zeros (Home hides the card on Math.round(prev) > 0).
+// Home only labels and formats the result.
+function yoyTotals(reconKeys, instByMonth, entries, span) {
+  var r = { cur: 0, prev: 0, months: 0, source: "compare" };
+  (reconKeys || []).forEach(function(k) {
+    var pk = (+k.slice(0, 4) - 1) + k.slice(4);
+    if (instByMonth[pk] === undefined) return;
+    r.cur += instByMonth[k]; r.prev += instByMonth[pk]; r.months++;
+  });
+  if (r.months > 0) return r;
+  r.source = "logged";
+  if (!span) return r;
+  (entries || []).forEach(function(e) {
+    if (e.date >= span.cur.start && e.date <= span.cur.end) r.cur += creditedRVU(e);
+    else if (e.date >= span.prev.start && e.date <= span.prev.end) r.prev += creditedRVU(e);
+  });
+  return r;
+}
+
 // Months elapsed for the tracked pace: 30.44-day months, at least one (a few
 // days into the year never annualize to a huge figure). The ONE floor rule:
 // compProjection's trackedPace divides by it, and Trends' Goal Pace
