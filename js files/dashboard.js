@@ -13,7 +13,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     return availableDataYears(data);
   }, [entries, instData, data.acuteMonths, data.payShifts]);
 
-  var currentFiscalYear = settings.yearStart ? settings.yearStart.slice(0, 4) : String(now.getFullYear());
+  // "Current" is the year window holding today: Year Start read as a yearly
+  // anniversary (utils.js currentYearStartYMD; nothing stored changes).
+  var curYS = currentYearStartYMD(settings.yearStart, todayLocal());
   var [selectedYear, setSelectedYear] = useState("current");
   // Backup nudge: per-device stamp outside the store (utils.js). Home remounts
   // on every view switch, so a backup saved in More is picked up on return.
@@ -25,19 +27,19 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // Calculate year boundaries based on selection. LOCAL midnights
   // (localDateYMD): new Date("YYYY-MM-DD") is UTC midnight - the evening
   // before in US time zones - which ran the pace day count one day high
-  // every evening. A cleared Year Start ("") takes the same fallback as the
-  // call-pay and no-credit windows below instead of an Invalid Date.
+  // every evening. curYS is always a valid key (a cleared or malformed Year
+  // Start reads as Jan 1).
   var yearBounds = useMemo(function() {
     if (selectedYear === "current") {
-      var ys = localDateYMD(isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01");
+      var ys = localDateYMD(curYS);
       var ye = new Date(ys); ye.setFullYear(ye.getFullYear() + 1);
-      return { start: ys, end: ye, isCurrent: true, label: currentFiscalYear };
+      return { start: ys, end: ye, isCurrent: true, label: curYS.slice(0, 4) };
     }
     var ys = localDateYMD(selectedYear + "-01-01");
     var ye = localDateYMD((parseInt(selectedYear, 10) + 1) + "-01-01");
     var isCurrent = now >= ys && now < ye;
     return { start: ys, end: ye, isCurrent: isCurrent, label: selectedYear };
-  }, [selectedYear, settings.yearStart, currentFiscalYear]);
+  }, [selectedYear, curYS]);
 
   var ys = yearBounds.start;
   var isCurrent = yearBounds.isCurrent;
@@ -51,7 +53,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // line. Counts beside or dividing a credited figure count credited cases.
   // The line counts the SAME date-string window it opens in History (and
   // Trends uses): the Date-based window above can differ by a boundary day.
-  var ncRange = fiscalYearBoundsYMD(selectedYear === "current" ? (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01") : selectedYear + "-01-01");
+  var ncRange = fiscalYearBoundsYMD(selectedYear === "current" ? curYS : selectedYear + "-01-01");
   const yeNC = ncRange ? entries.filter(function(e) { return isNoCredit(e) && e.date >= ncRange.start && e.date <= ncRange.end; }) : [];
   const yeCredited = ye.filter(function(e) { return !isNoCredit(e); });
   const ncRVU = yeNC.reduce(function(s, e) { return s + noCreditRVU(e); }, 0);
@@ -103,11 +105,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   // institution monthly totals read directly from institutionData (Compare).
   // Year window as "YYYY-MM" strings - pure string math, no Date/UTC involved,
   // over instByMonth (above: one row per month, the last). The current
-  // window starts from the same isYMD-guarded Year Start as ys, cpFrom and
-  // ncRange, so a malformed one falls back to Jan 1 everywhere.
+  // window starts from curYS, like ys, cpFrom and ncRange.
   var startYM;
   if (selectedYear === "current") {
-    startYM = (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01").slice(0, 7);
+    startYM = curYS.slice(0, 7);
   } else {
     startYM = selectedYear + "-01";
   }
@@ -143,9 +144,9 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
   var acuteKeys = Object.keys(acuteMonthsAll).filter(function(k) { return k >= startYM && k < endYM; }).sort();
   // Call pay (dollars) for the selected period - a SEPARATE line, never
   // added to Comp YTD. Same window as the rest of the page: the fiscal year
-  // from settings.yearStart for "current", the calendar year for a chip;
+  // from curYS for "current", the calendar year for a chip;
   // the current period counts only shifts dated today or earlier.
-  var cpFrom = selectedYear === "current" ? (isYMD(settings.yearStart) ? settings.yearStart : currentFiscalYear + "-01-01") : selectedYear + "-01-01";
+  var cpFrom = selectedYear === "current" ? curYS : selectedYear + "-01-01";
   var cpTo = (+cpFrom.slice(0, 4) + 1) + cpFrom.slice(4);
   // Sites are passed so a shift that still needs Day or Night (payShiftNeedsType)
   // is counted in needsType, never guessed into the total.

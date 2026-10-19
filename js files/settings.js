@@ -345,20 +345,18 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   // hit the store).
   const [expandedMonth, setExpandedMonth] = useState(null);
   var RECON_MONTH_NAMES = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-  // 12 months of the goal year (yearStart-based), pure string math - no Date/UTC.
-  var reconYearMonths = useMemo(function() {
-    var startStr = (settings.yearStart || (new Date().getFullYear() + "-01-01")).slice(0, 7);
-    var y = parseInt(startStr.slice(0, 4), 10);
-    var m = parseInt(startStr.slice(5, 7), 10);
-    if (isNaN(y) || isNaN(m)) { y = new Date().getFullYear(); m = 1; }
-    var out = [];
-    for (var i = 0; i < 12; i++) {
-      var yy = y + Math.floor((m - 1 + i) / 12);
-      var mm = ((m - 1 + i) % 12) + 1;
-      out.push(yy + "-" + String(mm).padStart(2, "0"));
-    }
-    return out;
-  }, [settings.yearStart]);
+  // The current year window (Home's 'Current'): Year Start's latest
+  // anniversary on or before today - shown under the Year Start input, never
+  // stored (the input keeps showing the STORED date).
+  var acuteToday = todayLocal();
+  var curYS = currentYearStartYMD(settings.yearStart, acuteToday);
+  var curFY = fiscalYearBoundsYMD(curYS);
+  // Monthly Acute Care rows: the current window's 12 months, plus the 3
+  // before it early in the window, plus 12 per "Show the 12 months before
+  // ..." tap (per visit to Settings - resets when Settings is left; Year
+  // Start is never touched; utils.js acuteEntryMonths).
+  const [acuteEarlier, setAcuteEarlier] = useState(0);
+  var reconYearMonths = useMemo(function() { return acuteEntryMonths(curYS, acuteToday, acuteEarlier); }, [curYS, acuteToday.slice(0, 7), acuteEarlier]);
   var reconMonthLabel = function(mk) { return RECON_MONTH_NAMES[parseInt(mk.slice(5, 7), 10) - 1] + " " + mk.slice(0, 4); };
 
   // --- Acute care group state ---
@@ -874,7 +872,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}><div style={S.cardLabel}>Yearly Goals</div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>OR / Tracked goal (logged cases)</label><input type="text" inputMode="decimal" value={goalText} onChange={e => onNumericChange(e.target.value, setGoalText, "annualGoal")} onBlur={function() { setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal)); }} placeholder="0" style={S.numberInput} /></div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Reconciliation goal (total incl. call + clinic)</label><input type="text" inputMode="decimal" value={reconGoalText} onChange={e => onNumericChange(e.target.value, setReconGoalText, "reconGoal")} onBlur={function() { setReconGoalText(!settings.reconGoal ? "" : String(settings.reconGoal)); }} placeholder="0" style={S.numberInput} /></div>
-      <div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /></div></div>
+      <div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>{"Repeats every year. Current year: " + fmt(curYS) + " to " + (curFY ? fmt(curFY.end) : "") + "."}</div></div></div>
 
     {/* Monthly Acute Care - the group pool + per-partner shifts, per month.
         Institution monthly totals are read-only here; they live in Compare.
@@ -883,6 +881,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}>
       <div style={S.cardLabel}>Monthly Acute Care</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>The group's acute-care pool and each partner's shifts, per month. Tap a month to add or edit. Institution totals are shown for reference - edit those in Compare.</div>
+      <button onClick={function() { setAcuteEarlier(function(n) { return n + 1; }); }} style={{ minHeight: 44, padding: "0 2px", marginTop: 4, background: "none", border: "none", color: "var(--selected-code)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{"Show the 12 months before " + reconMonthLabel(reconYearMonths[0])}</button>
       <div style={{ marginTop: 8 }}>
         {reconYearMonths.map(function(mk) {
           var instRow = (data.institutionData || []).find(function(r) { return r && r.month === mk; });

@@ -1870,6 +1870,45 @@ function fiscalYearBoundsYMD(ys) {
   return { start: ys, end: addDaysYMD(next, -1) };
 }
 
+// "Current" year window (Home, Trends, History's YTD chip, Settings' acute
+// months): Year Start is a yearly ANNIVERSARY - only its month and day
+// matter; the window starts on their latest occurrence on or before today, so
+// it rolls into the next year by itself (2026-01-01, today 2027-01-05 ->
+// "2027-01-01") and a future or long-past Year Start lands in the window
+// holding today. Nothing is stored. A Feb 29 start is Mar 1 in EVERY year, so
+// the windows (and their "YYYY-MM" month windows) tile Mar..Feb with no
+// overlap or gap. A cleared or malformed Year Start is Jan 1; a bad today is
+// todayLocal().
+function currentYearStartYMD(ys, today) {
+  var t = isYMD(today) ? today : todayLocal();
+  var md = isYMD(ys) ? ys.slice(5) : "01-01";
+  if (md === "02-29") md = "03-01";
+  var at = function(y) { return localYMD(new Date(y, +md.slice(0, 2) - 1, +md.slice(3))); };
+  var s = at(+t.slice(0, 4));
+  return s <= t ? s : at(+t.slice(0, 4) - 1);
+}
+
+// Settings' Monthly Acute Care rows ("YYYY-MM", oldest first): the 12 months
+// of the window starting cs (currentYearStartYMD), plus the 3 months before it
+// while today is in the window's first 3 months, so a statement that arrives
+// after the year rolls over can still be entered; `earlier` (Settings' "Show
+// the 12 months before ..." taps, per visit to Settings) prepends 12 more
+// months per step, the only way to reach an older month now that Year
+// Start's year is ignored. A count that is not a finite number > 0 adds none.
+function acuteEntryMonths(cs, today, earlier) {
+  var t = isYMD(today) ? today : todayLocal();
+  var s = isYMD(cs) ? cs : currentYearStartYMD("", t);
+  var y = +s.slice(0, 4), m = +s.slice(5, 7) - 1;
+  var since = (+t.slice(0, 4) - y) * 12 + (+t.slice(5, 7) - 1 - m);
+  var lead = (since < 3 ? 3 : 0) + 12 * (typeof earlier === "number" && isFinite(earlier) && earlier > 0 ? Math.floor(earlier) : 0);
+  var out = [];
+  for (var i = -lead; i < 12; i++) {
+    var d = new Date(y, m + i, 1);
+    out.push(d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0"));
+  }
+  return out;
+}
+
 // vs. Prior Year (Dashboard): the year window starting on ys, cut at today
 // while today is inside it, and the SAME span one year earlier -
 // { cur: { start, end }, prev: { start, end }, toDate }, inclusive

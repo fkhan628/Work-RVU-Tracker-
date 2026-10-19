@@ -20,7 +20,9 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   var rate = settings.ratePerRVU || 0;
 
   // Calculate year boundaries
-  var yearStart = settings.yearStart || (new Date().getFullYear() + "-01-01");
+  // "Current" = the year window holding today (utils.js currentYearStartYMD:
+  // Year Start as a yearly anniversary; always a valid key).
+  var yearStart = currentYearStartYMD(settings.yearStart, todayLocal());
   var yearStartDate = new Date(yearStart + "T00:00:00");
   var yearEndDate = new Date(yearStartDate);
   yearEndDate.setFullYear(yearEndDate.getFullYear() + 1);
@@ -36,8 +38,9 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   var year = isCurrent ? String(now.getFullYear()) : selectedYear;
 
   // Scope predicates - pure string math on "YYYY-MM-DD" / "YYYY-MM" keys.
-  // "Current" mirrors the Dashboard: the yearStart..+1yr window (identical to
-  // the calendar year when yearStart is Jan 1); prior chips are calendar years.
+  // "Current" mirrors the Dashboard: the year window holding today, from Year
+  // Start's latest anniversary (yearStart above, +1yr; identical to the
+  // calendar year when Year Start is Jan 1); prior chips are calendar years.
   var yearEndStr = (parseInt(yearStart.slice(0, 4), 10) + 1) + yearStart.slice(4);
   var inSelectedYear = function(dateStr) {
     if (isCurrent) return dateStr >= yearStart && dateStr < yearEndStr;

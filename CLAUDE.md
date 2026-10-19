@@ -376,7 +376,7 @@ the per-file gates below. Run it after EVERY file change.
   says YTD only on Current (check.js 5f-6). The Compare
   months are the Reconciliation card's: one row per month (a duplicated
   month counts once, the last row) in a "YYYY-MM" window whose current start
-  is the isYMD-guarded Year Start (as ys / cpFrom / ncRange). A goal,
+  is curYS - the Year window bullet below (as ys / cpFrom / ncRange). A goal,
   rate or month count counts only as a finite number > 0; the wRVU totals
   pass through unchanged. dashboard.js only formats and masks the result and
   its vs line names the goal used; the pill's sign and colour both follow
@@ -393,6 +393,35 @@ the per-file gates below. Run it after EVERY file change.
   fmtDollar(x, showComp), a showComp ternary's consequent or `showComp && x`;
   the count is pinned (COMP_MONEY_PIN). It is syntactic and cannot see a $
   figure built another way - route any new $ through fmtDollar.
+- Year window ('Current'): Year Start (settings.yearStart) is a yearly
+  ANNIVERSARY. Home, Trends, History's YTD chip and Settings' Monthly Acute
+  Care get the current window only from utils.js
+  currentYearStartYMD(settings.yearStart, todayLocal()): only Year Start's
+  month and day matter, and the window starts on their latest occurrence on
+  or before today. So 'Current' moves into the new year by itself and
+  nothing stored changes; a future or long-past Year Start lands in the
+  window holding today, a Feb 29 start is Mar 1 in EVERY year (windows and
+  their month windows tile Mar..Feb), and a cleared or malformed one is Jan
+  1. Only Settings' date input writes yearStart (plus defSettings' default);
+  it shows the STORED date with a "Current year: ... to ..." line under it.
+  Past-year chips stay calendar years; Compare's, Acute's and Call Pay's year
+  chips are calendar years and never read Year Start. Settings' acute rows
+  are acuteEntryMonths(curYS, today, acuteEarlier): the window's 12 months,
+  plus the 3 months before it while today is in the window's first 3 months
+  (a statement that arrives after the rollover), plus 12 more per "Show the
+  12 months before ..." tap (Settings state, per visit - it resets when
+  Settings is left; the only way to reach an older month, since changing
+  Year Start's year no longer moves the list - only its month and day
+  matter). A stored
+  Year Start whose window does not hold today (more than a year old, or in
+  the future) moves 'Current' as soon as this ships. check.js 5f-10: every
+  Babel-file yearStart read is the helper's first argument (with
+  todayLocal()), a hook deps entry, or that date input's value (which stores
+  e.target.value); nothing else writes it and utils.js never reads it;
+  Home / Trends / History / Settings use the exact shapes above. Value tests
+  cover the helper (Feb 29, a future start, the anniversary, bad input, a
+  day-by-day sweep that each change is the anniversary, one year on) and
+  acuteEntryMonths.
 - Show/hide $: App's showComp is memory only (every launch starts hidden)
   and reaches each view that masks $ along with toggleComp. Masked $ goes
   through utils.js fmtDollar(v, showComp) (always passed showComp), a
@@ -433,8 +462,9 @@ the per-file gates below. Run it after EVERY file change.
   projectedAnnual >= goal drives Ahead/Behind, its sign and colour, the bar
   and the Projected colour. Expected = goal x trackedPaceMonths(daysPassed)
   / 12; utils.js trackedPaceMonths is the ONE 30.44-day-month, at-least-one
-  rule compProjection also divides by, so (for a valid Year Start) Trends'
-  figure and verdict always match Home's Tracked OR pace line, and the first
+  rule compProjection also divides by, so (both windows coming from
+  currentYearStartYMD) Trends' figure and verdict always match Home's
+  Tracked OR pace line, and the first
   month expects a full month's share. Home's Compensation card can still
   differ when the window has Compare months (it projects from Compare - owner
   decision). Needed/Month, Months Left, Avg/Week and the Monthly Report's

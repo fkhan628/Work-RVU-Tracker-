@@ -714,7 +714,7 @@ check("hooks before any conditional return (every component in the Babel files)"
 // with no Compare months); no fmtDollar argument mentions the rate (a rate $
 // on Home comes from a compProjection field or a DERIVED variable); Avg/Enc is
 // the only `/ credEnc`: trackedRVU / credEnc; the current window's startYM is
-// built from the isYMD-guarded Year Start.
+// built from curYS (utils.js currentYearStartYMD, 5f-10).
 // Plus a $ tripwire on all of dashboard.js. A money node - a proj.comp /
 // goalComp / diff / ytdComp read; a settings.ratePerRVU read other than a
 // `> 0` test, the compProjection argument or a factor of the prevYearComp
@@ -820,7 +820,7 @@ const COMP_MONEY_PIN = 8;
       // (instYTD was removed with the any-year Comp YTD switch; the clause
       // still refuses a pace divided by it however it comes back.)
       if (n.type === "BinaryExpression" && n.operator === "/" && (isId(n.right, "reconCount") || isMember(n.right, "instYTD", "length"))) banned.push(n.loc.start.line + ":pace division");
-      if (n.type === "AssignmentExpression" && isId(n.left, "startYM") && JSON.stringify(n.right).indexOf("\"isYMD\"") !== -1) startGuard++;
+      if (n.type === "AssignmentExpression" && isId(n.left, "startYM") && JSON.stringify(n.right).indexOf("\"curYS\"") !== -1) startGuard++;
       if (n.type === "LogicalExpression" && n.operator === "&&" && isMember(n.left, "proj", "show") && n.right.type === "JSXElement") showGate++;
       if (n.type === "BinaryExpression" && n.operator === "+" && isMember(n.right, "proj", "goalName")) pillName++;
     });
@@ -1486,6 +1486,168 @@ const COMP_MONEY_PIN = 8;
     if (stray) bad.push("utils.js: 30.44 outside trackedPaceMonths (" + stray + ")");
   }
   check("5f-9: Trends' Goal Pace = Home's Tracked OR pace (compProjection.trackedPace with Home's inputs, onPace for every verdict, Expected via trackedPaceMonths); the comp tile says Logged Comp", bad.length === 0, bad.join(", "));
+}
+
+// 5f-10. Year rollover (CLAUDE.md, "Year window ('Current')"). utils.js
+// declares currentYearStartYMD and acuteEntryMonths once each, top level (G10
+// already refuses a top-level clash; this also refuses a nested copy in a
+// Babel file). Every Babel-file read of settings.yearStart is one of: the
+// first argument of currentYearStartYMD(..., today) where today is
+// todayLocal() or a variable initialised to it; an entry of a hook's deps
+// array; or the value of Settings' type="date" input whose onChange stores
+// set("yearStart", e.target.value) - so no view derives a window from the
+// STORED date (`|| ""` allowed). Writers, in EVERY js file (literal keys,
+// set("yearStart", ...) and .yearStart assignments): only defSettings'
+// default (utils.js) and that input - no effect, updater or assignment
+// writes the rolled date back; utils.js never reads yearStart (dotted,
+// computed or destructured). Settings' earlier-months count is useState(0)
+// state passed as acuteEntryMonths' third argument, in the memo's deps,
+// stepped by exactly one onClick. Per file: Home, Trends and History each call the
+// helper once on it; Settings once plus the input. Home's yearBounds
+// "current" ys is localDateYMD(curYS), ncRange / cpFrom take curYS itself and
+// startYM is curYS.slice(0, 7); Trends' yearStart is the helper and
+// yearStartDate its local midnight; History's YTD chip starts at the helper;
+// Settings' acute rows are acuteEntryMonths(curYS, today, ...), curFY =
+// fiscalYearBoundsYMD(curYS), and the date input's sibling note is exactly
+// "Repeats every year. Current year: " + fmt(curYS) + " to " + fmt(curFY.end).
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const attr = (el, name) => el.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === name)[0];
+  const strAttr = (el, name) => { const a = attr(el, name); return a && a.value && a.value.type === "StringLiteral" ? a.value.value : null; };
+  const isCall = (n, name) => !!n && n.type === "CallExpression" && isId(n.callee, name);
+  const HELPERS = ["currentYearStartYMD", "acuteEntryMonths"];
+  const PLAIN = ["crypto.js", "cpt-data.js", "utils.js", "styles.js"];
+  const bad = [];
+  const read = f => { try { const src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); return { f, src, ast: parser.parse(src, AST_OPTS) }; } catch (e) { bad.push(f + ": parse"); return null; } };
+  const ut = read("utils.js");
+  if (ut) HELPERS.forEach(h => { const n = ut.ast.program.body.filter(x => x.type === "FunctionDeclaration" && isId(x.id, h)).length; if (n !== 1) bad.push("utils.js: " + h + " declared x" + n); });
+  // Writers of yearStart, in every js file: a set("yearStart", ...) call, an
+  // object key yearStart (not a destructuring pattern) or an assignment to a
+  // .yearStart member. Only defSettings' default (utils.js) and Settings'
+  // date input may write it.
+  const writers = F => deep(F.ast.program, n =>
+    (n.type === "CallExpression" && isId(n.callee, "set") && n.arguments[0] && n.arguments[0].type === "StringLiteral" && n.arguments[0].value === "yearStart") ||
+    (n.type === "ObjectExpression" && n.properties.some(p => p.type === "ObjectProperty" && p.key && (p.key.name === "yearStart" || p.key.value === "yearStart"))) ||
+    (n.type === "AssignmentExpression" && n.left.type === "MemberExpression" && ((!n.left.computed && n.left.property.name === "yearStart") || (n.left.computed && n.left.property.value === "yearStart"))));
+  if (ut) {
+    const w = writers(ut);
+    const dflt = ut.ast.program.body.filter(x => x.type === "VariableDeclaration" && x.declarations.some(d => isId(d.id, "defSettings")));
+    if (w.length !== 1 || !dflt.length || !deep(dflt, n => n === w[0]).length) bad.push("utils.js: yearStart written outside defSettings (" + w.length + ")");
+    // utils.js itself never reads the stored Year Start, dotted, computed or
+    // destructured (a helper that did would hand a view the un-rolled date).
+    const reads = [];
+    walkStack(ut.src, (n, stack) => {
+      if ((n.type === "MemberExpression" && ((!n.computed && n.property && n.property.name === "yearStart") || (n.computed && n.property.type === "StringLiteral" && n.property.value === "yearStart")))
+        || (n.type === "ObjectProperty" && stack.length && stack[stack.length - 1].type === "ObjectPattern" && n.key && (n.key.name === "yearStart" || n.key.value === "yearStart"))) reads.push(n.loc.start.line);
+    });
+    if (reads.length) bad.push("utils.js: reads yearStart (" + reads.join(", ") + ")");
+  }
+  // The other plain scripts never write it either (crypto.js writes settings fields on unlock).
+  PLAIN.filter(f => f !== "utils.js").map(read).filter(Boolean).forEach(F => { const w = writers(F); if (w.length) bad.push(F.f + ": writes yearStart (" + w.map(n => n.loc.start.line).join(", ") + ")"); });
+  const babel = fs.readdirSync(JS_DIR).filter(f => f.endsWith(".js") && PLAIN.indexOf(f) === -1).sort().map(read).filter(Boolean);
+  const WANT = { "dashboard.js": [1, 0], "analytics.js": [1, 0], "history.js": [1, 0], "settings.js": [1, 1] };
+  const byFile = {};
+  babel.forEach(F => {
+    // today: todayLocal(), or an identifier declared once in this file as todayLocal().
+    const todayOk = a => isCall(a, "todayLocal") && a.arguments.length === 0 || (a && a.type === "Identifier" && (() => { const d = deep(F.ast.program, n => n.type === "VariableDeclarator" && isId(n.id, a.name)); return d.length === 1 && isCall(d[0].init, "todayLocal") && d[0].init.arguments.length === 0; })());
+    let helper = 0, input = 0;
+    deep(F.ast.program, n => (n.type === "FunctionDeclaration" || n.type === "VariableDeclarator") && HELPERS.some(h => isId(n.id, h))).forEach(n => bad.push(F.f + ":" + n.loc.start.line + ": declares its own " + n.id.name));
+    walkStack(F.src, (n, stack) => {
+      const isRead = (n.type === "MemberExpression" && ((!n.computed && n.property && n.property.name === "yearStart") || (n.computed && n.property.type === "StringLiteral" && n.property.value === "yearStart")))
+        || (n.type === "ObjectProperty" && stack.length && stack[stack.length - 1].type === "ObjectPattern" && n.key && (n.key.name === "yearStart" || n.key.value === "yearStart"));
+      if (!isRead) return;
+      const p = stack[stack.length - 1], gp = stack[stack.length - 2], g3 = stack[stack.length - 3];
+      if (p && p.type === "CallExpression" && isId(p.callee, "currentYearStartYMD") && p.arguments[0] === n && p.arguments.length === 2 && todayOk(p.arguments[1])) { helper++; return; }
+      if (p && p.type === "ArrayExpression" && gp && gp.type === "CallExpression" && ["useMemo", "useEffect", "useCallback"].some(h => isId(gp.callee, h)) && gp.arguments[1] === p) return;
+      // The date input's value, optionally `|| ""` (a store without the field).
+      const vOr = p && p.type === "LogicalExpression" && p.operator === "||" && p.left === n && p.right.type === "StringLiteral" && p.right.value === "";
+      const vc = vOr ? gp : p, va = vOr ? g3 : gp, vel = vOr ? stack[stack.length - 4] : g3;
+      if (vc && vc.type === "JSXExpressionContainer" && va && va.type === "JSXAttribute" && va.name && va.name.name === "value" && vel && vel.type === "JSXOpeningElement" && vel.name.name === "input" && strAttr(vel, "type") === "date") {
+        const oc = attr(vel, "onChange"), fn = oc && oc.value && oc.value.expression;
+        const param = fn && (fn.type === "ArrowFunctionExpression" || fn.type === "FunctionExpression") && fn.params[0] && fn.params[0].type === "Identifier" ? fn.params[0].name : null;
+        const sets = fn ? deep(fn, m => isCall(m, "set") && m.arguments.length === 2 && m.arguments[0].type === "StringLiteral" && m.arguments[0].value === "yearStart") : [];
+        const raw = v => !!v && v.type === "MemberExpression" && !v.computed && v.property.name === "value" && isMem(v.object, param, "target");
+        if (param && sets.length === 1 && raw(sets[0].arguments[1])) { input++; return; }
+      }
+      bad.push(F.f + ":" + n.loc.start.line + ": reads Year Start outside currentYearStartYMD(..., todayLocal()), hook deps or its date input");
+    });
+    byFile[F.f] = [helper, input];
+    const want = WANT[F.f] || [0, 0];
+    if (helper !== want[0] || input !== want[1]) bad.push(F.f + ": Year Start helper/input reads " + helper + "/" + input + ", want " + want.join("/"));
+    // Writers: only the date input's set("yearStart", e.target.value), and only in Settings.
+    const w = writers(F);
+    const inputSets = F.f === "settings.js" ? deep(F.ast.program, n => n.type === "JSXOpeningElement" && n.name.name === "input" && strAttr(n, "type") === "date").map(el => attr(el, "onChange")).filter(Boolean)
+      .reduce((acc, oc) => acc.concat(deep(oc, m => isCall(m, "set") && m.arguments[0] && m.arguments[0].value === "yearStart")), []) : [];
+    const stray = w.filter(n => inputSets.indexOf(n) === -1);
+    if (stray.length || w.length !== (F.f === "settings.js" ? 1 : 0)) bad.push(F.f + ": writes yearStart outside the Year Start date input (" + stray.map(n => n.loc.start.line).join(", ") + ")");
+  });
+  const file = name => babel.filter(F => F.f === name)[0];
+  const decl = (F, name) => deep(F.ast.program, n => n.type === "VariableDeclarator" && isId(n.id, name));
+  const has = (root, name) => !!root && deep(root, m => isId(m, name)).length > 0;
+  const dash = file("dashboard.js");
+  if (dash) {
+    const c = decl(dash, "curYS");
+    if (c.length !== 1 || !isCall(c[0].init, "currentYearStartYMD")) bad.push("dashboard.js: curYS is not currentYearStartYMD(...)");
+    const yb = decl(dash, "yearBounds")[0];
+    const cb = yb && isCall(yb.init, "useMemo") ? yb.init.arguments[0] : null;
+    const cur = cb ? deep(cb, n => n.type === "IfStatement" && n.test.type === "BinaryExpression" && isId(n.test.left, "selectedYear") && n.test.right.type === "StringLiteral" && n.test.right.value === "current")[0] : null;
+    const ysCur = cur ? deep(cur.consequent, n => n.type === "VariableDeclarator" && isId(n.id, "ys")) : [];
+    if (ysCur.length !== 1 || !isCall(ysCur[0].init, "localDateYMD") || !isId(ysCur[0].init.arguments[0], "curYS")) bad.push("dashboard.js: the current yearBounds ys is not localDateYMD(curYS)");
+    // Exact shapes: the current branch IS curYS (or its month), never a value
+    // merely derived from it.
+    const flatD = n => dash.src.slice(n.start, n.end).replace(/\s+/g, "");
+    const nc = decl(dash, "ncRange"), cf = decl(dash, "cpFrom");
+    if (nc.length !== 1 || flatD(nc[0].init) !== "fiscalYearBoundsYMD(selectedYear===\"current\"?curYS:selectedYear+\"-01-01\")") bad.push("dashboard.js: ncRange is not fiscalYearBoundsYMD(current ? curYS : chip)");
+    if (cf.length !== 1 || flatD(cf[0].init) !== "selectedYear===\"current\"?curYS:selectedYear+\"-01-01\"") bad.push("dashboard.js: cpFrom is not current ? curYS : chip");
+    const sy = deep(dash.ast.program, n => n.type === "AssignmentExpression" && isId(n.left, "startYM") && has(n.right, "curYS"));
+    if (sy.length !== 1 || flatD(sy[0].right) !== "curYS.slice(0,7)") bad.push("dashboard.js: the current startYM is not curYS.slice(0, 7)");
+    if (deep(dash.ast.program, n => isId(n, "currentFiscalYear")).length) bad.push("dashboard.js: currentFiscalYear (the stored year) is back");
+  }
+  const an = file("analytics.js");
+  if (an) {
+    const y = decl(an, "yearStart"), yd = decl(an, "yearStartDate");
+    if (y.length !== 1 || !isCall(y[0].init, "currentYearStartYMD")) bad.push("analytics.js: yearStart is not currentYearStartYMD(...)");
+    if (yd.length !== 1 || an.src.slice(yd[0].init.start, yd[0].init.end).replace(/\s+/g, "") !== "newDate(yearStart+\"T00:00:00\")") bad.push("analytics.js: yearStartDate is not yearStart's local midnight");
+  }
+  const hi = file("history.js");
+  if (hi) {
+    // The YTD chip returns { start: ys, ... } with ys = the helper.
+    const ytdIf = deep(hi.ast.program, n => n.type === "IfStatement" && n.test.type === "BinaryExpression" && isId(n.test.left, "dateRange") && n.test.right.value === "ytd")[0];
+    const ysD = ytdIf ? deep(ytdIf.consequent, n => n.type === "VariableDeclarator" && isId(n.id, "ys")) : [];
+    const ret = ytdIf ? deep(ytdIf.consequent, n => n.type === "ReturnStatement")[0] : null;
+    const startP = ret && ret.argument && ret.argument.type === "ObjectExpression" ? ret.argument.properties.filter(p => p.key && p.key.name === "start")[0] : null;
+    if (ysD.length !== 1 || !isCall(ysD[0].init, "currentYearStartYMD") || !startP || !isId(startP.value, "ys")) bad.push("history.js: the YTD chip does not start at currentYearStartYMD(...)");
+  }
+  const st = file("settings.js");
+  if (st) {
+    const c = decl(st, "curYS"), fy = decl(st, "curFY"), rm = decl(st, "reconYearMonths");
+    if (c.length !== 1 || !isCall(c[0].init, "currentYearStartYMD")) bad.push("settings.js: curYS is not currentYearStartYMD(...)");
+    if (fy.length !== 1 || !isCall(fy[0].init, "fiscalYearBoundsYMD") || !isId(fy[0].init.arguments[0], "curYS")) bad.push("settings.js: curFY is not fiscalYearBoundsYMD(curYS)");
+    const acu = rm.length === 1 && isCall(rm[0].init, "useMemo") ? deep(rm[0].init.arguments[0], n => isCall(n, "acuteEntryMonths")) : [];
+    const acuToday = acu.length === 1 && acu[0].arguments[1] && (() => { const a = acu[0].arguments[1]; if (isCall(a, "todayLocal")) return true; const d = a.type === "Identifier" ? decl(st, a.name) : []; return d.length === 1 && isCall(d[0].init, "todayLocal"); })();
+    if (acu.length !== 1 || !isId(acu[0].arguments[0], "curYS") || !acuToday) bad.push("settings.js: the acute rows are not acuteEntryMonths(curYS, today, ...)");
+    // The earlier-months count: the third argument is useState(0) state, it
+    // is in the memo's deps, and exactly one onClick steps it.
+    const third = acu.length === 1 ? acu[0].arguments[2] : null;
+    const st0 = third && third.type === "Identifier" ? deep(st.ast.program, n => n.type === "VariableDeclarator" && n.id.type === "ArrayPattern" && isId(n.id.elements[0], third.name) && isCall(n.init, "useState") && n.init.arguments.length === 1 && n.init.arguments[0].type === "NumericLiteral" && n.init.arguments[0].value === 0) : [];
+    const setName = st0.length === 1 && st0[0].id.elements[1] && st0[0].id.elements[1].type === "Identifier" ? st0[0].id.elements[1].name : null;
+    const depsOk = rm.length === 1 && rm[0].init.arguments[1] && rm[0].init.arguments[1].type === "ArrayExpression" && third && rm[0].init.arguments[1].elements.some(e => isId(e, third.name));
+    const stepper = setName ? deep(st.ast.program, n => n.type === "JSXAttribute" && n.name && n.name.name === "onClick" && deep(n, m => isCall(m, setName)).length > 0) : [];
+    if (st0.length !== 1 || !depsOk || stepper.length !== 1) bad.push("settings.js: the earlier-months count is not useState(0) state passed to acuteEntryMonths, in its deps, stepped by one onClick");
+    // The note beside the date input, exactly.
+    let note = 0;
+    const NOTE = "{\"Repeatseveryyear.Currentyear:\"+fmt(curYS)+\"to\"+(curFY?fmt(curFY.end):\"\")+\".\"}";
+    walkStack(st.src, (n, stack) => {
+      if (n.type !== "JSXOpeningElement" || n.name.name !== "input" || strAttr(n, "type") !== "date" || !deep(n, m => isCall(m, "set") && m.arguments[0] && m.arguments[0].value === "yearStart").length) return;
+      const parent = stack.filter(a => a.type === "JSXElement").slice(-2)[0];
+      if (parent && parent.children.some(ch => ch.type === "JSXElement" && ch.children.some(c => c.type === "JSXExpressionContainer" && st.src.slice(c.start, c.end).replace(/\s+/g, "") === NOTE))) note++;
+    });
+    if (note !== 1) bad.push("settings.js: the Year Start input has no 'Current year: fmt(curYS) to fmt(curFY.end)' note beside it");
+  }
+  check("5f-10: Year rollover - Current comes from currentYearStartYMD(Year Start, today) everywhere (Home ys/ncRange/cpFrom, Trends, History YTD, Settings' acute rows + note); Year Start is otherwise read only by hook deps and its date input, which stores the typed value",
+    bad.length === 0, bad.join(", ") + " " + JSON.stringify(byFile));
 }
 
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
@@ -3638,6 +3800,61 @@ if (sb) {
     const nullPS = ["2026-02-30", "", null, "2026-1-01"].every(v => sb.priorSpanYMD(v, "2026-10-14") === null);
     check("priorSpanYMD: to-date same span a year back while today is in the year, whole years otherwise, never overlapping; null for a bad start",
       badPS.length === 0 && nullPS, JSON.stringify({ badPS: badPS, nullPS: nullPS }));
+  }
+
+  {
+    // "Current" year window (currentYearStartYMD): Year Start as a yearly
+    // anniversary - only its month-day matters, the latest occurrence on or
+    // before today (a future or long-past start lands in today's window);
+    // Feb 29 is Mar 1 in EVERY year; bad input is Jan 1 / todayLocal().
+    // Made-up dates.
+    const C = sb.currentYearStartYMD;
+    const T = [ // [ys, today, expected]
+      ["2026-01-01", "2026-10-19", "2026-01-01"], ["2026-01-01", "2026-12-31", "2026-01-01"], ["2026-01-01", "2027-01-01", "2027-01-01"],
+      ["2026-01-01", "2027-01-05", "2027-01-01"], ["2026-01-01", "2029-06-15", "2029-01-01"],
+      ["2026-07-01", "2027-01-05", "2026-07-01"], ["2026-07-01", "2027-06-30", "2026-07-01"], ["2026-07-01", "2027-07-01", "2027-07-01"],
+      ["2026-12-31", "2026-12-30", "2025-12-31"], ["2026-12-31", "2026-12-31", "2026-12-31"],
+      ["2026-07-01", "2026-03-10", "2025-07-01"], ["2027-01-01", "2026-10-19", "2026-01-01"],
+      // Feb 29 is Mar 1 in every year, so windows (and month windows) tile Mar..Feb.
+      ["2024-02-29", "2027-02-28", "2026-03-01"], ["2024-02-29", "2027-03-01", "2027-03-01"], ["2024-02-29", "2028-02-28", "2027-03-01"],
+      ["2024-02-29", "2028-02-29", "2027-03-01"], ["2028-02-29", "2028-02-29", "2027-03-01"], ["2028-02-29", "2028-06-01", "2028-03-01"],
+      ["2028-02-29", "2029-02-28", "2028-03-01"],
+    ];
+    const badT = T.filter(t => C(t[0], t[1]) !== t[2]).map(t => t.join(" ") + " got " + C(t[0], t[1]));
+    const badYS = ["", null, undefined, "2026-02-30", "2026-1-01", "garbage", 20260101, {}].filter(v => C(v, "2027-01-05") !== "2027-01-01").map(String);
+    const badToday = ["", null, "junk", "2026-13-01"].filter(t => C("2026-01-01", t) !== sb.todayLocal().slice(0, 4) + "-01-01").map(String);
+    // Day by day: every day lies in exactly the window that holds it (no gap,
+    // no jump); the window changes only on the anniversary (its month-day,
+    // Mar 1 for Feb 29, Jan 1 for bad input), exactly one year after the last
+    // start, so the "YYYY-MM" month windows tile too.
+    let sweep = null, changes = 0;
+    for (const ys of ["2026-01-01", "2026-07-01", "2024-02-29", "2028-02-29", "2026-12-31", "2027-03-01", "2026-08-15", ""]) {
+      const md = sb.isYMD(ys) ? (ys.slice(5) === "02-29" ? "03-01" : ys.slice(5)) : "01-01";
+      for (let t = "2025-01-01"; t <= "2030-12-31" && !sweep; t = sb.addDaysYMD(t, 1)) {
+        const s = C(ys, t), n = sb.addDaysYMD(t, 1), sn = C(ys, n), fy = sb.fiscalYearBoundsYMD(s);
+        if (!sb.isYMD(s) || s.slice(5) !== md || s > t || !fy || t > fy.end || !(t < (+s.slice(0, 4) + 1) + s.slice(4))) sweep = [ys, t, s];
+        else if (sn !== s) { changes++; if (sn !== n || n !== (+s.slice(0, 4) + 1) + s.slice(4)) sweep = [ys, t, s, sn]; }
+      }
+      if (sweep) break;
+    }
+    // 8 starts x 6 anniversaries each (2025-01-01 .. 2031-01-01 as the next day).
+    if (!sweep && changes !== 8 * 6) sweep = ["anniversaries crossed", changes];
+    // Settings' acute rows: the window's 12 months, plus the 3 before it while
+    // today is in the window's first 3 months.
+    const MS = (from, n) => { const out = []; let y = +from.slice(0, 4), m = +from.slice(5, 7); for (let i = 0; i < n; i++) { out.push(y + "-" + String(m).padStart(2, "0")); m++; if (m > 12) { m = 1; y++; } } return out; };
+    const A = [ // [cs, today, first month, count]
+      ["2026-01-01", "2026-10-19", "2026-01", 12], ["2027-01-01", "2027-01-05", "2026-10", 15], ["2027-01-01", "2027-03-31", "2026-10", 15],
+      ["2027-01-01", "2027-04-01", "2027-01", 12], ["2026-07-01", "2026-08-15", "2026-04", 15], ["2026-11-01", "2026-11-02", "2026-08", 15],
+      ["", "2027-02-01", "2026-10", 15],
+      // "Show the 12 months before ..." taps (per visit to Settings): 12 more per tap; junk = none.
+      ["2026-01-01", "2026-10-19", "2025-01", 24, 1], ["2027-01-01", "2027-01-05", "2024-10", 39, 2],
+      ["2026-01-01", "2026-10-19", "2026-01", 12, -1], ["2026-01-01", "2026-10-19", "2026-01", 12, NaN], ["2026-01-01", "2026-10-19", "2026-01", 12, "1"],
+      ["2026-01-01", "2026-10-19", "2026-01", 12, Infinity],
+    ];
+    const badA = A.filter(a => JSON.stringify(sb.acuteEntryMonths(a[0], a[1], a[4])) !== JSON.stringify(MS(a[2], a[3]))).map(a => a.join(" ") + " got " + JSON.stringify(sb.acuteEntryMonths(a[0], a[1], a[4])));
+    check("currentYearStartYMD / acuteEntryMonths: Year Start as a yearly anniversary (only its month-day; latest on or before today; Feb 29 -> Mar 1 every year; bad input Jan 1), changing only on the anniversary, one year apart, day by day 2025-2030; acute rows = the window's 12 months (+3 before early on, +12 per earlier-months tap)",
+      badT.length === 0 && badYS.length === 0 && badToday.length === 0 && !sweep && badA.length === 0,
+      JSON.stringify({ badT: badT, badYS: badYS, badToday: badToday, sweep: sweep, badA: badA }));
   }
 
   {

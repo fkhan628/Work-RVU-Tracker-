@@ -121,7 +121,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       return { start: localYMD(qStart), end: todayStr };
     }
     if (dateRange === "ytd") {
-      var ys = settings.yearStart || (now.getFullYear() + "-01-01");
+      var ys = currentYearStartYMD(settings.yearStart, todayLocal());
       return { start: ys, end: todayStr };
     }
     if (dateRange === "custom") {
