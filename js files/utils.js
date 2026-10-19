@@ -577,19 +577,22 @@ function countEncounters(entries) {
 
 // History's Patient ID box keeps Log's "<initials> - " notes prefix (log.js
 // save) in step with the initials, live in the Notes box. linked: the panel
-// opened on notes starting with exactly "<stored initials> - "
-// (notesHasInitials) and the prefix has not been edited away since. New
-// initials replace the prefix, cleared ones remove it, and while linked,
-// typing initials again puts it back. Anything else is left exactly as it
-// is - Log's bare "AB" (initials, no notes), imported notes, a prefix the
-// user removed. Returns { notes, linked }. A hand edit of the Notes box
+// opened on notes starting with exactly "<stored initials> - " or EQUAL to
+// them (Log's bare "AB" for a case with initials and no notes;
+// notesHasInitials) and the prefix has not been edited away since. While
+// linked the box is rebuilt the way Log writes it - initials, then " - " and
+// the note only when there is one: new initials replace the prefix ("AB" ->
+// "CD"), cleared ones remove it ("AB" -> ""), and typing initials again puts
+// it back. Anything else is left exactly as it is - imported notes, a prefix
+// the user removed. Returns { notes, linked }. A hand edit of the Notes box
 // (notesLinkAfterEdit) can only keep or restore the link on a panel that
 // opened linked (linkable): with initials, while the text starts with their
-// prefix (so a broken-then-retyped prefix re-links); with the initials
+// prefix or equals them (so a broken-then-retyped prefix re-links, and a
+// note trimmed back to the bare initials stays linked); with the initials
 // empty, unless the text now starts with a "<something> - " prefix of its
 // own (so a hand-typed prefix is never doubled, and a body edit keeps it).
 function notesHasInitials(notes, init) {
-  return typeof notes === "string" && typeof init === "string" && init !== "" && notes.indexOf(init + " - ") === 0;
+  return typeof notes === "string" && typeof init === "string" && init !== "" && (notes === init || notes.indexOf(init + " - ") === 0);
 }
 function notesForInitials(notes, oldInit, newInit, linked) {
   var n = typeof notes === "string" ? notes : "";
@@ -598,9 +601,9 @@ function notesForInitials(notes, oldInit, newInit, linked) {
   var body = n;
   if (o !== "") {
     if (!notesHasInitials(n, o)) return { notes: n, linked: false };
-    body = n.substring(o.length + 3);
+    body = n === o ? "" : n.substring(o.length + 3);
   }
-  return { notes: w !== "" ? w + " - " + body : body, linked: true };
+  return { notes: w !== "" ? w + (body !== "" ? " - " + body : "") : body, linked: true };
 }
 function notesLinkAfterEdit(linkable, notes, initials) {
   if (linkable !== true || typeof notes !== "string") return false;

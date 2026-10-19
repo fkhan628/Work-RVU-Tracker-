@@ -314,24 +314,30 @@ the per-file gates below. Run it after EVERY file change.
   discards it (no nav guard) (check.js 5f-7). Patient ID keeps Log's
   "<initials> - " notes prefix in step, live in the Notes box (utils.js
   notesHasInitials / notesForInitials), only when the panel opened on notes
-  starting with exactly "<stored initials> - " (editNotesLinked, set in
+  starting with exactly "<stored initials> - " OR equal to them (Log's bare
+  "AB" for a case saved with initials and no notes) (editNotesLinked, set in
   startEdit / startAdd, and by "+ Save + add another" from the row it just
-  saved): new initials replace the prefix, cleared ones remove it, typing
-  initials again puts it back. A hand edit of the Notes box
+  saved). While linked the box is rebuilt the way Log writes it - initials,
+  then " - " and the note only when there is one: new initials replace the
+  prefix ("AB" -> "CD"), cleared ones remove it ("AB" -> ""), typing
+  initials again puts it back, and a stored "AB - " with nothing after it
+  becomes "AB" once the initials are touched. A hand edit of the Notes box
   (notesLinkAfterEdit) can keep or restore the link only on a panel that
   opened linked (editNotesLinkable): with initials, while the text starts
-  with their prefix (a prefix broken and retyped re-links); with the
+  with their prefix or equals them (a prefix broken and retyped re-links; a
+  note trimmed back to the bare initials stays linked); with the
   initials empty, unless the text now starts with a "<x> - " prefix of its
   own (a hand-typed prefix is never doubled; a body edit keeps the link).
-  Notes a panel opened without that prefix are never touched (Log's bare
-  "AB" for a case saved with no notes, imported notes). Save writes the box
-  as shown. Like the initials, this edits ONE row. Clearing removes the
-  prefix, so Home and Trends then count the case by the first two
-  characters of its notes, trimmed and case-insensitive (encounterKey's
+  Notes a panel opened without that prefix or bare form are never touched
+  (imported notes, notes in neither form for the stored initials). Save
+  writes the box as shown. Like the initials, this edits ONE row. Clearing
+  removes the prefix, so Home and Trends then count the case by the first
+  two characters of its notes, trimmed and case-insensitive (encounterKey's
   existing fallback): it splits from the old patient and can JOIN a
   same-day case whose initials match ("lap chole" -> LA), or count alone
-  when the trimmed key is shorter than two ("L - inguinal hernia", "x")
-  (check.js 5f-11 + notesForInitials value tests).
+  when the trimmed key is shorter than two ("L - inguinal hernia", "x", or
+  a cleared bare case's empty notes) (check.js 5f-11 + notesForInitials
+  value tests).
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
   re-derives base/description/category (history.js saveEdit).

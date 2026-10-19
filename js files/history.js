@@ -89,8 +89,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   // effect on close.
   const editSnap = useRef(null);
   const listScroll = useRef(null);
-  // editNotesLinked: the Notes box still starts with the Patient ID's "XX - "
-  // prefix (utils.js notesForInitials); set by startEdit / startAdd /
+  // editNotesLinked: the Notes box is still in Log's form for the Patient ID
+  // ("XX - note", bare "XX", or the plain note when the initials are empty -
+  // utils.js notesForInitials); set by startEdit / startAdd /
   // addAnother, kept by the Patient ID and Notes onChanges.
   // editNotesLinkable: the panel opened linked, so a Notes edit may restore
   // the link (notesLinkAfterEdit); set with it by the three openers.

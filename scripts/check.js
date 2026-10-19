@@ -3850,10 +3850,12 @@ if (sb) {
   }
 
   {
-    // History's Patient ID keeps Log's "<initials> - " notes prefix in step
-    // (notesHasInitials / notesForInitials). Made-up notes.
+    // History's Patient ID keeps Log's "<initials> - " notes prefix - or Log's
+    // bare "AB" (initials, no notes) - in step, rebuilding the box the way Log
+    // writes it (notesHasInitials / notesForInitials). Made-up notes.
     const H = sb.notesHasInitials, N = (a, b, c, d) => { const r = sb.notesForInitials(a, b, c, d); return r.notes + "|" + r.linked; };
-    const has = H("AB - x", "AB") && !H("AB", "AB") && !H("AB - x", "A") && !H(" AB - x", "AB") && !H("x", "") && !H(undefined, "AB") && !H("AB - x", undefined) && !H("ab - x", "AB");
+    const has = H("AB - x", "AB") && H("AB", "AB") && !H("AB - x", "A") && !H(" AB - x", "AB") && !H("x", "") && !H(undefined, "AB") && !H("AB - x", undefined) && !H("ab - x", "AB") &&
+      !H("A", "AB") && !H("ABC", "AB") && !H("AB ", "AB") && !H("", "") && !H("AB", "") && !H("ab", "AB");
     // Letter by letter, each step feeding the last: AB -> A -> "" -> A -> AC.
     const steps = [["AB", "A"], ["A", ""], ["", "A"], ["A", "AC"]];
     let st = { notes: "AB - lap chole", linked: true }; const walked = [];
@@ -3867,11 +3869,17 @@ if (sb) {
       [["AB - lap chole", "AB", "AC", "yes"], "AB - lap chole|false"],
       [["lap chole", "AB", "AC", true], "lap chole|false"],
       [["lap chole", "", "XY", false], "lap chole|false"],
-      [["AB", "AB", "AC", true], "AB|false"],
+      // Log's bare form follows: "AB" -> "CD", cleared -> "", not linked -> untouched.
+      [["AB", "AB", "AC", true], "AC|true"],
+      [["AB", "AB", "", true], "|true"],
+      [["AB", "AB", "C", true], "C|true"],
+      [["AB", "AB", "AC", false], "AB|false"],
       [["ab - x", "AB", "AC", true], "ab - x|false"],
       [["AB - AB - x", "AB", "CD", true], "CD - AB - x|true"],
       [["AB - ", "AB", "", true], "|true"],
-      [["", "", "CD", true], "CD - |true"],
+      // An empty note is written as the bare initials, as Log does ("AB - " normalises).
+      [["AB - ", "AB", "CD", true], "CD|true"],
+      [["", "", "CD", true], "CD|true"],
       [[undefined, "AB", "CD", true], "|false"],
       [[42, "AB", "CD", true], "|false"],
     ];
@@ -3879,11 +3887,12 @@ if (sb) {
     const walkOk = walked.join(",") === "A - lap chole|true,lap chole|true,A - lap chole|true,AC - lap chole|true";
     // A hand edit of the Notes box (notesLinkAfterEdit) can keep or restore the
     // link only on a panel that opened linked: with initials, while the text
-    // starts with their prefix; with none, unless the text starts with a
+    // starts with their prefix or equals them; with none, unless the text starts with a
     // "<x> - " prefix of its own.
     const L = sb.notesLinkAfterEdit;
     const linkOk = L(true, "AC - lap chole x", "AC") === true && L(true, "lap chole", "AC") === false && L(true, "XY - lap chole", "") === false &&
-      L(true, "lap chole", "") === true && L(false, "AC - x", "AC") === false && L(false, "lap chole", "") === false && L("yes", "AC - x", "AC") === false && L(true, undefined, "") === false;
+      L(true, "lap chole", "") === true && L(false, "AC - x", "AC") === false && L(false, "lap chole", "") === false && L("yes", "AC - x", "AC") === false && L(true, undefined, "") === false &&
+      L(true, "AB", "AB") === true && L(true, "AB ", "AB") === false && L(true, "ab", "AB") === false && L(false, "AB", "AB") === false;
     // Walks the History panel does (the panel opened linked on these notes):
     // (1) clear, hand-type "XY - " into Notes, then type X, Y - never doubled;
     // (2) a one-letter lead ("L - ") survives typing L, M; (3) clear, fix a
@@ -3897,15 +3906,30 @@ if (sb) {
     const typoFix = walk("AB - lap cholle", ["AB", { init: "" }, { notes: "lap chole" }, { init: "A" }, { init: "AB" }]);
     const reTyped = walk("AB - lap chole", ["AB", { notes: "A - lap chole" }, { notes: "AB - lap chole" }, { init: "C" }, { init: "CD" }]);
     const imported = walk("AB - Main OR", ["", { init: "A" }, { init: "AB" }, { notes: "AB - Main OR x" }, { init: "CD" }]);
-    const walks = handTyped === "XY - lap chole" && oneLetter === "LM - L - inguinal hernia" && typoFix === "AB - lap chole" && reTyped === "CD - lap chole" && imported === "AB - Main OR x";
+    // Bare-form walks: letter by letter AB -> A -> "" -> A -> AC; a round trip
+    // back to exactly "AB" (so Back does not prompt); "AB - " touched and
+    // restored normalises to "AB"; a note hand-typed as the initials while
+    // they are empty is kept as a note ("XY - XY", what Log would write).
+    let bs = { notes: "AB", linked: true }; const bareWalk = [];
+    steps.forEach(s => { bs = sb.notesForInitials(bs.notes, s[0], s[1], bs.linked); bareWalk.push(bs.notes + "|" + bs.linked); });
+    const bareRound = walk("AB", ["AB", { init: "A" }, { init: "" }, { init: "A" }, { init: "AB" }]);
+    const dashNorm = walk("AB - ", ["AB", { init: "ABC" }, { init: "AB" }]);
+    const typedInit = walk("AB", ["AB", { init: "" }, { notes: "XY" }, { init: "X" }, { init: "XY" }]);
+    // A hand edit of the note down to exactly the initials keeps the link.
+    const toBare = walk("AB - x", ["AB", { notes: "AB" }, { init: "C" }, { init: "CD" }]);
+    const walks = handTyped === "XY - lap chole" && oneLetter === "LM - L - inguinal hernia" && typoFix === "AB - lap chole" && reTyped === "CD - lap chole" && imported === "AB - Main OR x" &&
+      bareWalk.join(",") === "A|true,|true,A|true,AC|true" && bareRound === "AB" && dashNorm === "AB" && typedInit === "XY - XY" && toBare === "CD";
     // The documented consequence of clearing: the stripped notes key the case
     // on their own first two letters (encounterKey's fallback) - split from
     // the old patient, and joined to a same-day patient with those initials.
     const D = "2026-10-05", e2 = { date: D, encounterId: "AB", notes: "AB - lap chole" }, e3 = { date: D, encounterId: "LA", notes: "LA - appy" };
+    // A cleared bare case ("AB" -> "") has no key and counts alone, where the
+    // old stale "AB" kept it with that patient.
     const enc = [sb.countEncounters([{ date: D, notes: "AB - lap chole" }, e2]), sb.countEncounters([{ date: D, notes: "lap chole" }, e2]),
-      sb.countEncounters([{ date: D, notes: "lap chole" }, e2, e3]), sb.countEncounters([{ date: D, notes: "x" }, e2])].join(",") === "1,2,2,2";
-    check("notesForInitials: History's initials keep the notes' 'XX - ' prefix in step (replace / clear / retype, linked only, exact prefix only, bare 'AB' untouched, a hand edit keeps the link only on the prefix)",
-      has && badN.length === 0 && walkOk && linkOk && walks && enc, JSON.stringify({ has: has, badN: badN, walked: walked, linkOk: linkOk, handTyped: handTyped, oneLetter: oneLetter, typoFix: typoFix, reTyped: reTyped, imported: imported, enc: enc }));
+      sb.countEncounters([{ date: D, notes: "lap chole" }, e2, e3]), sb.countEncounters([{ date: D, notes: "x" }, e2]),
+      sb.countEncounters([{ date: D, notes: "AB" }, e2]), sb.countEncounters([{ date: D, notes: "" }, e2])].join(",") === "1,2,2,2,1,2";
+    check("notesForInitials: History's initials keep the notes' 'XX - ' prefix - or Log's bare 'AB' - in step, as Log writes them (replace / clear / retype, linked only, exact prefix or bare only, a hand edit keeps the link only on the prefix or the bare initials)",
+      has && badN.length === 0 && walkOk && linkOk && walks && enc, JSON.stringify({ has: has, badN: badN, walked: walked, linkOk: linkOk, handTyped: handTyped, oneLetter: oneLetter, typoFix: typoFix, reTyped: reTyped, imported: imported, bareWalk: bareWalk, bareRound: bareRound, dashNorm: dashNorm, typedInit: typedInit, enc: enc }));
   }
 
   {
