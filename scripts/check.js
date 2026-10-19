@@ -1376,6 +1376,118 @@ const COMP_MONEY_PIN = 8;
   check("5f-8: Undo toast - always-mounted live region keyed per toast, 44px Undo and labelled Dismiss; Log's template form resets after Save and its summary card uses theme tokens; Trends' report text uses theme tokens and a cleared month is ignored", bad.length === 0, bad.join(", "));
 }
 
+// 5f-9. Trends' Goal Pace uses Home's Tracked OR pace (CLAUDE.md, Trends'
+// Goal Pace bullet). analytics.js: compProjection is called once, as
+// `var projectedAnnual = compProjection({ trackedWRVU: ytdRVU, trackedDays:
+// daysPassed }).trackedPace` (Home's orPace inputs: ytdEntries / ytdRVU are
+// the Current window's credited wRVU, pinned as written); daysPassed is
+// Math.max(1, localDaysBetween(yearStartDate, now)) (Home's dp); `var onPace
+// = projectedAnnual >= goal` is the test of exactly five ternaries, the right
+// way round (bar gradient, verdict colour / word / sign, Projected colour),
+// and no other comparison involves ytdRVU, expectedRVU or projectedAnnual
+// (bare zero guards aside); expectedRVU is exactly goal > 0 ? (goal *
+// trackedPaceMonths(daysPassed) / 12) : 0, read three times (figure, bar
+// marker, signed difference); daysInYear is read only by daysRemaining and
+// 30.44 appears only in monthsRemaining; the selected-year comp tile is
+// labelled 'Logged Comp' over fmtDollar(selComp, showComp), selComp =
+// selTotal * rate of the selected year's credited wRVU (no 'Total Comp'
+// label left). utils.js: trackedPaceMonths(days) returns
+// Math.max(1, days / 30.44), compProjection's trackedPace is
+// (q.trackedWRVU / trackedPaceMonths(q.trackedDays)) * 12, and 30.44 appears
+// nowhere else in utils.js.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const isFn = a => a.type === "FunctionDeclaration" || a.type === "FunctionExpression" || a.type === "ArrowFunctionExpression";
+  const bad = [];
+  const parse = f => { try { const src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); return { src, ast: parser.parse(src, AST_OPTS) }; } catch (e) { bad.push(f + ": parse"); return null; } };
+  const an = parse("analytics.js"), ut = parse("utils.js");
+  const decls = (f, name) => deep(f.ast.program, n => n.type === "VariableDeclarator" && isId(n.id, name));
+  const flat = (f, n) => f.src.slice(n.start, n.end).replace(/\s+/g, "");
+  if (an) {
+    const calls = deep(an.ast.program, n => n.type === "CallExpression" && isId(n.callee, "compProjection"));
+    const pa = decls(an, "projectedAnnual");
+    const ok1 = calls.length === 1 && pa.length === 1 && !!pa[0].init && pa[0].init.type === "MemberExpression" && !pa[0].init.computed &&
+      pa[0].init.property.name === "trackedPace" && pa[0].init.object === calls[0] && calls[0].arguments.length === 1 && (() => {
+        const o = calls[0].arguments[0];
+        if (!o || o.type !== "ObjectExpression" || o.properties.length !== 2) return false;
+        const m = {};
+        o.properties.forEach(p => { if (p.type === "ObjectProperty" && !p.computed && p.key && p.value && p.value.type === "Identifier") m[p.key.name || p.key.value] = p.value.name; });
+        return m.trackedWRVU === "ytdRVU" && m.trackedDays === "daysPassed";
+      })();
+    if (!ok1) bad.push("analytics.js: Projected Annual is not compProjection({ trackedWRVU: ytdRVU, trackedDays: daysPassed }).trackedPace (one call)");
+    const dp = decls(an, "daysPassed");
+    if (dp.length !== 1 || !dp[0].init || flat(an, dp[0].init) !== "Math.max(1,localDaysBetween(yearStartDate,now))") bad.push("analytics.js: daysPassed is not Home's dp");
+    const op = decls(an, "onPace");
+    if (op.length !== 1 || !op[0].init || op[0].init.type !== "BinaryExpression" || op[0].init.operator !== ">=" || !isId(op[0].init.left, "projectedAnnual") || !isId(op[0].init.right, "goal")) bad.push("analytics.js: onPace is not projectedAnnual >= goal");
+    // No other verdict: a relational comparison may not involve these figures
+    // anywhere in its operands (a bare-identifier zero guard excepted).
+    const PACE = ["ytdRVU", "expectedRVU", "projectedAnnual"];
+    const zeroGuard = n => (n.right.type === "NumericLiteral" && n.right.value === 0 && n.left.type === "Identifier") || (n.left.type === "NumericLiteral" && n.left.value === 0 && n.right.type === "Identifier");
+    const rel = deep(an.ast.program, n => n.type === "BinaryExpression" && [">=", ">", "<=", "<"].indexOf(n.operator) !== -1 &&
+      deep([n.left, n.right], x => PACE.some(p => isId(x, p))).length > 0 && !(op.length && n === op[0].init) && !zeroGuard(n));
+    if (rel.length) bad.push("analytics.js: a pace verdict compares ytdRVU / expectedRVU / projectedAnnual outside onPace (" + rel.length + ")");
+    // Every onPace read is the test of one of these ternaries, the right way
+    // round: the bar gradient, the verdict colour, word and sign, and the
+    // Projected colour (green / Ahead / + when on pace).
+    const lit = x => x && x.type === "StringLiteral" ? x.value : null;
+    const conds = deep(an.ast.program, n => n.type === "ConditionalExpression" && isId(n.test, "onPace")).map(n => lit(n.consequent) + "|" + lit(n.alternate)).sort();
+    const WANT = ["#10b981|#f59e0b", "#10b981|#f59e0b", "+|-", "Ahead of pace|Behind pace", "linear-gradient(90deg, #10b981, #34d399)|linear-gradient(90deg, #f59e0b, #fbbf24)"].sort();
+    const reads = deep(an.ast.program, n => isId(n, "onPace")).length - op.length;
+    if (JSON.stringify(conds) !== JSON.stringify(WANT) || reads !== WANT.length) bad.push("analytics.js: onPace must drive the bar, the verdict colour / word / sign and the Projected colour, green / Ahead / + when on pace (got " + JSON.stringify(conds) + ", " + reads + " reads)");
+    // Expected: exactly goal x trackedPaceMonths(daysPassed) / 12, shown as
+    // the Expected figure, the bar marker and the signed difference.
+    const ex = decls(an, "expectedRVU");
+    if (ex.length !== 1 || !ex[0].init || flat(an, ex[0].init) !== "goal>0?(goal*trackedPaceMonths(daysPassed)/12):0") bad.push("analytics.js: Expected is not goal > 0 ? (goal * trackedPaceMonths(daysPassed) / 12) : 0");
+    const exReads = deep(an.ast.program, n => isId(n, "expectedRVU")).length - ex.length;
+    if (exReads !== 3) bad.push("analytics.js: expectedRVU should be read by the Expected figure, the bar marker and the signed difference (read " + exReads + " times)");
+    // Home's inputs: the Current window's credited wRVU and the selected
+    // year's logged credited wRVU for the comp tile.
+    const one = (name, want) => { const d = decls(an, name); if (d.length !== 1 || !d[0].init || flat(an, d[0].init) !== want) bad.push("analytics.js: " + name + " changed (want " + want + ")"); };
+    one("ytdEntries", "entries.filter(function(e){vard=newDate(e.date+\"T00:00:00\");returnd>=yearStartDate&&d<yearEndDate;})");
+    one("ytdRVU", "ytdEntries.reduce(function(s,e){returns+creditedRVU(e);},0)");
+    one("selTotal", "filteredEntries.reduce(function(s,e){returns+creditedRVU(e);},0)");
+    one("selComp", "selTotal*rate");
+    // daysInYear is read only by daysRemaining; 30.44 only by monthsRemaining.
+    const dr = decls(an, "daysRemaining"), mr = decls(an, "monthsRemaining");
+    let strayDays = 0, stray3044 = 0;
+    walkStack(an.src, (n, stack) => {
+      if (isId(n, "daysInYear") && !stack.some(a => a.type === "VariableDeclarator" && isId(a.id, "daysInYear")) && !stack.some(a => a.type === "VariableDeclarator" && isId(a.id, "daysRemaining"))) strayDays++;
+      if (n.type === "NumericLiteral" && n.value === 30.44 && !stack.some(a => a.type === "VariableDeclarator" && isId(a.id, "monthsRemaining"))) stray3044++;
+    });
+    if (dr.length !== 1 || mr.length !== 1 || strayDays || stray3044) bad.push("analytics.js: daysInYear / 30.44 used outside daysRemaining / monthsRemaining (" + strayDays + ", " + stray3044 + ")");
+    // The comp tile: 'Logged Comp' once, under fmtDollar(selComp, showComp).
+    let logged = 0, tileOk = 0;
+    walkStack(an.src, (n, stack) => {
+      if (n.type !== "JSXText" || n.value.trim() !== "Logged Comp") return;
+      logged++;
+      // The stat card holding the label (nearest ancestor styled S.statCard).
+      const card = stack.filter(a => { if (a.type !== "JSXElement") return false; const s = a.openingElement.attributes.filter(x => x.type === "JSXAttribute" && x.name && x.name.name === "style")[0]; return !!s && !!s.value && isMem(s.value.expression, "S", "statCard"); }).pop();
+      if (card && deep(card, m => m.type === "CallExpression" && isId(m.callee, "fmtDollar") && m.arguments.length === 2 && isId(m.arguments[0], "selComp") && isId(m.arguments[1], "showComp")).length === 1) tileOk++;
+    });
+    const total = deep(an.ast.program, n => (n.type === "JSXText" && n.value.trim() === "Total Comp") || (n.type === "StringLiteral" && /\bTotal Comp\b/.test(n.value)) || (n.type === "TemplateElement" && /\bTotal Comp\b/.test(n.value.raw))).length;
+    if (logged !== 1 || tileOk !== 1 || total) bad.push("analytics.js: the selected-year comp tile is not labelled 'Logged Comp' over fmtDollar(selComp, showComp)");
+  }
+  if (ut) {
+    const tpm = ut.ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "trackedPaceMonths"));
+    const tpmOk = tpm.length === 1 && tpm[0].params.length === 1 && tpm[0].body.body.length === 1 && tpm[0].body.body[0].type === "ReturnStatement" &&
+      flat(ut, tpm[0].body.body[0].argument) === "Math.max(1," + tpm[0].params[0].name + "/30.44)";
+    if (!tpmOk) bad.push("utils.js: trackedPaceMonths is not a top-level Math.max(1, days / 30.44)");
+    const cp = ut.ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "compProjection"))[0];
+    const tp = cp ? deep(cp, n => n.type === "VariableDeclarator" && isId(n.id, "trackedPace")) : [];
+    const i = tp.length === 1 ? tp[0].init : null;
+    const tpOk = !!i && i.type === "BinaryExpression" && i.operator === "*" && i.right.type === "NumericLiteral" && i.right.value === 12 &&
+      i.left.type === "BinaryExpression" && i.left.operator === "/" && isMem(i.left.left, "q", "trackedWRVU") &&
+      i.left.right.type === "CallExpression" && isId(i.left.right.callee, "trackedPaceMonths") && i.left.right.arguments.length === 1 && isMem(i.left.right.arguments[0], "q", "trackedDays");
+    if (!tpOk) bad.push("utils.js: compProjection's trackedPace is not (q.trackedWRVU / trackedPaceMonths(q.trackedDays)) * 12");
+    let stray = 0;
+    walkStack(ut.src, (n, stack) => { if (n.type === "NumericLiteral" && n.value === 30.44 && !stack.some(a => a.type === "FunctionDeclaration" && isId(a.id, "trackedPaceMonths"))) stray++; });
+    if (stray) bad.push("utils.js: 30.44 outside trackedPaceMonths (" + stray + ")");
+  }
+  check("5f-9: Trends' Goal Pace = Home's Tracked OR pace (compProjection.trackedPace with Home's inputs, onPace for every verdict, Expected via trackedPaceMonths); the comp tile says Logged Comp", bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
@@ -3594,6 +3706,26 @@ if (sb) {
     check("compProjection: Compare months -> the Recon card's pace vs the Recon goal (the OR goal, named, when unset); else the tracked pace vs the OR goal; no rate or no goal for that comparison hides; Comp YTD from the same source; junk = not set; paces never cross tracks",
       badCP.length === 0 && exact && reconJunk && orJunk && rateJunk && monthsJunk && nanPass && nb1 && nb2 && noThrow && untouched && fields && ytd,
       JSON.stringify({ badCP: badCP, exact: exact, reconJunk: reconJunk, orJunk: orJunk, rateJunk: rateJunk, monthsJunk: monthsJunk, nanPass: nanPass, nb1: nb1, nb2: nb2, noThrow: noThrow, untouched: untouched, fields: fields, ytd: ytd, keys: Object.keys(r0) }));
+  }
+
+  {
+    // Trends' Goal Pace (analytics.js) reads Home's tracked pace: the ONE
+    // 30.44-day-month, at-least-one-month rule (trackedPaceMonths) that
+    // compProjection divides by and Trends' Expected multiplies by, so the two
+    // screens never give opposite verdicts. Made-up figures, OR goal 6000.
+    const M = sb.trackedPaceMonths;
+    const floor = [[0, 1], [10, 1], [30, 1], [30.44, 1], [-5, 1], [60.88, 2]].every(t => M(t[0]) === t[1]) && M(365).toFixed(4) === "11.9908" && isNaN(M(NaN)) && isNaN(M(undefined));
+    const oneRule = [0, 4, 10, 30, 31, 100, 291, 365, 400].every(d => sb.compProjection({ trackedWRVU: 4000, trackedDays: d }).trackedPace === (4000 / M(d)) * 12);
+    // 4000 logged 291 days in: pace 5021 (the old Trends formula said 5017), Expected 4780.
+    const fig = sb.compProjection({ trackedWRVU: 4000, trackedDays: 291 }).trackedPace.toFixed(0) === "5021" && (6000 * M(291) / 12).toFixed(0) === "4780";
+    // Home's pace verdict and Trends' Expected verdict always agree, the
+    // one-month boundary (500 at 4 days) included.
+    const agree = [[4779, 291, false], [4781, 291, true], [300, 4, false], [499, 4, false], [500, 4, true], [6000, 365, true]].every(t =>
+      (sb.compProjection({ trackedWRVU: t[0], trackedDays: t[1] }).trackedPace >= 6000) === t[2] && (t[0] >= 6000 * M(t[1]) / 12) === t[2]);
+    // Early January: 300 in 4 days paces at 3600 (behind), never 27375.
+    const early = sb.compProjection({ trackedWRVU: 300, trackedDays: 4 }).trackedPace === 3600;
+    check("trackedPaceMonths: the ONE tracked-pace month rule (30.44-day months, at least one) shared by compProjection and Trends' Expected - Home's figures and verdicts",
+      floor && oneRule && fig && agree && early, JSON.stringify({ floor: floor, oneRule: oneRule, fig: fig, agree: agree, early: early }));
   }
 
   {

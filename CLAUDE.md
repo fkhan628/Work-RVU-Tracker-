@@ -349,7 +349,8 @@ the per-file gates below. Run it after EVERY file change.
   utils.js compProjection is the ONE rule for both Home paces and the
   Compensation card: the card projects from the window's Compare months (the
   Reconciliation card's own months and pace) when there are any, else from
-  the tracked pace. A Compare projection is compared with the Reconciliation
+  the tracked pace. (Trends' Goal Pace reads only its trackedPace, never
+  Compare - see the Trends Goal Pace bullet.) A Compare projection is compared with the Reconciliation
   goal when one is set, otherwise with the OR goal, named "OR goal" on the
   card (owner's choice, 2026-10-18); a tracked projection only ever with the
   OR goal. No rate, or no goal for that comparison, hides the card. Comp YTD
@@ -425,6 +426,24 @@ the per-file gates below. Run it after EVERY file change.
   post-save reset also closes the Save-as-template form, and the
   Encounter Summary card uses --card-main-from / --card-main-to, never a
   hard-coded gradient (check.js 5f-8).
+- Trends' Goal Pace card (Current only, like Home's pace line) uses Home's
+  Tracked OR pace: Projected Annual = compProjection({ trackedWRVU: ytdRVU,
+  trackedDays: daysPassed }).trackedPace with Home's inputs (logged credited
+  wRVU in the Current window; daysPassed = Home's dp), and onPace =
+  projectedAnnual >= goal drives Ahead/Behind, its sign and colour, the bar
+  and the Projected colour. Expected = goal x trackedPaceMonths(daysPassed)
+  / 12; utils.js trackedPaceMonths is the ONE 30.44-day-month, at-least-one
+  rule compProjection also divides by, so (for a valid Year Start) Trends'
+  figure and verdict always match Home's Tracked OR pace line, and the first
+  month expects a full month's share. Home's Compensation card can still
+  differ when the window has Compare months (it projects from Compare - owner
+  decision). Needed/Month, Months Left, Avg/Week and the Monthly Report's
+  Monthly Goal Pace are not projections and keep their own math (so in the
+  first month Needed/Month can read green beside "Behind pace"). The 'Logged
+  Comp' tile is selComp = selTotal * rate, the selected year's logged
+  credited wRVU, never Compare months, so it can differ from Home's Comp YTD
+  (check.js 5f-9 pins the inputs, the five onPace ternaries and Expected;
+  trackedPaceMonths value tests).
 - Trends' Monthly Report sits on a theme card, so its text uses theme
   tokens: title --text-bright; Private / Call lines and top-encounter wRVU
   --text-primary; Top Encounters heading and descriptions --text-muted

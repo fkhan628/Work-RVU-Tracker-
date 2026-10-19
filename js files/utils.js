@@ -1888,6 +1888,14 @@ function priorSpanYMD(ys, today) {
   return { cur: { start: fy.start, end: end }, prev: { start: back(fy.start), end: end === fy.end ? addDaysYMD(fy.start, -1) : back(end) }, toDate: end !== fy.end };
 }
 
+// Months elapsed for the tracked pace: 30.44-day months, at least one (a few
+// days into the year never annualize to a huge figure). The ONE floor rule:
+// compProjection's trackedPace divides by it, and Trends' Goal Pace
+// 'Expected' multiplies by it, so Expected and Home's pace agree on the verdict.
+function trackedPaceMonths(days) {
+  return Math.max(1, days / 30.44);
+}
+
 // Home Compensation card: the ONE projection rule. Home's two goal tracks:
 // Tracked OR = logged cases (creditedRVU), goal settings.annualGoal;
 // Reconciliation = Compare's monthly institution totals (incl. call +
@@ -1905,13 +1913,14 @@ function priorSpanYMD(ys, today) {
 // ytdComp) adds up the SAME source - the window's Compare months, else logged
 // wRVU - whether or not the card shows (an any-year Compare switch once
 // showed $0 for a year with no Compare months). dashboard.js only formats and
-// masks the result.
+// masks the result. Trends' Goal Pace reads trackedPace with Home's orPace
+// inputs (analytics.js).
 function compProjection(p) {
   var q = p || {};
   var pos = function(v) { return typeof v === "number" && isFinite(v) && v > 0 ? v : 0; };
   var months = pos(q.compareMonths);
   var compare = months > 0;
-  var trackedPace = (q.trackedWRVU / Math.max(1, q.trackedDays / 30.44)) * 12;
+  var trackedPace = (q.trackedWRVU / trackedPaceMonths(q.trackedDays)) * 12;
   var comparePace = compare ? (q.compareWRVU / months) * 12 : 0;
   var recon = compare && pos(q.reconGoal) > 0;
   var goal = recon ? pos(q.reconGoal) : pos(q.annualGoal);

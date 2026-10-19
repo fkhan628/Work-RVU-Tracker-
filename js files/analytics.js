@@ -99,15 +99,20 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   });
   var ytdRVU = ytdEntries.reduce(function(s, e) { return s + creditedRVU(e); }, 0);
 
-  // Pace calculations
+  // Pace: Home's Tracked OR rule (utils.js compProjection.trackedPace) with
+  // Home's inputs - logged credited wRVU in the Current window (ytdRVU) and
+  // days since Year Start, at least 1 (= Home's dp) - so Projected Annual and
+  // Ahead/Behind always match Home's 'pace N/yr' and its colour. Expected is
+  // the YTD that rule calls on pace (goal x months elapsed / 12).
   var daysPassed = Math.max(1, localDaysBetween(yearStartDate, now));
   var daysInYear = localDaysBetween(yearStartDate, yearEndDate);
   var daysRemaining = Math.max(0, daysInYear - daysPassed);
   var monthsRemaining = Math.max(0.5, daysRemaining / 30.44);
-  var expectedRVU = goal > 0 ? (goal * daysPassed / daysInYear) : 0;
+  var expectedRVU = goal > 0 ? (goal * trackedPaceMonths(daysPassed) / 12) : 0;
   var rvuNeeded = Math.max(0, goal - ytdRVU);
   var rvuPerMonthNeeded = monthsRemaining > 0 ? rvuNeeded / monthsRemaining : 0;
-  var projectedAnnual = daysPassed > 0 ? (ytdRVU / daysPassed * daysInYear) : 0;
+  var projectedAnnual = compProjection({ trackedWRVU: ytdRVU, trackedDays: daysPassed }).trackedPace;
+  var onPace = projectedAnnual >= goal;
   var avgMonthly = monthlyData.length > 0 ? monthlyData.reduce(function(s, m) { return s + m.rvu; }, 0) / monthlyData.length : 0;
   var avgWeekly = daysPassed > 7 ? (ytdRVU / daysPassed * 7) : ytdRVU;
   var avgDaily = daysPassed > 0 ? ytdRVU / daysPassed : 0;
@@ -405,16 +410,16 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       {/* Progress bar */}
       <div style={{ marginTop: 12, height: 8, background: "#0f172a", borderRadius: 4, overflow: "hidden", position: "relative" }}>
         <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (expectedRVU / goal * 100)) + "%", background: "rgba(100,116,139,0.3)", borderRadius: 4 }} />
-        <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (ytdRVU / goal * 100)) + "%", background: ytdRVU >= expectedRVU ? "linear-gradient(90deg, #10b981, #34d399)" : "linear-gradient(90deg, #f59e0b, #fbbf24)", borderRadius: 4, transition: "width 0.5s" }} />
+        <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (ytdRVU / goal * 100)) + "%", background: onPace ? "linear-gradient(90deg, #10b981, #34d399)" : "linear-gradient(90deg, #f59e0b, #fbbf24)", borderRadius: 4, transition: "width 0.5s" }} />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-        <span style={{ fontSize: 11, color: ytdRVU >= expectedRVU ? "#10b981" : "#f59e0b" }}>{ytdRVU >= expectedRVU ? "Ahead of pace" : "Behind pace"} ({(ytdRVU - expectedRVU >= 0 ? "+" : "") + (ytdRVU - expectedRVU).toFixed(0)})</span>
+        <span style={{ fontSize: 11, color: onPace ? "#10b981" : "#f59e0b" }}>{onPace ? "Ahead of pace" : "Behind pace"} ({(onPace ? "+" : "-") + Math.abs(ytdRVU - expectedRVU).toFixed(0)})</span>
         <span style={{ fontSize: 11, color: "#64748b" }}>{(ytdRVU / goal * 100).toFixed(1)}%</span>
       </div>
       <div style={{ marginTop: 12, padding: "10px 0", borderTop: "1px solid #334155", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
         <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Remaining</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 600 }}>{rvuNeeded.toFixed(0)}</div></div>
         <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Needed/Month</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: rvuPerMonthNeeded > avgMonthly * 1.2 ? "#f87171" : "#10b981", fontWeight: 600 }}>{rvuPerMonthNeeded.toFixed(0)}</div></div>
-        <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Projected Annual</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: projectedAnnual >= goal ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{projectedAnnual.toFixed(0)}</div></div>
+        <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Projected Annual</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: onPace ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{projectedAnnual.toFixed(0)}</div></div>
         <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Months Left</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 600 }}>{monthsRemaining.toFixed(1)}</div></div>
       </div>
     </div>}
@@ -425,7 +430,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       {isCurrent
         ? <div style={S.statCard}><div style={S.statValue}>{avgWeekly.toFixed(0)}</div><div style={S.statLabel}>Avg/Week</div></div>
         : <div style={S.statCard}><div style={S.statValue}>{monthlyData.length}</div><div style={S.statLabel}>Months</div></div>}
-      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(selComp, showComp)}</div><div style={S.statLabel}>Total Comp</div></div>
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(selComp, showComp)}</div><div style={S.statLabel}>Logged Comp</div></div>
     </div>
     {creditSplit.nc.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncYearRange); }} style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit (" + (isCurrent ? "YTD" : year) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{creditSplit.ncRVU.toFixed(1)}</span>{" wRVU across " + creditSplit.ncEnc + " encounter" + (creditSplit.ncEnc === 1 ? "" : "s")}</span>{ncChevron}</div>}
 
