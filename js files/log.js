@@ -796,7 +796,13 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
     {/* Search for active procedure */}
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Search CPT Code or Procedure</label><input type="text" value={curSearch} onChange={function(e) { updateProc(activeProc, { search: e.target.value, code: null }); setShowFavs(false); }} placeholder="e.g. 47562, cholecystectomy, hernia..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={S.searchInput} onFocus={function() { if (!curSearch.trim()) setShowFavs(true); }} /></div>
-    <div style={S.catRow}><button onClick={function() { setCat("All"); setShowFavs(false); }} style={cat === "All" && !showFavs ? S.catBtnActive : S.catBtn}>All</button><button onClick={function() { setShowFavs(true); setCat("All"); updateProc(activeProc, { search: "", code: null }); }} style={showFavs ? { ...S.catBtnActive, color: "#fbbf24", borderColor: "rgba(251,191,36,0.4)", background: "rgba(251,191,36,0.1)" } : { ...S.catBtn, color: "#fbbf24" }}>{"\u2605"} Favorites{favorites.length > 0 ? " (" + favorites.length + ")" : ""}</button>{categories.map(function(c) { return <button key={c} onClick={function() { setCat(c); setShowFavs(false); }} style={cat === c && !showFavs ? S.catBtnActive : S.catBtn}>{c}</button>; })}</div>
+    {/* Category / Favorites chips: only while the ACTIVE procedure has no
+        picked code - the same !curSel both lists below lead with, so a
+        filter never hides while a list shows. With a code picked a chip tap
+        did nothing or (Favorites) silently cleared the pick; + Add, the
+        card's x, typing in the search box or an empty Proc tab bring it
+        back (check.js 5f-12). */}
+    {!curSel && <div style={S.catRow}><button onClick={function() { setCat("All"); setShowFavs(false); }} style={cat === "All" && !showFavs ? S.catBtnActive : S.catBtn}>All</button><button onClick={function() { setShowFavs(true); setCat("All"); updateProc(activeProc, { search: "", code: null }); }} style={showFavs ? { ...S.catBtnActive, color: "#fbbf24", borderColor: "rgba(251,191,36,0.4)", background: "rgba(251,191,36,0.1)" } : { ...S.catBtn, color: "#fbbf24" }}>{"\u2605"} Favorites{favorites.length > 0 ? " (" + favorites.length + ")" : ""}</button>{categories.map(function(c) { return <button key={c} onClick={function() { setCat(c); setShowFavs(false); }} style={cat === c && !showFavs ? S.catBtnActive : S.catBtn}>{c}</button>; })}</div>}
 
     {/* Favorites panel */}
     {!curSel && showFavs && !curSearch.trim() && <div style={S.resultsList}>

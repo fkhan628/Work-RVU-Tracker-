@@ -483,7 +483,17 @@ the per-file gates below. Run it after EVERY file change.
   showUndo bumps, so a repeat of the same text is announced again. The
   post-save reset also closes the Save-as-template form, and the
   Encounter Summary card uses --card-main-from / --card-main-to, never a
-  hard-coded gradient (check.js 5f-8).
+  hard-coded gradient (check.js 5f-8). The category / Favorites chip row
+  renders only while the ACTIVE procedure has no picked code
+  (`{!curSel && <div style={S.catRow}>}`, the same !curSel both result
+  lists lead with, so a category filter is never hidden while a list shows;
+  with a code picked the selected card sits right under the search box).
+  '+ Add' and the card's x bring it back on Favorites (showFavList resets
+  the category to All); typing in the search box, or a Proc tab / proc
+  removal that leaves a code-less procedure active, brings it back with the
+  chosen category still highlighted (the row remounts, so a chip far to the
+  right may be scrolled out of view). The search box always stays (check.js
+  5f-12: one row, its chips inside it, curSel never reassigned).
 - Trends' Goal Pace card (Current only, like Home's pace line) uses Home's
   Tracked OR pace: Projected Annual = compProjection({ trackedWRVU: ytdRVU,
   trackedDays: daysPassed }).trackedPace with Home's inputs (logged credited

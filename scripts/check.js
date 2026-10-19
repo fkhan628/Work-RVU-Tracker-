@@ -1794,6 +1794,77 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", "));
 }
 
+// 5f-12. Log's category / Favorites chip row (CLAUDE.md, beside Log's save
+// bar). log.js has exactly one S.catRow element (plain or spread style),
+// directly in LogProc (no nested function), rendered exactly as {!curSel &&
+// <div style={S.catRow}>...} with no other condition above it, and every
+// onClick that sets the category sits inside it; both S.resultsList lists
+// lead their && chain with !curSel and the one S.selectedCard with curSel,
+// so a list never shows without the row (the row shows whenever !curSel);
+// and LogProc's curSel = cur.code ? cptMap[cur.code] : null with cur =
+// procs[activeProc] || ..., the ACTIVE procedure's code (the save bar's pin
+// test), never reassigned. Syntactic on purpose: a ternary that behaves the
+// same is refused, so there is ONE pinned shape.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const isFn = a => a.type === "FunctionDeclaration" || a.type === "FunctionExpression" || a.type === "ArrowFunctionExpression";
+  const attr = (el, name) => el.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === name)[0];
+  // style={S.key} or style={{ ...S.key, ... }} (the repo's spread idiom).
+  const styled = (n, key) => { if (n.type !== "JSXElement") return false; const a = attr(n.openingElement, "style"); const e = a && a.value && a.value.expression; return !!e && (isMem(e, "S", key) || (e.type === "ObjectExpression" && e.properties.some(p => p.type === "SpreadElement" && isMem(p.argument, "S", key)))); };
+  const notCurSel = x => !!x && x.type === "UnaryExpression" && x.operator === "!" && isId(x.argument, "curSel");
+  const leftmost = t => { while (t && t.type === "LogicalExpression" && t.operator === "&&") t = t.left; return t; };
+  const bad = [];
+  let src = "";
+  try { src = fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8"); parser.parse(src, AST_OPTS); } catch (e) { bad.push("log.js: parse"); src = ""; }
+  if (src) {
+    let rows = 0, rowOk = 0, lists = 0, listOk = 0, cards = 0, cardOk = 0, chips = 0, chipOk = 0;
+    const decl = { cur: [], curSel: [] };
+    walkStack(src, (n, stack) => {
+      const fns = stack.filter(isFn);
+      const inLog = fns.length === 1 && fns[0].type === "FunctionDeclaration" && isId(fns[0].id, "LogProc");
+      // cur / curSel: LogProc's own declarations, never reassigned anywhere.
+      if (n.type === "VariableDeclarator" && (isId(n.id, "cur") || isId(n.id, "curSel")) && inLog) decl[n.id.name].push(n);
+      if ((n.type === "AssignmentExpression" && (isId(n.left, "cur") || isId(n.left, "curSel"))) || (n.type === "UpdateExpression" && (isId(n.argument, "cur") || isId(n.argument, "curSel")))) bad.push("log.js:" + n.loc.start.line + ": cur / curSel reassigned");
+      // The chips: every onClick that sets the category lives inside the row.
+      if (n.type === "JSXAttribute" && n.name && n.name.name === "onClick" && n.value && deep(n.value, m => m.type === "CallExpression" && isId(m.callee, "setCat")).length) {
+        chips++;
+        if (stack.some(a => styled(a, "catRow"))) chipOk++;
+      }
+      if (n.type !== "JSXElement") return;
+      if (styled(n, "catRow")) {
+        rows++;
+        const p = stack[stack.length - 1], gp = stack[stack.length - 2];
+        const at = stack.indexOf(fns[0]);
+        const conds = stack.slice(at + 1).filter(a => a.type === "ConditionalExpression" || a.type === "LogicalExpression" || a.type === "IfStatement");
+        if (inLog && p && p.type === "LogicalExpression" && p.operator === "&&" && p.right === n && notCurSel(p.left) && gp && gp.type === "JSXExpressionContainer" && conds.length === 1) rowOk++;
+      }
+      if (styled(n, "resultsList")) {
+        lists++;
+        const p = stack[stack.length - 1];
+        if (inLog && p && p.type === "LogicalExpression" && p.operator === "&&" && p.right === n && notCurSel(leftmost(p))) listOk++;
+      }
+      if (styled(n, "selectedCard")) {
+        cards++;
+        const chain = stack.filter(a => a.type === "LogicalExpression" && a.operator === "&&").pop();
+        if (inLog && chain && isId(leftmost(chain), "curSel")) cardOk++;
+      }
+    });
+    if (rows !== 1 || rowOk !== 1) bad.push("log.js: the category row is not exactly {!curSel && <div style={S.catRow}>} in LogProc (" + rows + " rows, " + rowOk + " ok)");
+    if (lists !== 2 || listOk !== 2) bad.push("log.js: the two result lists do not lead with !curSel (" + lists + " lists, " + listOk + " ok)");
+    if (cards !== 1 || cardOk !== 1) bad.push("log.js: the selected card does not lead with curSel (" + cards + ", " + cardOk + ")");
+    if (chips < 2 || chipOk !== chips) bad.push("log.js: a category / Favorites chip sits outside the row (" + chipOk + " of " + chips + ")");
+    const cs = decl.curSel, cu = decl.cur;
+    const csOk = cs.length === 1 && cs[0].init && cs[0].init.type === "ConditionalExpression" && isMem(cs[0].init.test, "cur", "code") &&
+      cs[0].init.consequent.type === "MemberExpression" && cs[0].init.consequent.computed && isId(cs[0].init.consequent.object, "cptMap") && isMem(cs[0].init.consequent.property, "cur", "code") && cs[0].init.alternate.type === "NullLiteral";
+    const cuOk = cu.length === 1 && cu[0].init && cu[0].init.type === "LogicalExpression" && cu[0].init.operator === "||" && cu[0].init.left.type === "MemberExpression" && cu[0].init.left.computed && isId(cu[0].init.left.object, "procs") && isId(cu[0].init.left.property, "activeProc");
+    if (!csOk || !cuOk) bad.push("log.js: curSel is not the ACTIVE procedure's picked code (cur = procs[activeProc] || ...; curSel = cur.code ? cptMap[cur.code] : null)");
+  }
+  check("5f-12: Log's category / Favorites row renders only as {!curSel && <div style={S.catRow}>} - the same !curSel the two lists lead with (the card leads with curSel); curSel is the ACTIVE procedure's code",
+    bad.length === 0, bad.join(", "));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
