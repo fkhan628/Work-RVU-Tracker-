@@ -49,7 +49,7 @@ class ErrorBoundary extends React.Component {
                 location.reload();
               }
             },
-            style: { padding: "10px 20px", borderRadius: 10, border: "1px solid #ef4444", background: "none", color: "#ef4444", fontSize: 13, cursor: "pointer" }
+            style: { padding: "10px 20px", borderRadius: 10, border: "1px solid #ef4444", background: "none", color: "var(--accent-red)", fontSize: 13, cursor: "pointer" }
           }, "Reset App")
         )
       );
@@ -247,7 +247,7 @@ function Nav({ view, setView }) {
         <button key={t.id} onClick={() => setView(t.id)} aria-label={t.label} aria-current={view === t.id ? "page" : undefined} style={{
           ...S.navBtn,
           flex: 1, minHeight: 48,
-          color: view === t.id ? "#0ea5e9" : "var(--text-muted)"
+          color: view === t.id ? "var(--accent-sky)" : "var(--text-muted)"
         }}>
           <span style={{ fontSize: t.id === "log" ? 22 : 17, transition: "transform 0.15s", transform: view === t.id ? "scale(1.15)" : "scale(1)" }}>{t.icon}</span>
           <span style={{ fontSize: 10, marginTop: 2, letterSpacing: 0.2, fontWeight: view === t.id ? 700 : 400 }}>{t.label}</span>
@@ -263,7 +263,7 @@ function Nav({ view, setView }) {
 // root.render). JSX: never move it into a plain script.
 function CompEye({ showComp, toggleComp, style }) {
   if (!toggleComp) return null;
-  return <button onClick={toggleComp} aria-label="Show dollar amounts" aria-pressed={!!showComp} title={showComp ? "Hide $" : "Show $"} style={{ minHeight: 44, minWidth: 44, padding: 0, background: "none", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer", color: showComp ? "#10b981" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0, ...(style || {}) }}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>;
+  return <button onClick={toggleComp} aria-label="Show dollar amounts" aria-pressed={!!showComp} title={showComp ? "Hide $" : "Show $"} style={{ minHeight: 44, minWidth: 44, padding: 0, background: "none", border: "1px solid var(--border-default)", borderRadius: 8, cursor: "pointer", color: showComp ? "var(--accent-green)" : "var(--text-dim)", fontSize: 16, lineHeight: 1, flexShrink: 0, ...(style || {}) }}>{showComp ? "\uD83D\uDC41" : "\uD83D\uDC41\u200D\uD83D\uDDE8"}</button>;
 }
 
 // Global error handler - prevents white screen on unhandled errors

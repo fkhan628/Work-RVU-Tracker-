@@ -500,7 +500,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
     return s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?");
   };
   var typeTag = function(s) { return payShiftIsTyped(s) ? DOT + s.rates.shiftType.label : ""; };
-  var FLAG_TAG = <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(245,158,11,0.15)", color: "#f59e0b", fontFamily: "inherit", whiteSpace: "nowrap" }}>Set Day or Night</span>;
+  var FLAG_TAG = <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(245,158,11,0.15)", color: "var(--accent-amber)", fontFamily: "inherit", whiteSpace: "nowrap" }}>Set Day or Night</span>;
   // Shift list: newest shift date first, then most recently added. Shows the
   // newest 5 unless "Show all" is on - every shift must stay reachable. The
   // Day-or-Night card's Review shows only the shifts that need a type.
@@ -578,19 +578,19 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
     });
   };
   var staleTag = function(s) {
-    return payShiftStale(s, siteById(s.siteId)) ? <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(245,158,11,0.15)", color: "#f59e0b", fontFamily: "inherit", whiteSpace: "nowrap" }}>Rates changed</span> : null;
+    return payShiftStale(s, siteById(s.siteId)) ? <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(245,158,11,0.15)", color: "var(--accent-amber)", fontFamily: "inherit", whiteSpace: "nowrap" }}>Rates changed</span> : null;
   };
 
-  var danger = { color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" };
+  var danger = { color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" };
   var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
-  var amber = "#f59e0b";
+  var amber = "var(--accent-amber)";
 
   var eyeBtn = <CompEye showComp={showComp} toggleComp={toggleComp} />;
   var chip = function(on, label, onClick, key, extra) {
-    return (<button key={key} onClick={onClick} aria-pressed={on} style={btn({ flex: 1, padding: "0 6px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)", ...(extra || {}) })}>{label}</button>);
+    return (<button key={key} onClick={onClick} aria-pressed={on} style={btn({ flex: 1, padding: "0 6px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", ...(extra || {}) })}>{label}</button>);
   };
   var probLine = function(p, k) {
-    return (<div key={k} style={{ fontSize: 11, lineHeight: 1.5, marginTop: 4, color: p.block ? "#ef4444" : amber }}>{probText(p)}</div>);
+    return (<div key={k} style={{ fontSize: 11, lineHeight: 1.5, marginTop: 4, color: p.block ? "var(--accent-red)" : amber }}>{probText(p)}</div>);
   };
   var pick = function(on) { return { border: on ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.12)" : "transparent" }; };
   var payCard = function(shift, p, title) {
@@ -642,14 +642,14 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
     var siteCard = (<div style={S.card}>
       <div style={S.fieldLabel}>Site</div>
       {site && site.deleted && <div style={{ padding: "10px 12px", marginTop: 6, borderRadius: 10, ...pick(true) }}>
-        <div style={{ fontSize: 15, fontWeight: 700, color: "#0ea5e9" }}>{site.name + " (deleted)"}</div>
+        <div style={{ fontSize: 15, fontWeight: 700, color: "var(--accent-sky)" }}>{site.name + " (deleted)"}</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.5 }}>This site was deleted. The shift keeps the rates it was saved with; changing its day needs a current site.</div>
       </div>}
       {sites.map(function(s) {
         var on = d.siteId === s.id;
         var sr = rateInForce(s, isYMD(d.date) ? d.date : today);
         return (<button key={s.id} onClick={function() { setD(function(x) { return refresh({ ...x, siteId: s.id }); }); }} style={{ display: "block", width: "100%", textAlign: "left", minHeight: 56, padding: "10px 12px", marginTop: 6, borderRadius: 10, cursor: "pointer", ...pick(on) }}>
-          <div style={{ fontSize: 15, fontWeight: 700, color: on ? "#0ea5e9" : "var(--text-bright)" }}>{s.name}</div>
+          <div style={{ fontSize: 15, fontWeight: 700, color: on ? "var(--accent-sky)" : "var(--text-bright)" }}>{s.name}</div>
           <div style={{ fontSize: 11, marginTop: 2, lineHeight: 1.4, color: sr ? "var(--text-muted)" : amber }}>{sr ? maskText(siteSummary(sr)) : "No rates for this date"}</div>
         </button>);
       })}
@@ -691,7 +691,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
         </div>}
         <button onClick={function() { if (!showComp) toggleComp(); }} style={{ width: "100%", minHeight: 36, display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, background: "none", border: "none", padding: "0 2px 8px", cursor: showComp ? "default" : "pointer" }}>
           <span style={{ fontSize: 13, color: "var(--text-muted)" }}>{pays.length ? (pays.length > 1 ? "Total (" + pays.map(function(x) { return x.s.rates.shiftType.label; }).join(" + ") + ")" : "Total") + (showComp ? "" : " (tap to show)") : "Total - fill in the items above"}</span>
-          <span style={{ fontSize: 20, fontWeight: 700, fontFamily: "JetBrains Mono", color: "#10b981" }}>{pays.length ? paid(built.total) : "-"}</span>
+          <span style={{ fontSize: 20, fontWeight: 700, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{pays.length ? paid(built.total) : "-"}</span>
         </button>
         <button onClick={saveDraft} disabled={!builtShifts.length} style={btn({ ...primary, width: "100%", minHeight: 50, fontSize: 15, opacity: builtShifts.length ? 1 : 0.4 })}>{saveLabel}</button>
       </div>
@@ -738,7 +738,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
       var running = !ciType ? null : rowProbs.some(Boolean) ? { text: "Fix the call-in times above.", color: amber }
         : ciSum.trips === 0 ? { text: "No call-ins - quiet night.", color: "var(--text-muted)" }
         : !ciSum.met ? { text: "Total in " + payFmtHM(ciSum.minutes) + DOT + "under " + payFmtHM(ciSum.threshold) + " - not paid", color: "var(--text-muted)" }
-        : { text: "Total in " + payFmtHM(ciSum.minutes) + DOT + payFmtHM(ciSum.threshold) + " met - all " + payFmtHM(ciSum.minutes) + " paid", color: "#10b981" };
+        : { text: "Total in " + payFmtHM(ciSum.minutes) + DOT + payFmtHM(ciSum.threshold) + " met - all " + payFmtHM(ciSum.minutes) + " paid", color: "var(--accent-green)" };
       var savedMin = (d.savedTrips || []).reduce(function(a, t) { return a + (t.minutes || 0); }, 0);
       var savedText = (d.savedTrips || []).map(function(t) { return payFmtHM(t.minutes) + " on " + dayLabel(t.date); }).join(", ");
       var dayOnly = picked.length > 0 && !ciType;
@@ -764,7 +764,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>{maskText(money(ciType.callIn.hourly)) + "/hr for time in" + (ciType.callIn.thresholdMinutes > 0 ? ", once the night's total reaches " + payFmtHM(ciType.callIn.thresholdMinutes) + ". Under " + payFmtHM(ciType.callIn.thresholdMinutes) + " pays $0." : ".")}</div>
           {editFlagged && (d.savedTrips || []).length > 0 && <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>{"Saved with this shift: " + savedText}</div>
-            <button onClick={function() { setD(function(x) { return payDraftUseSaved(x); }); }} style={btn({ width: "100%", marginTop: 6, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>{"Use saved call-ins (" + payFmtHM(savedMin) + ")"}</button>
+            <button onClick={function() { setD(function(x) { return payDraftUseSaved(x); }); }} style={btn({ width: "100%", marginTop: 6, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>{"Use saved call-ins (" + payFmtHM(savedMin) + ")"}</button>
           </div>}
           {rows.map(function(row, i) {
             var probs = probsOf(i);
@@ -784,7 +784,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
           })}
           {running && <div style={{ fontSize: 12, fontWeight: 600, color: running.color, marginTop: 10 }}>{running.text}</div>}
           {ciLongProbs.map(probLine)}
-          <button onClick={function() { setD(function(x) { return { ...x, ciRows: (x.ciRows || []).concat([{ h: "", m: "" }]) }; }); }} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add call-in</button>
+          <button onClick={function() { setD(function(x) { return { ...x, ciRows: (x.ciRows || []).concat([{ h: "", m: "" }]) }; }); }} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add call-in</button>
         </div>}
         {dayOnly && editFlagged && savedMin > 0 && <div style={{ ...S.card, fontSize: 12, color: amber, lineHeight: 1.5 }}>{"The saved call-in (" + payFmtHM(savedMin) + ") is not paid on a " + picked.map(function(k) { return payTypeByKey(r, k).label; }).join(" + ") + " shift and is not kept."}</div>}
         {noteCard}
@@ -877,7 +877,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
               <div style={S.fieldLabel}>Did you go in before or after midnight?</div>
               {[["same", "Before midnight", d.date], ["next", "After midnight", next]].map(function(o) {
                 var on = e.rel === o[0];
-                return (<button key={o[0]} onClick={function() { setRel(i, o[0]); }} style={btn({ display: "block", width: "100%", textAlign: "left", marginTop: 6, ...pick(on), color: on ? "#0ea5e9" : "var(--text-primary)" })}>{o[1] + DOT + dayLabel(o[2]) + DOT + maskText(cash(feeOn(o[2]))) + " fee"}</button>);
+                return (<button key={o[0]} onClick={function() { setRel(i, o[0]); }} style={btn({ display: "block", width: "100%", textAlign: "left", marginTop: 6, ...pick(on), color: on ? "var(--accent-sky)" : "var(--text-primary)" })}>{o[1] + DOT + dayLabel(o[2]) + DOT + maskText(cash(feeOn(o[2]))) + " fee"}</button>);
               })}
             </div>}
             {askDN && <div style={{ marginTop: 10 }}>
@@ -889,7 +889,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
               <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>{(site ? site.name : "This site") + " pays hourly only at night, on weekends and holidays."}</div>
             </div>}
             {rateLine(e) && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8 }}>{rateLine(e)}</div>}
-            <button onClick={function() { if (!forced) setMoreOpen({ ...moreOpen, [i]: !moreOpen[i] }); }} style={{ background: "none", border: "none", padding: "8px 0", minHeight: 36, color: forced ? "var(--text-faint)" : "#0ea5e9", fontSize: 12, fontWeight: 600, cursor: forced ? "default" : "pointer" }}>{more ? "Fewer options" : "More options"}</button>
+            <button onClick={function() { if (!forced) setMoreOpen({ ...moreOpen, [i]: !moreOpen[i] }); }} style={{ background: "none", border: "none", padding: "8px 0", minHeight: 36, color: forced ? "var(--text-faint)" : "var(--accent-sky)", fontSize: 12, fontWeight: 600, cursor: forced ? "default" : "pointer" }}>{more ? "Fewer options" : "More options"}</button>
             {more && <div style={{ padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid var(--border-default)" }}>
               <div style={S.fieldLabel}>Start time (optional)</div>
               <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
@@ -917,7 +917,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
             {evProbs.map(probLine)}
           </div>);
         })}
-        {went && <button onClick={function() { setD(function(x) { return { ...x, events: x.events.concat([trip(x)]) }; }); }} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>+ Went in again</button>}
+        {went && <button onClick={function() { setD(function(x) { return { ...x, events: x.events.concat([trip(x)]) }; }); }} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>+ Went in again</button>}
       </div>}
       {noteCard}
       {footer}
@@ -927,7 +927,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
   // ---- The rates editor forms (inside the site's block of the rates card) ----
   var renderLegacyRateForm = function(s) {
     return (<div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "var(--bg-inset)" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#0ea5e9", marginBottom: 10 }}>{rateForm.editing ? (rateForm.f.original ? "Edit the Original rates" : "Edit rate version") : "New rates - " + s.name}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-sky)", marginBottom: 10 }}>{rateForm.editing ? (rateForm.f.original ? "Edit the Original rates" : "Edit rate version") : "New rates - " + s.name}</div>
       {!rateForm.editing && styleToggle(s)}
       {rateForm.f.original
         ? <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>{"Original rates - apply before " + (firstDated(s) ? fromLabel(firstDated(s).effective) : "any dated version") + "."}</div>
@@ -966,7 +966,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
     var setT = function(i, k, v) { setForm(function(ff) { return { ...ff, types: ff.types.map(function(t, j) { return j === i ? { ...t, [k]: v } : t; }) }; }); };
     var numIn = function(i, k, width, ph) { return <input type="text" inputMode="decimal" value={f.types[i][k]} onChange={function(e) { setT(i, k, e.target.value); }} placeholder={ph || "0"} style={{ ...S.numberInput, width: width || 110 }} />; };
     return (<div style={{ marginTop: 10, padding: 12, borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "var(--bg-inset)" }}>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "#0ea5e9", marginBottom: 10 }}>{rateForm.editing ? (f.original ? "Edit the Original rates" : "Edit rates") : "New rates - " + s.name}</div>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-sky)", marginBottom: 10 }}>{rateForm.editing ? (f.original ? "Edit the Original rates" : "Edit rates") : "New rates - " + s.name}</div>
       {!rateForm.editing && styleToggle(s)}
       {f.original
         ? <div style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 10, lineHeight: 1.5 }}>{"Original rates - apply before " + (firstDated(s) ? fromLabel(firstDated(s).effective) : "any dated version") + "."}</div>
@@ -1008,7 +1008,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
           <div style={{ fontSize: 12, color: "var(--text-primary)", fontFamily: "JetBrains Mono", marginTop: 8, lineHeight: 1.5 }}>{payTypePreview(parsed)}</div>
         </div>);
       })}
-      <button onClick={function() { setForm(function(ff) { return { ...ff, types: ff.types.concat([{ key: payNewTypeKey(), label: "", hours: "", flat: "", stipend: "", stipendLabel: "", ci: false, hourly: "", thrH: "", thrM: "" }]) }; }); }} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add shift type</button>
+      <button onClick={function() { setForm(function(ff) { return { ...ff, types: ff.types.concat([{ key: payNewTypeKey(), label: "", hours: "", flat: "", stipend: "", stipendLabel: "", ci: false, hourly: "", thrH: "", thrM: "" }]) }; }); }} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add shift type</button>
       {err && <div style={{ fontSize: 11, color: amber, marginTop: 8, lineHeight: 1.5 }}>{err}</div>}
       {rateForm.editing && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 8, lineHeight: 1.5 }}>Renaming a type keeps its place; recorded shifts change only through the re-price you'll be offered after saving.</div>}
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
@@ -1104,7 +1104,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
       {sites.length === 0
         ? <div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Add a site and its rates below to get started.</div>
-            {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
+            {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
           </div>
         : <div>
             <button onClick={openNew} style={btn({ ...primary, width: "100%", marginTop: 10, minHeight: 50, fontSize: 15 })}>+ New shift</button>
@@ -1136,7 +1136,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
       </div>}
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", gap: 8, marginTop: 10 }}>
         <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{yr + DOT + plural(totals.shifts, "shift") + DOT + plural(totals.callIns, "call-in")}</div>
-        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "JetBrains Mono", color: "#10b981", flexShrink: 0 }}>{paid(totals.total)}</div>
+        <div style={{ fontSize: 18, fontWeight: 700, fontFamily: "JetBrains Mono", color: "var(--accent-green)", flexShrink: 0 }}>{paid(totals.total)}</div>
       </div>
       {totals.split.length > 0 && <div style={{ marginTop: 6 }}>
         {totals.split.map(function(b) {
@@ -1210,7 +1210,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
           <div style={{ display: "flex", gap: 4 }}>
             {DAYS.map(function(dn, d) {
               var on = wd.indexOf(d) !== -1;
-              return (<button key={dn} onClick={function() { toggleWeekend(s.id, d); }} style={btn({ flex: 1, padding: 0, fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-faint)" })}>{dn}</button>);
+              return (<button key={dn} onClick={function() { toggleWeekend(s.id, d); }} style={btn({ flex: 1, padding: 0, fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-faint)" })}>{dn}</button>);
             })}
           </div>
           {builtInDefOf[s.id] && wd.slice().sort().join(",") !== builtInDefOf[s.id].weekendDays.slice().sort().join(",") && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{"The built-in " + builtInDefOf[s.id].name + " rates count " + dayList(builtInDefOf[s.id].weekendDays) + " as weekend days."}</div>}
@@ -1219,7 +1219,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
           <div style={{ display: "flex", gap: 6 }}>
             {[[true, "Earn wRVU credit"], [false, "No wRVU credit"]].map(function(c) {
               var on = (s.casesEarnRVU !== false) === c[0];
-              return (<button key={c[1]} onClick={function() { setSiteCredit(s, c[0]); }} style={btn({ flex: 1, padding: "0 8px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-faint)" })}>{c[1]}</button>);
+              return (<button key={c[1]} onClick={function() { setSiteCredit(s, c[0]); }} style={btn({ flex: 1, padding: "0 8px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-faint)" })}>{c[1]}</button>);
             })}
           </div>
           {s.casesEarnRVU === false && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{"Call cases dated " + fromLabel(CALL_NO_CREDIT_FROM) + " or later are logged with no wRVU credit; earlier ones earn credit."}</div>}
@@ -1230,7 +1230,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
             {sorted.map(function(r, i) {
               var newer = sorted[i - 1], typedV = payRateIsTyped(r);
               return (<div key={r.id} style={{ padding: "8px 0", borderTop: "1px solid rgba(51,65,85,0.4)" }}>
-                <div style={{ fontSize: 12, fontWeight: 600, color: r === cur ? "#34d399" : "var(--text-muted)" }}>{versionStatus(r, cur, newer) + (r.label ? " (" + r.label + ")" : "")}</div>
+                <div style={{ fontSize: 12, fontWeight: 600, color: r === cur ? "var(--accent-green-soft)" : "var(--text-muted)" }}>{versionStatus(r, cur, newer) + (r.label ? " (" + r.label + ")" : "")}</div>
                 {typedV
                   ? payRateTypes(r).map(function(t) { return <div key={t.key} style={{ fontSize: 12, color: "var(--text-primary)", fontFamily: "JetBrains Mono", marginTop: 3, lineHeight: 1.5 }}>{maskText(payTypePreview(t))}</div>; })
                   : <div style={{ fontSize: 12, color: "var(--text-primary)", fontFamily: "JetBrains Mono", marginTop: 3, lineHeight: 1.5 }}>{maskText(versionSummary(r))}</div>}
@@ -1252,7 +1252,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
 
           {rateForm && rateForm.siteId === s.id
             ? (rateForm.kind === "typed" ? renderTypedRateForm(s) : renderLegacyRateForm(s))
-            : <button onClick={function() { openRateForm(s, null); }} style={btn({ marginTop: 8, width: "100%", color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add new rates</button>}
+            : <button onClick={function() { openRateForm(s, null); }} style={btn({ marginTop: 8, width: "100%", color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>+ Add new rates</button>}
         </div>);
       })}
 
@@ -1261,7 +1261,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
         <button onClick={addSite} disabled={!newSite.trim() || nameTaken(newSite, null)} style={btn({ ...primary, opacity: newSite.trim() && !nameTaken(newSite, null) ? 1 : 0.4 })}>Add site</button>
       </div>
       {newSite.trim() && nameTaken(newSite, null) && <div style={{ fontSize: 11, color: amber, marginTop: 6 }}>A site with that name already exists.</div>}
-      {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
+      {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
     </div>
   </div>);
 }

@@ -652,7 +652,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   return (<div style={S.page}>
     <div style={{ ...S.header, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
       <h1 style={S.title}>Log Encounter</h1>
-      {openCallPay && <button onClick={function() { openCallPay("log"); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Call pay</button>}
+      {openCallPay && <button onClick={function() { openCallPay("log"); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer", flexShrink: 0 }}>Call pay</button>}
     </div>
 
     {/* Scan Buttons (feature-flagged: hidden entirely when SCAN_ENABLED is false) */}
@@ -661,15 +661,15 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         <input ref={imgRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) scanNote(e.target.files[0]); e.target.value = ""; }} />
         <input ref={clinicRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) scanClinicNote(e.target.files[0]); e.target.value = ""; }} />
         <input ref={inpatientRef} type="file" accept="image/*,application/pdf" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) scanInpatient(e.target.files[0]); e.target.value = ""; }} />
-        <button onClick={function() { if (!hasKey) { setScanError("No API key. Go to Settings to add one."); return; } if (hipaaAck) { imgRef.current && imgRef.current.click(); } else { pendingScanType.current = "opnote"; setShowHipaaWarn(true); } }} disabled={scanning.current} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: hasKey ? "1px dashed #0ea5e9" : "1px dashed var(--border-default)", background: hasKey ? "rgba(14,165,233,0.05)" : "rgba(30,41,59,0.5)", color: hasKey ? "#0ea5e9" : "var(--text-faint)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+        <button onClick={function() { if (!hasKey) { setScanError("No API key. Go to Settings to add one."); return; } if (hipaaAck) { imgRef.current && imgRef.current.click(); } else { pendingScanType.current = "opnote"; setShowHipaaWarn(true); } }} disabled={scanning.current} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: hasKey ? "1px dashed #0ea5e9" : "1px dashed var(--border-default)", background: hasKey ? "rgba(14,165,233,0.05)" : "rgba(30,41,59,0.5)", color: hasKey ? "var(--accent-sky)" : "var(--text-faint)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
           <span style={{ fontSize: 18 }}>&#128247;</span>
           <div>Op Note</div>
         </button>
-        <button onClick={function() { if (!hasKey) { setScanError("No API key. Go to Settings to add one."); return; } if (hipaaAck) { clinicRef.current && clinicRef.current.click(); } else { pendingScanType.current = "clinic"; setShowHipaaWarn(true); } }} disabled={scanning.current} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: hasKey ? "1px dashed #10b981" : "1px dashed var(--border-default)", background: hasKey ? "rgba(16,185,129,0.05)" : "rgba(30,41,59,0.5)", color: hasKey ? "#10b981" : "var(--text-faint)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+        <button onClick={function() { if (!hasKey) { setScanError("No API key. Go to Settings to add one."); return; } if (hipaaAck) { clinicRef.current && clinicRef.current.click(); } else { pendingScanType.current = "clinic"; setShowHipaaWarn(true); } }} disabled={scanning.current} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: hasKey ? "1px dashed #10b981" : "1px dashed var(--border-default)", background: hasKey ? "rgba(16,185,129,0.05)" : "rgba(30,41,59,0.5)", color: hasKey ? "var(--accent-green)" : "var(--text-faint)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
           <span style={{ fontSize: 18 }}>&#128203;</span>
           <div>Clinic Note</div>
         </button>
-        <button onClick={function() { if (!hasKey) { setScanError("No API key. Go to Settings to add one."); return; } if (hipaaAck) { inpatientRef.current && inpatientRef.current.click(); } else { pendingScanType.current = "inpatient"; setShowHipaaWarn(true); } }} disabled={scanning.current} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: hasKey ? "1px dashed #a78bfa" : "1px dashed var(--border-default)", background: hasKey ? "rgba(139,92,246,0.05)" : "rgba(30,41,59,0.5)", color: hasKey ? "#a78bfa" : "var(--text-faint)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
+        <button onClick={function() { if (!hasKey) { setScanError("No API key. Go to Settings to add one."); return; } if (hipaaAck) { inpatientRef.current && inpatientRef.current.click(); } else { pendingScanType.current = "inpatient"; setShowHipaaWarn(true); } }} disabled={scanning.current} style={{ flex: 1, padding: "10px 6px", borderRadius: 12, border: hasKey ? "1px dashed #a78bfa" : "1px dashed var(--border-default)", background: hasKey ? "rgba(139,92,246,0.05)" : "rgba(30,41,59,0.5)", color: hasKey ? "var(--accent-violet)" : "var(--text-faint)", fontSize: 12, fontWeight: 600, cursor: "pointer", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 2 }}>
           <span style={{ fontSize: 18 }}>&#127973;</span>
           <div>Inpatient Note</div>
         </button>
@@ -682,11 +682,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       <div style={{ maxWidth: 400, width: "100%", background: "var(--bg-card)", borderRadius: 16, border: "1px solid #f59e0b", overflow: "hidden" }}>
         <div style={{ padding: "16px 20px", background: "rgba(245,158,11,0.1)", borderBottom: "1px solid rgba(245,158,11,0.2)", display: "flex", alignItems: "center", gap: 10 }}>
           <span style={{ fontSize: 24 }}>&#9888;&#65039;</span>
-          <div style={{ fontSize: 16, fontWeight: 700, color: "#f59e0b" }}>PHI / HIPAA Notice</div>
+          <div style={{ fontSize: 16, fontWeight: 700, color: "var(--accent-amber)" }}>PHI / HIPAA Notice</div>
         </div>
         <div style={{ padding: "16px 20px" }}>
           <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, marginBottom: 12 }}>
-            This feature sends your image or PDF to Anthropic's API for analysis. If the file contains <span style={{ color: "#f59e0b", fontWeight: 600 }}>Protected Health Information (PHI)</span> such as patient names, MRNs, dates of birth, or other identifiers, that data will be transmitted to external servers.
+            This feature sends your image or PDF to Anthropic's API for analysis. If the file contains <span style={{ color: "var(--accent-amber)", fontWeight: 600 }}>Protected Health Information (PHI)</span> such as patient names, MRNs, dates of birth, or other identifiers, that data will be transmitted to external servers.
           </div>
           <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, marginBottom: 12 }}>
             <span style={{ fontWeight: 600, color: "var(--text-bright)" }}>Safeguards in place:</span>
@@ -697,7 +697,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
             {"\u2022"} No image or PDF data is stored in this app
           </div>
           <div style={{ fontSize: 13, color: "var(--text-primary)", lineHeight: 1.6, marginBottom: 16 }}>
-            <span style={{ fontWeight: 600, color: "#f59e0b" }}>Recommendation:</span> When possible, crop or redact patient identifiers before scanning. Use at your own discretion as the treating provider.
+            <span style={{ fontWeight: 600, color: "var(--accent-amber)" }}>Recommendation:</span> When possible, crop or redact patient identifiers before scanning. Use at your own discretion as the treating provider.
           </div>
           <div style={{ display: "flex", gap: 8 }}>
             <button onClick={function() { setShowHipaaWarn(false); pendingScanType.current = null; }} style={{ flex: 1, padding: "12px 16px", borderRadius: 10, border: "1px solid var(--border-default)", background: "var(--bg-inset)", color: "var(--text-muted)", fontSize: 14, cursor: "pointer" }}>Cancel</button>
@@ -707,11 +707,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       </div>
     </div>}
 
-    {scanStatus && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(14,165,233,0.1)", color: "#0ea5e9", fontSize: 13, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
+    {scanStatus && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(14,165,233,0.1)", color: "var(--accent-sky)", fontSize: 13, textAlign: "center", display: "flex", alignItems: "center", justifyContent: "center", gap: 10 }}>
       <span style={{ animation: "rvuPulse 1.5s ease-in-out infinite" }}>{scanStatus}</span>
-      <button onClick={cancelScan} style={{ padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.1)", color: "#f87171", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
+      <button onClick={cancelScan} style={{ padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.1)", color: "var(--accent-red-soft)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
     </div>}
-    {scanError && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.1)", color: "#ef4444", fontSize: 13, textAlign: "center" }}>{scanError}</div>}
+    {scanError && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.1)", color: "var(--accent-red)", fontSize: 13, textAlign: "center" }}>{scanError}</div>}
 
 
     <div style={{ display: "flex", gap: 8 }}>
@@ -721,7 +721,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
             var on = date === c[1];
             // The date is computed when TAPPED (not at render) so the chip is
             // right after midnight even if the screen has not re-rendered.
-            return (<button key={c[0]} onClick={function() { setDate(c[0] === "Today" ? todayLocal() : addDaysYMD(todayLocal(), -1)); }} style={{ flex: 1, minHeight: 40, borderRadius: 8, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c[0]}</button>);
+            return (<button key={c[0]} onClick={function() { setDate(c[0] === "Today" ? todayLocal() : addDaysYMD(todayLocal(), -1)); }} style={{ flex: 1, minHeight: 40, borderRadius: 8, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c[0]}</button>);
           })}
         </div>
       </div></div>
@@ -730,25 +730,25 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
     {/* Call/Private toggle */}
     <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-      <button onClick={function() { setIsCall(false); setCallSite(""); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !isCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !isCall ? "#0ea5e9" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        <span style={{ width: 16, height: 16, borderRadius: 8, border: !isCall ? "2px solid #0ea5e9" : "2px solid #475569", display: "flex", alignItems: "center", justifyContent: "center" }}>{!isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "#0ea5e9" }}></span>}</span>
+      <button onClick={function() { setIsCall(false); setCallSite(""); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !isCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !isCall ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <span style={{ width: 16, height: 16, borderRadius: 8, border: !isCall ? "2px solid var(--accent-sky)" : "2px solid var(--text-faint)", display: "flex", alignItems: "center", justifyContent: "center" }}>{!isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "var(--accent-sky)" }}></span>}</span>
         Private
       </button>
-      <button onClick={function() { setIsCall(true); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: isCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: isCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: isCall ? "#a78bfa" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
-        <span style={{ width: 16, height: 16, borderRadius: 8, border: isCall ? "2px solid #a78bfa" : "2px solid #475569", display: "flex", alignItems: "center", justifyContent: "center" }}>{isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "#a78bfa" }}></span>}</span>
+      <button onClick={function() { setIsCall(true); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: isCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: isCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: isCall ? "var(--accent-violet)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+        <span style={{ width: 16, height: 16, borderRadius: 8, border: isCall ? "2px solid var(--accent-violet)" : "2px solid var(--text-faint)", display: "flex", alignItems: "center", justifyContent: "center" }}>{isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "var(--accent-violet)" }}></span>}</span>
         Call
       </button>
     </div>
     {isCall && callSites.length > 0 && <div style={{ marginBottom: 10 }}>
-      <div style={{ fontSize: 11, color: needSite ? "#f59e0b" : "var(--text-muted)", marginBottom: 6 }}>{needSite ? "Pick the call site" : "Call site"}</div>
+      <div style={{ fontSize: 11, color: needSite ? "var(--accent-amber)" : "var(--text-muted)", marginBottom: 6 }}>{needSite ? "Pick the call site" : "Call site"}</div>
       <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
         {callSites.map(function(s) { return { key: s.id, on: !!pickedSite && pickedSite.id === s.id, label: s.name, note: paySiteCreditNote(s, date), pick: s.id }; })
           .concat([{ key: "other", on: callSite === CALL_SITE_OTHER, label: "Other site", note: "", pick: CALL_SITE_OTHER }])
           .map(function(c) {
-            return (<button key={c.key} onClick={function() { setCallSite(c.pick); }} style={{ flex: "1 1 120px", minHeight: 44, padding: "6px 10px", borderRadius: 10, border: c.on ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: c.on ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: c.on ? "#a78bfa" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{c.label}{c.note ? <span style={{ fontWeight: 400, fontSize: 11 }}>{" - " + c.note}</span> : null}</button>);
+            return (<button key={c.key} onClick={function() { setCallSite(c.pick); }} style={{ flex: "1 1 120px", minHeight: 44, padding: "6px 10px", borderRadius: 10, border: c.on ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: c.on ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: c.on ? "var(--accent-violet)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", textAlign: "left" }}>{c.label}{c.note ? <span style={{ fontWeight: 400, fontSize: 11 }}>{" - " + c.note}</span> : null}</button>);
           })}
       </div>
-      {siteGone && <div style={{ fontSize: 11, color: "#f59e0b", marginTop: 6 }}>That site was removed - pick again.</div>}
+      {siteGone && <div style={{ fontSize: 11, color: "var(--accent-amber)", marginTop: 6 }}>That site was removed - pick again.</div>}
       {creditOffer && !creditOfferHidden && <div style={{ marginTop: 8, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.06)" }}>
         <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{"The built-in " + creditOffer.def.name + " rule gives call cases from " + fmt(CALL_NO_CREDIT_FROM) + " no wRVU credit; " + pickedSite.name + " still credits them."}</div>
         <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
@@ -767,12 +767,12 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
           border: "1px solid rgba(16,185,129,0.3)", background: "rgba(16,185,129,0.06)",
           display: "flex", flexDirection: "column", alignItems: "flex-start", justifyContent: "center", gap: 1
         }}>
-          <span style={{ fontSize: 12, fontWeight: 700, color: "#34d399" }}>{t.name}</span>
+          <span style={{ fontSize: 12, fontWeight: 700, color: "var(--accent-green-soft)" }}>{t.name}</span>
           <span style={{ fontSize: 9, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{t.codes.length + " code" + (t.codes.length === 1 ? "" : "s")}</span>
         </button>);
       })}
     </div>}
-    {tplNotice && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: tplNotice.warn ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)", border: tplNotice.warn ? "1px solid rgba(245,158,11,0.25)" : "1px solid rgba(16,185,129,0.25)", color: tplNotice.warn ? "#f59e0b" : "#34d399", fontSize: 11, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
+    {tplNotice && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: tplNotice.warn ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)", border: tplNotice.warn ? "1px solid rgba(245,158,11,0.25)" : "1px solid rgba(16,185,129,0.25)", color: tplNotice.warn ? "var(--accent-amber)" : "var(--accent-green-soft)", fontSize: 11, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
       <span>{tplNotice.text}</span>
       <span onClick={function() { setTplNotice(null); }} style={{ cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>x</span>
     </div>}
@@ -784,7 +784,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         var isActive = i === activeProc;
         return (<button key={p.id} onClick={function() { setActiveProc(i); }} style={{
           padding: "6px 12px", borderRadius: 8, border: isActive ? "2px solid #0ea5e9" : "1px solid var(--border-default)",
-          background: isActive ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: isActive ? "#0ea5e9" : "var(--text-muted)",
+          background: isActive ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: isActive ? "var(--accent-sky)" : "var(--text-muted)",
           fontSize: 12, fontFamily: "JetBrains Mono", cursor: "pointer", fontWeight: isActive ? 700 : 400
         }}>
           {info ? info.code : "Proc " + (i + 1)}
@@ -802,7 +802,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         did nothing or (Favorites) silently cleared the pick; + Add, the
         card's x, typing in the search box or an empty Proc tab bring it
         back (check.js 5f-12). */}
-    {!curSel && <div style={S.catRow}><button onClick={function() { setCat("All"); setShowFavs(false); }} style={cat === "All" && !showFavs ? S.catBtnActive : S.catBtn}>All</button><button onClick={function() { setShowFavs(true); setCat("All"); updateProc(activeProc, { search: "", code: null }); }} style={showFavs ? { ...S.catBtnActive, color: "#fbbf24", borderColor: "rgba(251,191,36,0.4)", background: "rgba(251,191,36,0.1)" } : { ...S.catBtn, color: "#fbbf24" }}>{"\u2605"} Favorites{favorites.length > 0 ? " (" + favorites.length + ")" : ""}</button>{categories.map(function(c) { return <button key={c} onClick={function() { setCat(c); setShowFavs(false); }} style={cat === c && !showFavs ? S.catBtnActive : S.catBtn}>{c}</button>; })}</div>}
+    {!curSel && <div style={S.catRow}><button onClick={function() { setCat("All"); setShowFavs(false); }} style={cat === "All" && !showFavs ? S.catBtnActive : S.catBtn}>All</button><button onClick={function() { setShowFavs(true); setCat("All"); updateProc(activeProc, { search: "", code: null }); }} style={showFavs ? { ...S.catBtnActive, color: "var(--accent-amber-soft)", borderColor: "rgba(251,191,36,0.4)", background: "rgba(251,191,36,0.1)" } : { ...S.catBtn, color: "var(--accent-amber-soft)" }}>{"\u2605"} Favorites{favorites.length > 0 ? " (" + favorites.length + ")" : ""}</button>{categories.map(function(c) { return <button key={c} onClick={function() { setCat(c); setShowFavs(false); }} style={cat === c && !showFavs ? S.catBtnActive : S.catBtn}>{c}</button>; })}</div>}
 
     {/* Favorites panel */}
     {!curSel && showFavs && !curSearch.trim() && <div style={S.resultsList}>
@@ -812,7 +812,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         <div style={{ fontSize: 12, lineHeight: 1.5 }}>Tap the {"\u2606"} star next to any CPT code to add it here for quick access.</div>
       </div>}
       {favCodes.length > 0 && <div style={{ padding: "4px 0 6px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 11, fontWeight: 600, color: "#fbbf24", textTransform: "uppercase", letterSpacing: 1 }}>{"\u2605"} Favorites ({favCodes.length})</span>
+        <span style={{ fontSize: 11, fontWeight: 600, color: "var(--accent-amber-soft)", textTransform: "uppercase", letterSpacing: 1 }}>{"\u2605"} Favorites ({favCodes.length})</span>
       </div>}
       {favCodes.map(function(cpt, idx) {
         var count = usageCounts[cpt.code] || 0;
@@ -822,7 +822,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
               <span style={S.resultCode}>{cpt.code}</span>
-              {count > 0 && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>}
+              {count > 0 && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>}
             </div>
             <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.friendly || cpt.desc}</div>
             {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{cpt.desc}</div>}
@@ -836,9 +836,9 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
                 <span style={{ ...S.resultRVU, fontSize: 14 }}>{cpt.wRVU}</span>
                 <span style={{ fontSize: 10, color: "var(--text-dim)" }}> wRVU</span>
               </div>
-              <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: "#fbbf24", lineHeight: 1 }}>{"\u2605"}</span>
+              <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: "var(--accent-star)", lineHeight: 1 }}>{"\u2605"}</span>
             </div>
-            <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#10b981" }}>{"$"}{comp.toFixed(0)}</span>
+            <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{"$"}{comp.toFixed(0)}</span>
             <div style={{ display: "flex", gap: 2 }}>
               {idx > 0 && <span onClick={function(ev) { ev.stopPropagation(); moveFav(cpt.code, -1); }} style={{ fontSize: 14, cursor: "pointer", color: "var(--text-faint)", padding: "0 4px", lineHeight: 1 }}>{"\u25B2"}</span>}
               {idx < favCodes.length - 1 && <span onClick={function(ev) { ev.stopPropagation(); moveFav(cpt.code, 1); }} style={{ fontSize: 14, cursor: "pointer", color: "var(--text-faint)", padding: "0 4px", lineHeight: 1 }}>{"\u25BC"}</span>}
@@ -848,7 +848,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       </button>); })}
       {mostUsed.length > 0 && <>
         <div style={{ padding: "12px 0 6px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: favCodes.length > 0 ? "1px solid var(--border-default)" : "none", marginTop: favCodes.length > 0 ? 8 : 0 }}>
-          <span style={{ fontSize: 11, fontWeight: 600, color: "#0ea5e9", textTransform: "uppercase", letterSpacing: 1 }}>Most Used</span>
+          <span style={{ fontSize: 11, fontWeight: 600, color: "var(--accent-sky)", textTransform: "uppercase", letterSpacing: 1 }}>Most Used</span>
           <span style={{ fontSize: 10, color: "var(--text-faint)" }}>Based on your history</span>
         </div>
         {mostUsed.map(function(cpt) {
@@ -859,7 +859,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <span style={S.resultCode}>{cpt.code}</span>
-                  <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>
+                  <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>
                 </div>
                 <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.friendly || cpt.desc}</div>
                 {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{cpt.desc}</div>}
@@ -873,7 +873,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
                   </div>
                   <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: "var(--text-ghost)", lineHeight: 1 }}>{"\u2606"}</span>
                 </div>
-                <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#10b981" }}>{"$"}{comp.toFixed(0)}</span>
+                <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{"$"}{comp.toFixed(0)}</span>
               </div>
             </div>
           </button>);
@@ -890,7 +890,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
             <span style={S.resultCode}>{cpt.code}</span>
-            {count > 0 && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>}
+            {count > 0 && <span style={{ fontSize: 9, padding: "1px 6px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{count}</span>}
           </div>
           <div style={{ ...S.resultDesc, marginTop: 3 }}>{cpt.friendly || cpt.desc}</div>
           {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{cpt.desc}</div>}
@@ -905,14 +905,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
               <span style={{ ...S.resultRVU, fontSize: 14 }}>{cpt.wRVU}</span>
               <span style={{ fontSize: 10, color: "var(--text-dim)" }}> wRVU</span>
             </div>
-            <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: isFav(cpt.code) ? "#fbbf24" : "var(--text-ghost)", lineHeight: 1 }}>{isFav(cpt.code) ? "\u2605" : "\u2606"}</span>
+            <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: isFav(cpt.code) ? "var(--accent-star)" : "var(--text-ghost)", lineHeight: 1 }}>{isFav(cpt.code) ? "\u2605" : "\u2606"}</span>
           </div>
-          <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#10b981" }}>{"$"}{comp.toFixed(0)}</span>
+          <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{"$"}{comp.toFixed(0)}</span>
         </div>
       </div>
     </button>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}{filtered.length > 20 && <div style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, color: "var(--text-dim)" }}>{"Showing 20 of " + filtered.length + " matches - type more to narrow"}</div>}</div>}
 
-    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "#fbbf24" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "#38bdf8", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>${(creditedRVU(encPreview(calcProcRVU(cur))) * data.settings.ratePerRVU).toFixed(0)}{ncNow && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div></div></div></div>
+    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "var(--accent-star)" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>${(creditedRVU(encPreview(calcProcRVU(cur))) * data.settings.ratePerRVU).toFixed(0)}{ncNow && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div></div></div></div>
     {(function() {
       var alreadyCodes = procs.map(function(p) { return p.code; }).filter(Boolean);
       var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes);
@@ -934,8 +934,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
               transition: "all 0.15s ease"
             }}>
               <div style={{ display: "flex", alignItems: "center", gap: 5 }}>
-                <span style={{ fontSize: 11, fontFamily: "JetBrains Mono", fontWeight: 700, color: s.source === "history" ? "#a78bfa" : "#0ea5e9" }}>{s.code}</span>
-                <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#10b981" }}>{s.wRVU}</span>
+                <span style={{ fontSize: 11, fontFamily: "JetBrains Mono", fontWeight: 700, color: s.source === "history" ? "var(--accent-violet)" : "var(--accent-sky)" }}>{s.code}</span>
+                <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{s.wRVU}</span>
               </div>
               <span style={{ fontSize: 10, color: "var(--text-muted)", lineHeight: 1.2 }}>{s.label}</span>
             </button>);
@@ -943,14 +943,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         </div>
       </div>);
     })()}
-    <div style={S.fieldGroup}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}><label style={{ ...S.fieldLabel, marginBottom: 0 }}>Modifiers</label><button onClick={function() { setShowModHelp(!showModHelp); }} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 6, color: showModHelp ? "#0ea5e9" : "var(--text-dim)", fontSize: 11, cursor: "pointer", padding: "2px 8px", fontFamily: "inherit" }}>{showModHelp ? "Hide Guide" : "? Guide"}</button></div>
+    <div style={S.fieldGroup}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}><label style={{ ...S.fieldLabel, marginBottom: 0 }}>Modifiers</label><button onClick={function() { setShowModHelp(!showModHelp); }} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 6, color: showModHelp ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 11, cursor: "pointer", padding: "2px 8px", fontFamily: "inherit" }}>{showModHelp ? "Hide Guide" : "? Guide"}</button></div>
     {showModHelp && <div style={{ marginBottom: 10, padding: 12, borderRadius: 10, background: "var(--bg-inset)", border: "1px solid var(--border-default)", animation: "rvuFadeIn 0.2s ease-out" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-bright)", marginBottom: 8 }}>When to Use Each Modifier</div>
       {MODIFIERS.map(function(m) { return <div key={m.code} style={{ padding: "8px 0", borderBottom: "1px solid var(--border-default)" }}>
         <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 3 }}>
-          <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 700 }}>{m.code}</span>
+          <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 700 }}>{m.code}</span>
           <span style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600 }}>{m.label}</span>
-          <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#10b981" }}>{m.desc}</span>
+          <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{m.desc}</span>
         </div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>{m.guide}</div>
       </div>; })}
@@ -962,13 +962,13 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={S.cardLabel}>Encounter Summary</div>
         <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
-          {!tplSaving && <button onClick={openTplForm} style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid rgba(16,185,129,0.3)", background: "transparent", color: "#34d399", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Save as template</button>}
-          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "#a78bfa" : "#0ea5e9", fontWeight: 600 }}>{isCall ? "Call" + (pickedSite ? " - " + pickedSite.name : "") : "Private"}</span>
+          {!tplSaving && <button onClick={openTplForm} style={{ padding: "3px 9px", borderRadius: 6, border: "1px solid rgba(16,185,129,0.3)", background: "transparent", color: "var(--accent-green-soft)", fontSize: 10, fontWeight: 700, cursor: "pointer" }}>Save as template</button>}
+          <span style={{ fontSize: 10, padding: "2px 8px", borderRadius: 4, background: isCall ? "rgba(139,92,246,0.15)" : "rgba(14,165,233,0.15)", color: isCall ? "var(--accent-violet)" : "var(--accent-sky)", fontWeight: 600 }}>{isCall ? "Call" + (pickedSite ? " - " + pickedSite.name : "") : "Private"}</span>
           {ncNow && <span style={S.ncTag}>no credit</span>}
         </div>
       </div>
       {tplSaving && <div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid rgba(16,185,129,0.25)" }}>
-        <div style={{ fontSize: 11, fontWeight: 600, color: "#34d399", marginBottom: 6 }}>New template from this selection ({procs.filter(function(p) { return p.code; }).length} code{procs.filter(function(p) { return p.code; }).length === 1 ? "" : "s"})</div>
+        <div style={{ fontSize: 11, fontWeight: 600, color: "var(--accent-green-soft)", marginBottom: 6 }}>New template from this selection ({procs.filter(function(p) { return p.code; }).length} code{procs.filter(function(p) { return p.code; }).length === 1 ? "" : "s"})</div>
         <input type="text" value={tplName} onChange={function(e) { setTplName(e.target.value); }} placeholder="Template name (e.g. Lap chole + IOC)" autoFocus style={{ ...S.searchInput, fontSize: 13, marginBottom: 6 }} />
         <label style={{ ...S.fieldLabel, fontSize: 10 }}>Default note (optional - applied only when the note field is empty)</label>
         <input type="text" value={tplNote} onChange={function(e) { setTplNote(e.target.value); }} placeholder="No default note" style={{ ...S.searchInput, fontSize: 12, marginBottom: 6 }} />
@@ -982,7 +982,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         var info = cptMap[p.code];
         var adj = calcProcRVU(p);
         return (<div key={p.id} style={{ display: "flex", justifyContent: "space-between", padding: "4px 0", borderBottom: i < procs.filter(function(x){return x.code;}).length - 1 ? "1px solid rgba(51,65,85,0.5)" : "none" }}>
-          <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span>{p.mods.map(function(m) { return <span key={m} style={{ fontSize: 10, color: "#fbbf24", marginLeft: 4 }}>{m}</span>; })}<div style={{ fontSize: 11, color: "var(--text-muted)" }}>{info ? (info.friendly || info.desc) : ""}</div></div>
+          <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{p.code}</span>{p.mods.map(function(m) { return <span key={m} style={{ fontSize: 10, color: "var(--accent-amber-soft)", marginLeft: 4 }}>{m}</span>; })}<div style={{ fontSize: 11, color: "var(--text-muted)" }}>{info ? (info.friendly || info.desc) : ""}</div></div>
           <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: ncNow ? "var(--text-dim)" : "var(--text-primary)", fontWeight: 600 }}>{adj.toFixed(2)}</div>
         </div>);
       })}</div>
@@ -990,7 +990,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         <span style={{ fontSize: 13, color: "var(--text-muted)", fontWeight: 600 }}>Total</span>
         <div style={{ textAlign: "right" }}>
           <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 700 }}>{ncNow ? <span style={{ color: "var(--text-dim)" }}>{ncRVUNow.toFixed(2) + " wRVU "}<span style={S.ncTag}>no credit</span></span> : credRVU.toFixed(2) + " wRVU"}</div>
-          <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "#10b981" }}>${totalComp.toFixed(0)}</div>
+          <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>${totalComp.toFixed(0)}</div>
         </div>
       </div>
     </div>}
@@ -1009,8 +1009,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       var toTop = function() { var sc = document.querySelector(".rvu-content"); if (sc) sc.scrollTop = 0; };
       var line1 = <div style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nCodes + " code" + (nCodes === 1 ? "" : "s") + " \u00B7 " + mode}</div>;
       return (<div style={{ position: barPinned ? "sticky" : "static", bottom: 0, zIndex: 5, height: 64, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, marginTop: 8, background: "var(--bg-base)", borderTop: "1px solid var(--border-default)" }}>
-        {saved ? <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "#10b981", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{saved}</div>
-        : fix ? <button onClick={toTop} style={{ flex: 1, minWidth: 0, minHeight: 44, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{line1}<div style={{ fontSize: 13, fontWeight: 600, color: "#f59e0b" }}>{fix + " \u2191"}</div></button>
+        {saved ? <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "var(--accent-green)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{saved}</div>
+        : fix ? <button onClick={toTop} style={{ flex: 1, minWidth: 0, minHeight: 44, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{line1}<div style={{ fontSize: 13, fontWeight: 600, color: "var(--accent-amber)" }}>{fix + " \u2191"}</div></button>
         : <div style={{ flex: 1, minWidth: 0 }}>{line1}<div style={{ fontSize: 16, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", whiteSpace: "nowrap" }}>{ncNow ? <span style={{ color: "var(--text-dim)" }}>{ncRVUNow.toFixed(2) + " wRVU "}<span style={S.ncTag}>no credit</span></span> : credRVU.toFixed(2) + " wRVU"}</div></div>}
         <button onClick={save} disabled={!!saved || !saveReady} style={{ flexShrink: 0, height: 48, padding: "0 18px", borderRadius: 12, border: "none", color: "#fff", fontSize: 15, fontWeight: 700, cursor: "pointer", opacity: saved || saveReady ? 1 : 0.45, background: saved ? "linear-gradient(135deg, #10b981, #059669)" : isCall ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #0ea5e9, #0284c7)" }}>{saved ? "\u2713 Logged" : "Log " + (isCall ? "Call" : "Private")}</button>
       </div>);

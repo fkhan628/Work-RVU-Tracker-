@@ -33,7 +33,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
   var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
   var amber = "var(--global-90)";
   var chip = function(on, label, onClick, key, extra) {
-    return (<button key={key} onClick={onClick} style={btn({ padding: "6px 10px", fontSize: 12, textAlign: "left", lineHeight: 1.3, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)", ...(extra || {}) })}>{label}</button>);
+    return (<button key={key} onClick={onClick} style={btn({ padding: "6px 10px", fontSize: 12, textAlign: "left", lineHeight: 1.3, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", ...(extra || {}) })}>{label}</button>);
   };
   var eyeBtn = <CompEye showComp={showComp} toggleComp={toggleComp} />;
   var scrollBox = function() { return document.querySelector(".rvu-content"); };
@@ -221,7 +221,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
   // conditional return).
   if (screen && screen.kind === "review") return <DirReview data={data} upd={upd} dirId={screen.dirId} ym={ym} showComp={showComp} eye={eyeBtn} onClose={closeScreen} />;
 
-  var probBox = problems.length > 0 && <div style={{ marginTop: 10 }}>{problems.map(function(p, i) { return <div key={i} style={{ fontSize: 12, color: "#ef4444", lineHeight: 1.5 }}>{p}</div>; })}</div>;
+  var probBox = problems.length > 0 && <div style={{ marginTop: 10 }}>{problems.map(function(p, i) { return <div key={i} style={{ fontSize: 12, color: "var(--accent-red)", lineHeight: 1.5 }}>{p}</div>; })}</div>;
 
   if (screen && screen.kind === "edit") {
     var eSt = dirMonthStatus(data, screen.entry.dirId, screen.entry.date.slice(0, 7));
@@ -236,7 +236,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
         {eSt.state === "handed" && <div style={{ fontSize: 11, color: amber, marginTop: 10, lineHeight: 1.5 }}>{dirMonthLabel(screen.entry.date.slice(0, 7)).split(" ")[0] + " is handed off - saving marks the form CHANGED SINCE HANDOFF."}</div>}
         {probBox}
         <button onClick={saveEdit} style={btn({ ...primary, width: "100%", minHeight: 50, fontSize: 15, marginTop: 14 })}>Save changes</button>
-        <button onClick={deleteEntry} style={btn({ width: "100%", marginTop: 10, color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" })}>Delete entry</button>
+        <button onClick={deleteEntry} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" })}>Delete entry</button>
       </div>
     </div>);
   }
@@ -309,18 +309,18 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
           <button onClick={function() { setYm(dirAddMonths(ym, -1)); }} aria-label="Previous month" style={btn({ width: 44, padding: 0, fontSize: 18 })}>{"<"}</button>
           <div style={{ flex: 1, textAlign: "center" }}>
             <div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-bright)" }}>{dirMonthLabel(ym)}</div>
-            <div style={{ fontSize: 12, color: count.done < count.total ? "var(--text-muted)" : "#10b981" }}>{count.done + " of " + count.total + " handed off"}</div>
+            <div style={{ fontSize: 12, color: count.done < count.total ? "var(--text-muted)" : "var(--accent-green)" }}>{count.done + " of " + count.total + " handed off"}</div>
           </div>
           <button onClick={function() { setYm(dirAddMonths(ym, 1)); }} disabled={ym >= curYm} aria-label="Next month" style={btn({ width: 44, padding: 0, fontSize: 18, opacity: ym >= curYm ? 0.3 : 1 })}>{">"}</button>
         </div>
         {ym !== curYm && <button onClick={function() { setYm(curYm); }} style={{ ...S.linkBtn, display: "block", margin: "6px auto 0" }}>This month</button>}
-        {msg && <div style={{ fontSize: 12, color: "#10b981", marginTop: 8, textAlign: "center" }}>{msg}</div>}
+        {msg && <div style={{ fontSize: 12, color: "var(--accent-green)", marginTop: 8, textAlign: "center" }}>{msg}</div>}
       </div>
 
       {dirs.map(function(dir) {
         var st = dirMonthStatus(data, dir.id, ym), model = dirFormModel(data, dir.id, ym, today);
         var list = dirMonthEntries(entries, dir.id, ym), weeks = dirWeekRanges(ym), cap = dirCapMinutes(dir);
-        var pill = st.state === "handed" ? ["Handed off " + fmtShort(st.date), "#10b981"] : st.state === "changed" ? ["CHANGED SINCE HANDOFF", amber] : st.state === "progress" ? ["In progress", "#0ea5e9"] : ["No entries", "var(--text-faint)"];
+        var pill = st.state === "handed" ? ["Handed off " + fmtShort(st.date), "var(--accent-green)"] : st.state === "changed" ? ["CHANGED SINCE HANDOFF", amber] : st.state === "progress" ? ["In progress", "var(--accent-sky)"] : ["No entries", "var(--text-faint)"];
         var prevN = dirMonthEntries(entries, dir.id, dirAddMonths(ym, -1)).length;
         var unplaced = list.filter(function(e) { return !dirRowByKey(dir.form, e.category); });
         var total = model.totalMinutes;
@@ -335,7 +335,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
           {st.state === "changed" && <div style={{ fontSize: 11, color: amber, marginTop: 6, lineHeight: 1.5 }}>{"Handed off " + fmtShort(st.date) + " - save the updated form to Drive again and delete the older copy."}</div>}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 8 }}>
             <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: model.overCap ? amber : "var(--text-primary)" }}>{dirFmtHM(total) + " (" + dirFmtHours(total) + " h)" + (cap !== null ? " of " + dirFmtHours(cap) + " h max" : "") + (model.overCap ? " - over cap, paid for " + dirFmtHours(cap) + " h" : "")}</span>
-            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "JetBrains Mono", color: "#10b981" }}>{dirMoneyShown(model.amount, showComp)}</span>
+            <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{dirMoneyShown(model.amount, showComp)}</span>
           </div>
           {cap !== null && <div style={{ height: 6, borderRadius: 3, background: "var(--border-default)", marginTop: 6, overflow: "hidden" }}><div style={{ height: "100%", width: Math.min(100, total / cap * 100) + "%", background: model.overCap ? amber : "#0ea5e9" }} /></div>}
           {weeks.map(function(w) {
@@ -359,7 +359,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
           </div>}
           <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
             <button onClick={function() { setMsg(""); openScreen({ kind: "review", dirId: dir.id }); }} style={btn({ ...primary, flex: 1 })}>{"Review & Send"}</button>
-            <button onClick={function() { toggleHandoff(dir); }} style={btn({ flex: 1, color: st.state === "handed" ? "#10b981" : "var(--text-muted)" })}>{st.state === "handed" ? "Handed off - clear" : st.state === "changed" ? "Mark handed off again" : "Mark handed off"}</button>
+            <button onClick={function() { toggleHandoff(dir); }} style={btn({ flex: 1, color: st.state === "handed" ? "var(--accent-green)" : "var(--text-muted)" })}>{st.state === "handed" ? "Handed off - clear" : st.state === "changed" ? "Mark handed off again" : "Mark handed off"}</button>
           </div>
           {prevN > 0 && <button onClick={function() { openRepeat(dir.id); }} style={{ ...S.linkBtn, display: "block", marginTop: 8, textAlign: "left", minHeight: 36 }}>
             Repeat last month
@@ -860,7 +860,7 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
         : <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{"Signature of Hospital CEO: (blank) - Hospital #: " + (h.hospitalNo || "(blank)")}</div>}
     </div>
     <div style={S.card}>
-      {allFlags.map(function(fl, i) { return <div key={i} style={{ fontSize: 12, lineHeight: 1.5, marginTop: i ? 4 : 0, color: fl.level === "block" ? "#ef4444" : fl.level === "warn" ? amber : "var(--text-muted)" }}>{(fl.level === "block" ? "x " : fl.level === "warn" ? "! " : "i ") + fl.text}</div>; })}
+      {allFlags.map(function(fl, i) { return <div key={i} style={{ fontSize: 12, lineHeight: 1.5, marginTop: i ? 4 : 0, color: fl.level === "block" ? "var(--accent-red)" : fl.level === "warn" ? amber : "var(--text-muted)" }}>{(fl.level === "block" ? "x " : fl.level === "warn" ? "! " : "i ") + fl.text}</div>; })}
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: allFlags.length ? 8 : 0, wordBreak: "break-word" }}>{"File: " + (model.fileName || "(none)")}</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{"Generated: " + model.generatedText}</div>
       {lib.state === "loading" && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8 }}>Preparing form...</div>}
@@ -881,7 +881,7 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
       </div>}
       {/* An auto-lock drops the PDF after a download; marking needs neither the PDF nor the signature. */}
       {!pdf && done === "downloaded" && <button onClick={markAfterDownload} style={btn({ ...primary, width: "100%", marginTop: 8 })}>Mark handed off</button>}
-      {msg && <div style={{ fontSize: 12, color: done === "shared" ? "#10b981" : done === "downloaded" ? "var(--text-primary)" : amber, marginTop: 8, lineHeight: 1.5 }}>{msg}</div>}
+      {msg && <div style={{ fontSize: 12, color: done === "shared" ? "var(--accent-green)" : done === "downloaded" ? "var(--text-primary)" : amber, marginTop: 8, lineHeight: 1.5 }}>{msg}</div>}
     </div>
   </div>);
 }
@@ -956,7 +956,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
     return (<div key={k} style={{ marginTop: 8, ...(extra || {}) }}>
       <div style={{ ...S.fieldLabel, marginBottom: 3 }}>{label}</div>
       <input value={edit.d[k]} inputMode={k === "rate" || k === "maxHours" ? "decimal" : undefined} onChange={function(e) { setD(k, e.target.value); }} style={{ ...S.dateInput, width: "100%", boxSizing: "border-box", borderColor: err ? "#ef4444" : undefined }} />
-      {err && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 2 }}>{err.text}</div>}
+      {err && <div style={{ fontSize: 11, color: "var(--accent-red)", marginTop: 2 }}>{err.text}</div>}
     </div>);
   };
   var renderEditor = function() {
@@ -967,9 +967,9 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       {field("Name", "name")}{field("Short name", "shortName")}{field("Organization", "org")}{field("Print name", "printName")}
       <div style={{ ...S.fieldLabel, marginTop: 10, marginBottom: 3 }}>Form</div>
       <div style={{ display: "flex", gap: 6 }}>
-        {[["genesis", "Genesis"], ["select", "Select"]].map(function(o) { var on = d.form === o[0]; return <button key={o[0]} onClick={function() { setD("form", o[0]); }} style={btn({ flex: 1, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "#0ea5e9" : "var(--text-muted)" })}>{o[1]}</button>; })}
+        {[["genesis", "Genesis"], ["select", "Select"]].map(function(o) { var on = d.form === o[0]; return <button key={o[0]} onClick={function() { setD("form", o[0]); }} style={btn({ flex: 1, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)" })}>{o[1]}</button>; })}
       </div>
-      {formErr && <div style={{ fontSize: 11, color: "#ef4444", marginTop: 2 }}>{formErr.text}</div>}
+      {formErr && <div style={{ fontSize: 11, color: "var(--accent-red)", marginTop: 2 }}>{formErr.text}</div>}
       {orig && d.form && d.form !== orig.form && n > 0 && <div style={{ fontSize: 11, color: amber, marginTop: 4, lineHeight: 1.5 }}>{n + " " + (n === 1 ? "entry uses" : "entries use") + " " + (orig.form === "select" ? "Select" : "Genesis") + " rows. After the change they show under Needs a category, and forms that include them are blocked until you re-pick each one."}</div>}
       {d.form === "genesis" && <div style={{ display: "flex", gap: 8 }}>{field("Empl #", "emplNo", { flex: 1 })}{field("Cost Ctr.", "costCtr", { flex: 1 })}</div>}
       <div style={{ display: "flex", gap: 8 }}>{field("Rate ($/h)", "rate", { flex: 1 })}{field("Max h/month", "maxHours", { flex: 1 })}</div>
@@ -984,7 +984,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={save} style={btn({ flex: 1, border: "none", background: "#0ea5e9", color: "#fff" })}>Save</button>
         <button onClick={function() { setEdit(null); }} style={btn({ flex: 1 })}>Cancel</button>
-        {orig && <button onClick={remove} style={btn({ color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>}
+        {orig && <button onClick={remove} style={btn({ color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>}
       </div>
     </div>);
   };
@@ -994,10 +994,10 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
     <div style={S.cardLabel}>Directorships</div>
     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Monthly signed time sheets, saved to Google Drive. Separate from wRVUs and Comp.</div>
     <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{dirs.length + " " + (dirs.length === 1 ? "directorship" : "directorships") + " - " + thisMonth + " " + (thisMonth === 1 ? "entry" : "entries") + " in " + dirMonthLabel(ym).split(" ")[0]}</div>
-    <button onClick={function() { if (openDirectorships) openDirectorships("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Directorships</button>
+    <button onClick={function() { if (openDirectorships) openDirectorships("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Directorships</button>
     {dirs.length === 0 && <div style={{ marginTop: 10 }}>
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No directorships.</div>
-      <button onClick={function() { upd(function(prev) { return dirRestoreBuiltIns(prev); }); }} style={btn({ width: "100%", marginTop: 6, color: "#0ea5e9", border: "1px solid rgba(14,165,233,0.3)" })}>Restore built-in directorships</button>
+      <button onClick={function() { upd(function(prev) { return dirRestoreBuiltIns(prev); }); }} style={btn({ width: "100%", marginTop: 6, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>Restore built-in directorships</button>
     </div>}
     {dirs.map(function(x) {
       if (edit && edit.origId === x.id) return <div key={x.id}>{renderEditor()}</div>;
@@ -1015,7 +1015,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
     })}
     {orphans > 0 && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>
       {orphans + " time " + (orphans === 1 ? "entry belongs" : "entries belong") + " to a removed directorship. "}
-      <button onClick={function() { if (confirm("Delete " + orphans + " time " + (orphans === 1 ? "entry" : "entries") + " of removed directorships? This can't be undone.")) upd(function(prev) { return dirDropOrphans(prev); }); }} style={btn({ color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)", minHeight: 36, marginLeft: 4 })}>Delete them</button>
+      <button onClick={function() { if (confirm("Delete " + orphans + " time " + (orphans === 1 ? "entry" : "entries") + " of removed directorships? This can't be undone.")) upd(function(prev) { return dirDropOrphans(prev); }); }} style={btn({ color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)", minHeight: 36, marginLeft: 4 })}>Delete them</button>
     </div>}
     {edit && edit.origId === null && renderEditor()}
     {!edit && <button onClick={function() { openEdit(null); }} style={btn({ width: "100%", marginTop: 10 })}>+ Add directorship</button>}
@@ -1029,7 +1029,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       {sig.state === "ok" && <div style={{ background: "#fff", borderRadius: 8, padding: 8, marginTop: 6 }}><img src={sig.url} alt="Your signature" style={{ maxHeight: 60, maxWidth: "100%", pointerEvents: "none", WebkitTouchCallout: "none", userSelect: "none" }} /></div>}
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
         <button onClick={function() { setPadOpen(true); }} style={btn({ flex: 1 })}>Re-sign</button>
-        <button onClick={function() { if (confirm("Remove your saved signature? Forms can't be created until you draw it again.")) dirSignatureRemove(upd); }} style={btn({ flex: 1, color: "#ef4444", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>
+        <button onClick={function() { if (confirm("Remove your saved signature? Forms can't be created until you draw it again.")) dirSignatureRemove(upd); }} style={btn({ flex: 1, color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>
       </div>
     </div>}
   </div>);

@@ -26,6 +26,29 @@
     "  --global-90: #f59e0b;",
     "  --global-10: #0ea5e9;",
     "  --global-0: #94a3b8;",
+    /* Accents: each dark value is the literal it replaced (dark mode is
+       unchanged); the light values are darker shades of the same hue. */
+    "  --accent-sky: #0ea5e9;",
+    "  --accent-sky-soft: #38bdf8;",
+    "  --accent-green: #10b981;",
+    "  --accent-green-soft: #34d399;",
+    "  --accent-amber: #f59e0b;",
+    "  --accent-amber-soft: #fbbf24;",
+    "  --accent-amber-pale: #fcd34d;",
+    "  --accent-star: #fbbf24;",
+    "  --accent-violet: #a78bfa;",
+    "  --accent-violet-deep: #8b5cf6;",
+    "  --accent-red: #ef4444;",
+    "  --accent-red-soft: #f87171;",
+    "  --accent-pink: #ec4899;",
+    "  --accent-cyan: #06b6d4;",
+    "  --accent-orange: #f97316;",
+    "  --bg-track: rgba(51,65,85,0.6);",
+    "  --bg-track-deep: #0f172a;",
+    "  --mark-goal: rgba(251,191,36,0.5);",
+    "  --tag-bg: rgba(100,116,139,0.15);",
+    "  --bar-rest-from: #334155;",
+    "  --bar-rest-to: #475569;",
     "  --nav-bg: rgba(15,23,42,0.95);",
     "  --card-shadow: 0 1px 2px rgba(0,0,0,0.25);",
     "  --card-main-from: #1e293b;",
@@ -43,16 +66,40 @@
     "  --border-default: #cbd5e1;",
     "  --text-bright: #0f172a;",
     "  --text-primary: #1e293b;",
-    "  --text-secondary: #475569;",
-    "  --text-muted: #64748b;",
-    "  --text-dim: #7c8aa0;",
-    "  --text-faint: #8492a6;",
-    "  --text-ghost: #e2e8f0;",
+    "  --text-secondary: #334155;",
+    "  --text-muted: #475569;",
+    "  --text-dim: #57677c;",
+    "  --text-faint: #607087;",
+    "  --text-ghost: #cbd5e1;",
     "  --selected-from: #f0f9ff;",
     "  --selected-code: #0369a1;",
-    "  --global-90: #92400e;",
+    "  --global-90: #8a5a00;",
     "  --global-10: #0369a1;",
     "  --global-0: #475569;",
+    /* AA (4.5:1) on white and the page (#f1f5f9). Red and amber are kept
+       apart in lightness and hue (warning vs blocking lines in Call Pay
+       differ only by colour), and amber from green (the pace verdicts). */
+    "  --accent-sky: #0369a1;",
+    "  --accent-sky-soft: #0369a1;",
+    "  --accent-green: #047052;",
+    "  --accent-green-soft: #047052;",
+    "  --accent-amber: #8a5a00;",
+    "  --accent-amber-soft: #8a5a00;",
+    "  --accent-amber-pale: #8a5a00;",
+    "  --accent-star: #b45309;",
+    "  --accent-violet: #6d28d9;",
+    "  --accent-violet-deep: #6d28d9;",
+    "  --accent-red: #9f1239;",
+    "  --accent-red-soft: #9f1239;",
+    "  --accent-pink: #be185d;",
+    "  --accent-cyan: #0e7490;",
+    "  --accent-orange: #c2410c;",
+    "  --bg-track: #e2e8f0;",
+    "  --bg-track-deep: #e2e8f0;",
+    "  --mark-goal: rgba(138,90,0,0.55);",
+    "  --tag-bg: rgba(100,116,139,0.10);",
+    "  --bar-rest-from: #cbd5e1;",
+    "  --bar-rest-to: #94a3b8;",
     "  --nav-bg: rgba(255,255,255,0.92);",
     "  --card-shadow: 0 1px 3px rgba(0,0,0,0.06), 0 1px 2px rgba(0,0,0,0.04);",
     "  --card-main-from: #ffffff;",
@@ -168,7 +215,7 @@ var S = {
     padding: "10px 0", borderBottom: "1px solid var(--border-default)"
   },
   recentCode: {
-    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#0ea5e9", fontWeight: 600
+    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "var(--accent-sky)", fontWeight: 600
   },
   recentDesc: {
     fontSize: 12, color: "var(--text-muted)", marginTop: 2,
@@ -180,9 +227,9 @@ var S = {
   recentDate: { fontSize: 11, color: "var(--text-dim)" },
   // "no credit" tag (History rows/cards, Home recent list) - same look as the
   // "imported" tag; explicit font because some parents use the mono font.
-  ncTag: { fontSize: 9, fontFamily: "'DM Sans', sans-serif", fontWeight: 400, color: "var(--text-dim)", background: "rgba(100,116,139,0.15)", padding: "1px 5px", borderRadius: 3 },
+  ncTag: { fontSize: 9, fontFamily: "'DM Sans', sans-serif", fontWeight: 400, color: "var(--text-dim)", background: "var(--tag-bg)", padding: "1px 5px", borderRadius: 3 },
   linkBtn: {
-    background: "none", border: "none", color: "#0ea5e9",
+    background: "none", border: "none", color: "var(--accent-sky)",
     fontSize: 12, fontWeight: 500, cursor: "pointer", padding: 0
   },
 
@@ -267,10 +314,10 @@ var S = {
     transition: "border-color 0.15s, transform 0.1s"
   },
   resultCode: {
-    fontSize: 14, fontFamily: "'JetBrains Mono'", color: "#0ea5e9", fontWeight: 600
+    fontSize: 14, fontFamily: "'JetBrains Mono'", color: "var(--accent-sky)", fontWeight: 600
   },
   resultRVU: {
-    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#10b981", fontWeight: 500
+    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "var(--accent-green)", fontWeight: 500
   },
   resultDesc: { fontSize: 13, color: "var(--text-secondary)", marginTop: 2 },
   resultCat: { fontSize: 11, color: "var(--text-dim)", marginTop: 2 },
@@ -307,7 +354,7 @@ var S = {
     borderRadius: 8, cursor: "pointer", textAlign: "left"
   },
   modCode: {
-    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#38bdf8", fontWeight: 600
+    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "var(--accent-sky-soft)", fontWeight: 600
   },
   modLabel: { fontSize: 11, color: "var(--text-secondary)", marginTop: 1 },
   modFactor: {
@@ -340,13 +387,13 @@ var S = {
   dangerBtn: {
     flex: 1, padding: "12px 16px",
     background: "rgba(239,68,68,0.1)", border: "1px solid rgba(239,68,68,0.3)",
-    borderRadius: 10, color: "#f87171",
+    borderRadius: 10, color: "var(--accent-red-soft)",
     fontSize: 14, fontWeight: 500, cursor: "pointer",
     transition: "all 0.15s"
   },
   successBanner: {
     background: "rgba(16,185,129,0.15)", border: "1px solid rgba(16,185,129,0.3)",
-    borderRadius: 10, padding: "12px 16px", color: "#34d399",
+    borderRadius: 10, padding: "12px 16px", color: "var(--accent-green-soft)",
     fontSize: 14, fontWeight: 600, marginBottom: 12, textAlign: "center",
     animation: "rvuSlideUp 0.3s ease-out"
   },
@@ -362,10 +409,10 @@ var S = {
     borderBottom: "1px solid rgba(51,65,85,0.5)"
   },
   histCode: {
-    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "#0ea5e9", fontWeight: 600
+    fontSize: 13, fontFamily: "'JetBrains Mono'", color: "var(--accent-sky)", fontWeight: 600
   },
   histMod: {
-    fontSize: 10, fontFamily: "'JetBrains Mono'", color: "#fbbf24",
+    fontSize: 10, fontFamily: "'JetBrains Mono'", color: "var(--accent-amber-soft)",
     background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: 4
   },
   histDesc: { fontSize: 12, color: "var(--text-muted)", marginTop: 2 },

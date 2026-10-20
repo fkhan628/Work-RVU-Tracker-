@@ -521,9 +521,38 @@ the per-file gates below. Run it after EVERY file change.
   trackedPaceMonths value tests).
 - Trends' Monthly Report sits on a theme card, so its text uses theme
   tokens: title --text-bright; Private / Call lines and top-encounter wRVU
-  --text-primary; Top Encounters heading and descriptions --text-muted
-  (the dark stat tiles stay dark in both themes). Its month input ignores
+  --text-primary; Top Encounters heading and descriptions --text-muted;
+  its stat tiles are --bg-inset theme tiles. Its month input ignores
   a cleared value and keeps the previous month (check.js 5f-8).
+- Theme colours (styles.js): every token has a value in BOTH the :root
+  (dark) and body.light-mode blocks. Text on a theme surface uses a token -
+  the --text-* greys or an --accent-* hue (sky, green, amber, violet, red,
+  plus their soft / pale / deep variants, --accent-star and the Case Mix
+  pink / cyan / orange) - never a raw hex: each accent's DARK value is the
+  literal it replaced (dark mode unchanged) and its LIGHT value is a darker
+  shade of the same hue, at least 4.5:1 on white and the page #f1f5f9 (most
+  also on their pale tints; star, cyan and orange drop below 4.5:1 on a 0.1
+  tint of their own hue, so keep them off tints). Light red (#9f1239) and
+  amber (#8a5a00, also --global-90's light value, so every warning line is
+  one amber) are chosen to stay apart, also for colour-blind eyes: a
+  Call Pay blocking line (red) and warning (amber) differ only by colour,
+  and amber must stay apart from green (the pace verdicts) - re-check both
+  pairs before moving either. Literals stay for fills under white text,
+  chart marks, most borders (the Log Private / Call radio rings and the
+  directorship status pill follow their token text colour), rgba tints, the
+  data-URI select chevrons, and everything exported (directorship PDF,
+  Excel, CSV). Trends has no hard-coded dark surface: Goal Pace and Case Mix
+  use --card-main-from/to and --border-default, bar tracks --bg-track-deep,
+  the monthly-goal marker --mark-goal; Home's goal tracks are --bg-track and
+  its resting month bars --bar-rest-from/to; the grey "no credit" /
+  "imported" tags --tag-bg. check.js 5f-13 pins the dark values (new tokens
+  and the existing surface / text tokens they map to), light AA for every
+  --text-* / --accent-* / --global-* / --selected-code token (--text-ghost,
+  the empty favourite star, is faint in both themes by design), var(--x)
+  defined in both blocks, no accent or caption-grey hex as a style color or
+  SVG <text fill>, and no slate dark-surface literal as a style background
+  (the hidden scan buttons aside) - syntactic: a hex held in a variable is
+  not seen.
 - Unsaved forms survive a tab switch through App's MEMORY-ONLY refs (never
   persisted): Log's encounter (logDraft) and Call Pay's shift form
   (callPayDraft, passed as `keep`). CallPay reads keep.current ONCE in a

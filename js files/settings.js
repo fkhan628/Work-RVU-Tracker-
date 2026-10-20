@@ -798,7 +798,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           <div style={S.cardLabel}>Appearance</div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>{theme === "dark" ? "Dark mode" : "Light mode"}</div>
         </div>
-        <button onClick={toggleTheme} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border-default)", background: theme === "dark" ? "var(--bg-card)" : "rgba(14,165,233,0.1)", color: theme === "dark" ? "var(--text-primary)" : "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s" }}>
+        <button onClick={toggleTheme} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid var(--border-default)", background: theme === "dark" ? "var(--bg-card)" : "rgba(14,165,233,0.1)", color: theme === "dark" ? "var(--text-primary)" : "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6, transition: "all 0.2s" }}>
           <span style={{ fontSize: 16 }}>{theme === "dark" ? "\u2600" : "\u263D"}</span>
           {theme === "dark" ? "Light Mode" : "Dark Mode"}
         </button>
@@ -812,7 +812,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           <div style={S.cardLabel}>Security</div>
           <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4 }}>PIN lock with AES-256-GCM encryption</div>
         </div>
-        <button onClick={() => { if (window.RVU_CRYPTO && window.RVU_CRYPTO.lock) window.RVU_CRYPTO.lock(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.05)", color: "#ef4444", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
+        <button onClick={() => { if (window.RVU_CRYPTO && window.RVU_CRYPTO.lock) window.RVU_CRYPTO.lock(); }} style={{ padding: "8px 16px", borderRadius: 10, border: "1px solid rgba(239,68,68,0.3)", background: "rgba(239,68,68,0.05)", color: "var(--accent-red)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", gap: 6 }}>
           <span style={{ fontSize: 14 }}>{"\uD83D\uDD12"}</span>
           Lock Now
         </button>
@@ -821,7 +821,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--bg-inset)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>Recovery Hint</div>
-          <button onClick={() => setEditingHint(!editingHint)} style={{ background: "none", border: "none", color: "#0ea5e9", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{editingHint ? "Cancel" : (hintText ? "Edit" : "Add")}</button>
+          <button onClick={() => setEditingHint(!editingHint)} style={{ background: "none", border: "none", color: "var(--accent-sky)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{editingHint ? "Cancel" : (hintText ? "Edit" : "Add")}</button>
         </div>
         {!editingHint ? (
           <div style={{ fontSize: 12, color: hintText ? "var(--text-primary)" : "var(--text-faint)", marginTop: 4, fontStyle: hintText ? "normal" : "italic" }}>{hintText || "No hint set"}</div>
@@ -830,7 +830,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
             <input type="text" maxLength={100} value={hintText} onChange={e => setHintText(e.target.value)} placeholder="e.g. Birthday year + house number" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "var(--bg-inset)", color: "var(--text-primary)", fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
               <button onClick={() => { try { if (hintText.trim()) localStorage.setItem("rvu-pin-hint", hintText.trim()); else localStorage.removeItem("rvu-pin-hint"); } catch(e) {} setEditingHint(false); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Save Hint</button>
-              {hintText && <button onClick={() => { setHintText(""); try { localStorage.removeItem("rvu-pin-hint"); } catch(e) {} setEditingHint(false); }} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "none", color: "#ef4444", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Remove</button>}
+              {hintText && <button onClick={() => { setHintText(""); try { localStorage.removeItem("rvu-pin-hint"); } catch(e) {} setEditingHint(false); }} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "none", color: "var(--accent-red)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Remove</button>}
             </div>
           </div>
         )}
@@ -860,11 +860,11 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                 setTimeout(function() { setBioStatus(""); }, 3000);
               });
             }
-          }} style={{ padding: "8px 16px", borderRadius: 10, border: bioEnabled ? "1px solid rgba(16,185,129,0.3)" : "1px solid var(--border-default)", background: bioEnabled ? "rgba(16,185,129,0.08)" : "var(--bg-card)", color: bioEnabled ? "#10b981" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+          }} style={{ padding: "8px 16px", borderRadius: 10, border: bioEnabled ? "1px solid rgba(16,185,129,0.3)" : "1px solid var(--border-default)", background: bioEnabled ? "rgba(16,185,129,0.08)" : "var(--bg-card)", color: bioEnabled ? "var(--accent-green)" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
             {bioEnabled ? "Disable" : "Enable"}
           </button>
         </div>
-        {bioStatus && <div style={{ fontSize: 11, color: bioStatus.includes("fail") || bioStatus.includes("expired") ? "#ef4444" : "#10b981", marginTop: 6 }}>{bioStatus}</div>}
+        {bioStatus && <div style={{ fontSize: 11, color: bioStatus.includes("fail") || bioStatus.includes("expired") ? "var(--accent-red)" : "var(--accent-green)", marginTop: 6 }}>{bioStatus}</div>}
       </div>}
     </div>
 
@@ -907,7 +907,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
               <span style={{ fontSize: 13, color: acuteEntry ? "var(--text-primary)" : "var(--text-dim)" }}>{reconMonthLabel(mk)}</span>
               <span style={{ display: "flex", alignItems: "baseline", gap: 8 }}>
                 {instTotalRef !== undefined && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-faint)" }}>inst {round2(instTotalRef).toFixed(1)}</span>}
-                <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: acuteEntry ? "#34d399" : "var(--text-faint)", fontWeight: acuteEntry ? 600 : 400 }}>{acuteEntry ? round2(acuteEntry.pool).toLocaleString() : "\u2014"}</span>
+                <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: acuteEntry ? "var(--accent-green-soft)" : "var(--text-faint)", fontWeight: acuteEntry ? 600 : 400 }}>{acuteEntry ? round2(acuteEntry.pool).toLocaleString() : "\u2014"}</span>
               </span>
             </div>
             {isOpen && <div style={{ padding: "2px 2px 12px" }}>
@@ -916,7 +916,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                 Institution total (Compare): <span style={{ fontFamily: "JetBrains Mono", color: "var(--text-muted)" }}>{round2(instTotalRef).toLocaleString()}</span> - read-only, edit in Compare
               </div>}
               {acuteRoster.length > 0 && <>
-                <div style={{ fontSize: 10, color: "#34d399", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, margin: "6px 0 6px" }}>Acute care (group)</div>
+                <div style={{ fontSize: 10, color: "var(--accent-green-soft)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700, margin: "6px 0 6px" }}>Acute care (group)</div>
                 <div style={S.fieldGroup}><label style={S.fieldLabel}>Pool wRVU (group total)</label>
                   <input type="text" inputMode="decimal" value={poolDraft} onChange={function(e) { setPoolDraft(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="0" autoFocus style={S.numberInput} />
                 </div>
@@ -931,9 +931,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
               </>}
               <div style={{ display: "flex", gap: 8 }}>
                 <button onClick={saveAcuteMonth} disabled={saveDisabled} style={{ ...S.saveBtn, flex: 1, padding: "8px 12px", fontSize: 12, opacity: saveDisabled ? 0.4 : 1 }}>Save</button>
-                {acuteEntry && <button onClick={function() { setShowSplitFor(showSplitFor === mk ? null : mk); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(52,211,153,0.3)", background: "transparent", color: "#34d399", fontSize: 12, cursor: "pointer" }}>{showSplitFor === mk ? "Hide split" : "View split"}</button>}
+                {acuteEntry && <button onClick={function() { setShowSplitFor(showSplitFor === mk ? null : mk); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(52,211,153,0.3)", background: "transparent", color: "var(--accent-green-soft)", fontSize: 12, cursor: "pointer" }}>{showSplitFor === mk ? "Hide split" : "View split"}</button>}
                 <button onClick={function() { setExpandedMonth(null); setPoolDraft(""); setShiftsDraft({}); setShowSplitFor(null); }} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Cancel</button>
-                {acuteEntry && <button onClick={clearAcuteMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer" }}>Clear</button>}
+                {acuteEntry && <button onClick={clearAcuteMonth} style={{ padding: "8px 12px", borderRadius: 8, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "var(--accent-red)", fontSize: 12, cursor: "pointer" }}>Clear</button>}
               </div>
               {showSplitFor === mk && (function() {
                 var m = acuteMonths[mk];
@@ -944,12 +944,12 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                   <div style={{ fontSize: 11, fontFamily: "JetBrains Mono", color: "var(--text-muted)", marginBottom: 6 }}>Pool {round2(sp.pool).toFixed(2)} | Units {sp.units % 1 === 0 ? sp.units : round2(sp.units).toFixed(2)} | Value/unit {round2(sp.valuePerUnit).toFixed(2)}</div>
                   {Object.keys(m.shifts).map(function(nm) {
                     return (<div key={nm} style={{ display: "flex", justifyContent: "space-between", padding: "3px 0", borderTop: "1px solid rgba(51,65,85,0.4)" }}>
-                      <span style={{ fontSize: 12, color: nm === (data.acuteMe || "") ? "#34d399" : "var(--text-primary)", fontWeight: nm === (data.acuteMe || "") ? 600 : 400 }}>{nm}</span>
+                      <span style={{ fontSize: 12, color: nm === (data.acuteMe || "") ? "var(--accent-green-soft)" : "var(--text-primary)", fontWeight: nm === (data.acuteMe || "") ? 600 : 400 }}>{nm}</span>
                       <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)" }}>{m.shifts[nm]} <span style={{ color: "var(--text-bright)", fontWeight: 600 }}>{round2(sp.shares[nm]).toFixed(2)}</span></span>
                     </div>);
                   })}
                   <button onClick={function() { copyAcuteTable(mk); }} style={{ marginTop: 8, padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Copy table</button>
-                  {copyStatus && <span style={{ marginLeft: 8, fontSize: 11, color: "#34d399" }}>{copyStatus}</span>}
+                  {copyStatus && <span style={{ marginLeft: 8, fontSize: 11, color: "var(--accent-green-soft)" }}>{copyStatus}</span>}
                 </div>);
               })()}
             </div>}
@@ -963,13 +963,13 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}>
       <div style={S.cardLabel}>Acute Care Group</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Partner roster for the monthly acute-care pool split. Enter each month's pool and shifts in Monthly Acute Care above; shares are computed from shifts. Tap Me to mark yourself.</div>
-      <button onClick={function() { if (openAcute) openAcute("settings"); }} style={{ marginTop: 8, padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(52,211,153,0.3)", background: "rgba(16,185,129,0.06)", color: "#34d399", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>View full history</button>
+      <button onClick={function() { if (openAcute) openAcute("settings"); }} style={{ marginTop: 8, padding: "6px 12px", borderRadius: 6, border: "1px solid rgba(52,211,153,0.3)", background: "rgba(16,185,129,0.06)", color: "var(--accent-green-soft)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>View full history</button>
       <div style={{ marginTop: 8 }}>
         {acuteRoster.length === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", padding: "8px 0" }}>No partners yet - add names below or import JSON.</div>}
         {acuteRoster.map(function(nm) {
           var isMe = (data.acuteMe || "") === nm;
           return (<div key={nm} style={{ display: "flex", alignItems: "center", gap: 8, padding: "7px 0", borderBottom: "1px solid rgba(51,65,85,0.4)" }}>
-            <button onClick={function() { setAcuteMe(nm); }} style={{ padding: "2px 8px", borderRadius: 10, border: isMe ? "1px solid rgba(52,211,153,0.5)" : "1px solid var(--border-default)", background: isMe ? "rgba(16,185,129,0.12)" : "transparent", color: isMe ? "#34d399" : "var(--text-faint)", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Me</button>
+            <button onClick={function() { setAcuteMe(nm); }} style={{ padding: "2px 8px", borderRadius: 10, border: isMe ? "1px solid rgba(52,211,153,0.5)" : "1px solid var(--border-default)", background: isMe ? "rgba(16,185,129,0.12)" : "transparent", color: isMe ? "var(--accent-green-soft)" : "var(--text-faint)", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Me</button>
             {renaming === nm ? (<>
               <input type="text" value={renameDraft} onChange={function(e) { setRenameDraft(e.target.value); }} autoFocus style={{ ...S.searchInput, flex: 1, padding: "5px 8px", fontSize: 12, marginBottom: 0 }} />
               <button onClick={function() { renamePartner(nm); }} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
@@ -977,7 +977,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
             </>) : (<>
               <span style={{ flex: 1, fontSize: 13, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nm}</span>
               <button onClick={function() { setRenaming(nm); setRenameDraft(nm); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Rename</button>
-              <button onClick={function() { removePartner(nm); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer" }}>x</button>
+              <button onClick={function() { removePartner(nm); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--accent-red)", fontSize: 11, cursor: "pointer" }}>x</button>
             </>)}
           </div>);
         })}
@@ -987,13 +987,13 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         </div>
       </div>
       <div style={{ marginTop: 12, borderTop: "1px solid var(--border-default)", paddingTop: 10 }}>
-        <button onClick={function() { setShowAcuteImport(!showAcuteImport); setAcuteImportStatus(""); }} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 6, color: showAcuteImport ? "#0ea5e9" : "var(--text-muted)", fontSize: 11, cursor: "pointer", padding: "4px 10px" }}>{showAcuteImport ? "Hide import" : "Import acute data (JSON)"}</button>
+        <button onClick={function() { setShowAcuteImport(!showAcuteImport); setAcuteImportStatus(""); }} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 6, color: showAcuteImport ? "var(--accent-sky)" : "var(--text-muted)", fontSize: 11, cursor: "pointer", padding: "4px 10px" }}>{showAcuteImport ? "Hide import" : "Import acute data (JSON)"}</button>
         {showAcuteImport && <div style={{ marginTop: 8 }}>
           <div style={{ fontSize: 10, color: "var(--text-faint)", lineHeight: 1.5, marginBottom: 6 }}>{'Paste: {"acuteRoster": [..], "acuteMe": "..", "acuteMonths": {"YYYY-MM": {"pool": n, "shifts": {"name": n}}}}. Pasted months overwrite same months; other months untouched. All-or-nothing: one bad month imports nothing.'}</div>
           <textarea value={acuteImportText} onChange={function(e) { setAcuteImportText(e.target.value); }} placeholder="Paste acute JSON here..." style={{ ...S.notesInput, minHeight: 80, fontSize: 11, fontFamily: "JetBrains Mono" }} />
           <button onClick={doAcuteImport} disabled={!acuteImportText.trim()} style={{ ...S.saveBtn, width: "100%", marginTop: 6, padding: "8px 12px", fontSize: 12, opacity: acuteImportText.trim() ? 1 : 0.4 }}>Import</button>
         </div>}
-        {acuteImportStatus && <div style={{ marginTop: 6, fontSize: 11, color: acuteImportStatus.indexOf("failed") !== -1 ? "#ef4444" : "#34d399" }}>{acuteImportStatus}</div>}
+        {acuteImportStatus && <div style={{ marginTop: 6, fontSize: 11, color: acuteImportStatus.indexOf("failed") !== -1 ? "var(--accent-red)" : "var(--accent-green-soft)" }}>{acuteImportStatus}</div>}
       </div>
     </div>
 
@@ -1003,8 +1003,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}>
       <div style={S.cardLabel}>Call Pay</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Call stipends, call-in fees and hourly pay per site, in dollars. Kept separate from wRVUs and Comp.</div>
-      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}{payNeedsType > 0 ? <span style={{ color: "#f59e0b" }}>{" \u00B7 " + payNeedsType + " need" + (payNeedsType === 1 ? "s" : "") + " a type"}</span> : null}</div>
-      <button onClick={function() { if (openCallPay) openCallPay("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "#0ea5e9", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
+      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{(data.paySites || []).length + " site" + ((data.paySites || []).length === 1 ? "" : "s") + ", " + (data.payShifts || []).length + " shift" + ((data.payShifts || []).length === 1 ? "" : "s")}{payNeedsType > 0 ? <span style={{ color: "var(--accent-amber)" }}>{" \u00B7 " + payNeedsType + " need" + (payNeedsType === 1 ? "s" : "") + " a type"}</span> : null}</div>
+      <button onClick={function() { if (openCallPay) openCallPay("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Call Pay</button>
       <button onClick={function() { if (openCallPay) openCallPay("settings", "rates"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Call pay rates</button>
     </div>
 
@@ -1016,19 +1016,19 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     {SCAN_ENABLED && (<div style={{ ...S.card, border: hasApiKey(settings) ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div style={S.cardLabel}>AI Scan Features</div>
-        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: hasApiKey(settings) ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: hasApiKey(settings) ? "#10b981" : "#f59e0b" }}>{hasApiKey(settings) ? "Active" : "Not configured"}</span>
+        <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: hasApiKey(settings) ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: hasApiKey(settings) ? "var(--accent-green)" : "var(--accent-amber)" }}>{hasApiKey(settings) ? "Active" : "Not configured"}</span>
       </div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Enter an Anthropic API key to enable scanning operative notes and clinic schedules. Get a key at console.anthropic.com</div>
       {hasApiKey(settings) && !showApiKeyInput ? (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "var(--bg-inset)", borderRadius: 8, border: "1px solid var(--border-default)" }}>
             <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-dim)", letterSpacing: 2, flex: 1 }}>{"\u2022\u2022\u2022\u2022\u2022\u2022\u2022\u2022"}{settings.apiKeyLast4 || "\u2022\u2022\u2022\u2022"}</span>
-            <span style={{ fontSize: 9, color: "#10b981", background: "rgba(16,185,129,0.1)", padding: "2px 6px", borderRadius: 3 }}>AES-256</span>
+            <span style={{ fontSize: 9, color: "var(--accent-green)", background: "rgba(16,185,129,0.1)", padding: "2px 6px", borderRadius: 3 }}>AES-256</span>
           </div>
           <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
             <div style={{ flex: 1, fontSize: 11, color: "var(--text-dim)", lineHeight: 1.4 }}>Key is AES-256-GCM encrypted with your PIN.</div>
             <button onClick={() => { setShowApiKeyInput(true); setNewApiKey(""); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Change</button>
-            <button onClick={removeApiKey} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
+            <button onClick={removeApiKey} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--accent-red)", fontSize: 11, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
           </div>
         </div>
       ) : (
@@ -1070,7 +1070,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
                   </div>}
             </div>
             {tplRenaming !== t.id && <button onClick={function() { setTplRenaming(t.id); setTplRenameDraft(t.name); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>Rename</button>}
-            <button onClick={function() { deleteTemplate(t); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "#ef4444", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>x</button>
+            <button onClick={function() { deleteTemplate(t); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.3)", background: "transparent", color: "var(--accent-red)", fontSize: 11, cursor: "pointer", flexShrink: 0 }}>x</button>
           </div>);
         })}
       </div>
@@ -1083,7 +1083,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Scanning is turned off. An API key is still stored on this device.</div>
       <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 10 }}>
         <span style={{ flex: 1, fontSize: 12, color: "var(--text-dim)" }}>{"\u2022\u2022\u2022\u2022"}{settings.apiKeyLast4 || ""} (AES-256, encrypted with your PIN)</span>
-        <button onClick={removeApiKey} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "#ef4444", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
+        <button onClick={removeApiKey} style={{ padding: "6px 12px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--accent-red)", fontSize: 12, cursor: "pointer", whiteSpace: "nowrap" }}>Remove</button>
       </div>
     </div>)}
 
@@ -1106,8 +1106,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
             return (<div key={cpt.code} style={{ display: "flex", alignItems: "center", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.4)", gap: 8 }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
-                  <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: isOverridden ? "#fbbf24" : "#0ea5e9", fontWeight: 600 }}>{cpt.code}</span>
-                  {isOverridden && <span style={{ fontSize: 9, color: "#fbbf24", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: 3 }}>custom</span>}
+                  <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: isOverridden ? "var(--accent-amber-soft)" : "var(--accent-sky)", fontWeight: 600 }}>{cpt.code}</span>
+                  {isOverridden && <span style={{ fontSize: 9, color: "var(--accent-amber-soft)", background: "rgba(251,191,36,0.1)", padding: "1px 5px", borderRadius: 3 }}>custom</span>}
                 </div>
                 <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.friendly || cpt.desc}</div>
                 {cpt.friendly && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 1, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{cpt.desc}</div>}
@@ -1121,9 +1121,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       </>}
     </div>
 
-    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Summary Stats</div><CompEye showComp={showComp} toggleComp={toggleComp} /></div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", credCount, "var(--text-primary)"], ["Total wRVUs", tRVU.toFixed(1), "var(--text-primary)"], ["Avg wRVU/Case", avg.toFixed(2), "#0ea5e9"], ["Total Comp", fmtDollar(tRVU * settings.ratePerRVU, showComp), "#10b981"]].map(function(item) { return (<div key={item[0]}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>{item[0]}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: item[2], fontWeight: 600 }}>{item[1]}</div></div>); })}</div>
+    <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>Summary Stats</div><CompEye showComp={showComp} toggleComp={toggleComp} /></div><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>{[["Total Cases", credCount, "var(--text-primary)"], ["Total wRVUs", tRVU.toFixed(1), "var(--text-primary)"], ["Avg wRVU/Case", avg.toFixed(2), "var(--accent-sky)"], ["Total Comp", fmtDollar(tRVU * settings.ratePerRVU, showComp), "var(--accent-green)"]].map(function(item) { return (<div key={item[0]}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>{item[0]}</div><div style={{ fontSize: 20, fontFamily: "JetBrains Mono", color: item[2], fontWeight: 600 }}>{item[1]}</div></div>); })}</div>
       {ncCount > 0 && <div onClick={function() { if (openHistory) openHistory(null); }} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}><span>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{ncRVU.toFixed(1)}</span>{" wRVU across " + ncCount + " case" + (ncCount === 1 ? "" : "s")}</span><span style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span></div>}</div>
-    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} disabled={excelBusy} style={{ ...S.secondaryBtn, color: "#10b981", borderColor: "rgba(16,185,129,0.3)", opacity: excelBusy ? 0.6 : 1 }}>{excelBusy ? "Loading..." : "Export Excel"}</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
+    <div style={{ display: "flex", gap: 8, marginTop: 8 }}><button onClick={expExcel} disabled={excelBusy} style={{ ...S.secondaryBtn, color: "var(--accent-green)", borderColor: "rgba(16,185,129,0.3)", opacity: excelBusy ? 0.6 : 1 }}>{excelBusy ? "Loading..." : "Export Excel"}</button><button onClick={expCSV} style={S.secondaryBtn}>Export CSV</button><button onClick={expJSON} style={S.secondaryBtn}>JSON</button></div>
 
     {/* Backup & Restore */}
     <div ref={backupCardRef} style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
@@ -1132,7 +1132,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       {(function() {
         var due = backupNudgeDue({ date: backupStamp.date }, todayLocal(), data.entries.length + (data.payShifts || []).length);
         var txt = backupStamp.date ? "Last backup: " + fmt(backupStamp.date) + (backupStamp.how === "copy" ? " (copied code)" : " (file)") + (due ? " - over 2 weeks ago" : "") : "No backup recorded on this phone yet";
-        // var(--global-90) is the theme-aware amber (#f59e0b dark, #92400e light).
+        // var(--global-90) is the theme-aware amber (#f59e0b dark, #8a5a00 light).
         return <div style={{ fontSize: 12, marginTop: 6, color: due ? "var(--global-90)" : "var(--text-dim)", fontWeight: due ? 600 : 400 }}>{txt}</div>;
       })()}
       <button onClick={saveBackupFile} disabled={fileBusy} style={{ ...S.saveBtn, marginTop: 10, fontSize: 15, opacity: fileBusy ? 0.6 : 1 }}>{fileBusy ? "Encrypting..." : "Save Backup File"}</button>
@@ -1141,22 +1141,22 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         return (<div style={{ marginTop: 8, padding: 10, borderRadius: 8, background: "var(--bg-inset)", border: "1px solid rgba(14,165,233,0.3)" }}>
           <div style={{ fontSize: 12, color: "var(--text-primary)", fontWeight: 600, wordBreak: "break-all" }}>{"Ready: " + bf.name}</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2, lineHeight: 1.5 }}>{bf.count + " procedures, " + bf.shifts + " call-pay shift" + (bf.shifts === 1 ? "" : "s") + ", " + bf.kb + " KB. Choose Save to Files - iCloud Drive is best."}</div>
-          {shareOk && <button onClick={shareBackupFile} style={{ ...S.secondaryBtn, width: "100%", marginTop: 8, minHeight: 44, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>Save / Share File</button>}
+          {shareOk && <button onClick={shareBackupFile} style={{ ...S.secondaryBtn, width: "100%", marginTop: 8, minHeight: 44, color: "var(--accent-sky)", borderColor: "rgba(14,165,233,0.3)" }}>Save / Share File</button>}
           {showDl && <button onClick={downloadBackupFile} style={{ ...S.secondaryBtn, width: "100%", marginTop: 8, minHeight: 44 }}>Download File</button>}
           <button onClick={function() { setBackupFile(null); }} style={{ ...S.linkBtn, display: "block", width: "100%", marginTop: 6, minHeight: 36 }}>Cancel</button>
         </div>);
       })()}
       <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
-        <button onClick={copyBackup} style={{ ...S.secondaryBtn, flex: 1, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>{"\uD83D\uDD12"} Copy Encrypted Backup</button>
+        <button onClick={copyBackup} style={{ ...S.secondaryBtn, flex: 1, color: "var(--accent-sky)", borderColor: "rgba(14,165,233,0.3)" }}>{"\uD83D\uDD12"} Copy Encrypted Backup</button>
         <button onClick={function() { setShowRestore(!showRestore); }} style={{ ...S.secondaryBtn, flex: 1 }}>{showRestore ? "Cancel" : "Restore"}</button>
       </div>
-      {backupStatus && <div style={{ fontSize: 12, color: (backupManual || backupWarn) ? "#f59e0b" : "#10b981", marginTop: 6, textAlign: "center" }}>{backupStatus}</div>}
+      {backupStatus && <div style={{ fontSize: 12, color: (backupManual || backupWarn) ? "var(--accent-amber)" : "var(--accent-green)", marginTop: 6, textAlign: "center" }}>{backupStatus}</div>}
       {backupManual && <div style={{ marginTop: 6 }}>
         <textarea readOnly value={backupManual} onFocus={function(e) { e.target.select(); }} style={{ ...S.notesInput, minHeight: 80, fontSize: 10, fontFamily: "JetBrains Mono" }} />
         <button onClick={function() { setBackupManual(""); setBackupStatus(""); }} style={{ ...S.secondaryBtn, width: "100%", marginTop: 6, minHeight: 44 }}>Done</button>
       </div>}
       {showRestore && <div style={{ marginTop: 10 }}>
-        <button onClick={function() { if (restoreFileRef.current) restoreFileRef.current.click(); }} style={{ ...S.secondaryBtn, width: "100%", minHeight: 44, color: "#0ea5e9", borderColor: "rgba(14,165,233,0.3)" }}>Restore from File...</button>
+        <button onClick={function() { if (restoreFileRef.current) restoreFileRef.current.click(); }} style={{ ...S.secondaryBtn, width: "100%", minHeight: 44, color: "var(--accent-sky)", borderColor: "rgba(14,165,233,0.3)" }}>Restore from File...</button>
         <input ref={restoreFileRef} type="file" accept=".txt,.json,text/plain,application/json" style={{ display: "none" }} onChange={function(e) { var f = e.target.files && e.target.files[0]; e.target.value = ""; if (f) restoreFromFile(f); }} />
         <div style={{ fontSize: 11, color: "var(--text-faint)", textAlign: "center", margin: "10px 0 6px" }}>or paste a backup code</div>
         <textarea value={restoreText} onChange={function(e) { setRestoreText(e.target.value); }} placeholder="Paste your backup code here..." style={{ ...S.notesInput, minHeight: 80, fontSize: 11, fontFamily: "JetBrains Mono" }} />
@@ -1170,12 +1170,12 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Send RVU Tracker to a colleague. Opens your device share sheet, or copies the link if unavailable.</div>
       <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6, fontFamily: "JetBrains Mono", wordBreak: "break-all" }}>https://fkhan628.github.io/Work-RVU-Tracker-/</div>
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        <button onClick={doShare} style={{ ...S.secondaryBtn, flex: 1, color: "#8b5cf6", borderColor: "rgba(139,92,246,0.3)" }}>{"\uD83D\uDD17"} Share App Link</button>
+        <button onClick={doShare} style={{ ...S.secondaryBtn, flex: 1, color: "var(--accent-violet-deep)", borderColor: "rgba(139,92,246,0.3)" }}>{"\uD83D\uDD17"} Share App Link</button>
       </div>
-      {shareStatus && <div style={{ fontSize: 12, color: "#10b981", marginTop: 6, textAlign: "center" }}>{shareStatus}</div>}
+      {shareStatus && <div style={{ fontSize: 12, color: "var(--accent-green)", marginTop: 6, textAlign: "center" }}>{shareStatus}</div>}
     </div>
 
-    <div style={{ marginTop: 8 }}><button onClick={removeDuplicates} style={{ ...S.secondaryBtn, width: "100%", color: "#fbbf24", borderColor: "rgba(251,191,36,0.3)" }}>Remove Duplicates</button></div>
+    <div style={{ marginTop: 8 }}><button onClick={removeDuplicates} style={{ ...S.secondaryBtn, width: "100%", color: "var(--accent-amber-soft)", borderColor: "rgba(251,191,36,0.3)" }}>Remove Duplicates</button></div>
     <div style={{ marginTop: 8 }}><button onClick={clear} style={{ ...S.dangerBtn, width: "100%" }}>Delete All Procedures</button></div>
     {/* Which build this phone runs (index.html ASSET_V) - a home-screen app
         can keep an old copy until it is fully closed and reopened. */}

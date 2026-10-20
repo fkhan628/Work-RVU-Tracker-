@@ -1464,10 +1464,11 @@ const COMP_MONEY_PIN = 8;
     if (rel.length) bad.push("analytics.js: a pace verdict compares ytdRVU / expectedRVU / projectedAnnual outside onPace (" + rel.length + ")");
     // Every onPace read is the test of one of these ternaries, the right way
     // round: the bar gradient, the verdict colour, word and sign, and the
-    // Projected colour (green / Ahead / + when on pace).
+    // Projected colour (green / Ahead / + when on pace; the colours are the
+    // --accent-green / --accent-amber theme tokens, the bar keeps its hexes).
     const lit = x => x && x.type === "StringLiteral" ? x.value : null;
     const conds = deep(an.ast.program, n => n.type === "ConditionalExpression" && isId(n.test, "onPace")).map(n => lit(n.consequent) + "|" + lit(n.alternate)).sort();
-    const WANT = ["#10b981|#f59e0b", "#10b981|#f59e0b", "+|-", "Ahead of pace|Behind pace", "linear-gradient(90deg, #10b981, #34d399)|linear-gradient(90deg, #f59e0b, #fbbf24)"].sort();
+    const WANT = ["var(--accent-green)|var(--accent-amber)", "var(--accent-green)|var(--accent-amber)", "+|-", "Ahead of pace|Behind pace", "linear-gradient(90deg, #10b981, #34d399)|linear-gradient(90deg, #f59e0b, #fbbf24)"].sort();
     const reads = deep(an.ast.program, n => isId(n, "onPace")).length - op.length;
     if (JSON.stringify(conds) !== JSON.stringify(WANT) || reads !== WANT.length) bad.push("analytics.js: onPace must drive the bar, the verdict colour / word / sign and the Projected colour, green / Ahead / + when on pace (got " + JSON.stringify(conds) + ", " + reads + " reads)");
     // Expected: exactly goal x trackedPaceMonths(daysPassed) / 12, shown as
@@ -1862,6 +1863,114 @@ const COMP_MONEY_PIN = 8;
     if (!csOk || !cuOk) bad.push("log.js: curSel is not the ACTIVE procedure's picked code (cur = procs[activeProc] || ...; curSel = cur.code ? cptMap[cur.code] : null)");
   }
   check("5f-12: Log's category / Favorites row renders only as {!curSel && <div style={S.catRow}>} - the same !curSel the two lists lead with (the card leads with curSel); curSel is the ACTIVE procedure's code",
+    bad.length === 0, bad.join(", "));
+}
+
+// 5f-13. Theme colour tokens (CLAUDE.md "Theme colours"). styles.js gives
+// every token a value in BOTH the :root (dark) and body.light-mode blocks,
+// and every var(--x) a js file uses is one of them (an undefined token
+// silently falls back to black text / a transparent background). The accent
+// and track tokens keep the DARK value of the literal they replaced, so dark
+// mode is unchanged (THEME_DARK pins them, SURFACE_DARK the existing surface
+// and text tokens those literals map to); every text token's LIGHT value
+// (--text-*, --accent-*, --global-*, --selected-code; --text-ghost exempt) is
+// at least 4.5:1 on white and on the light page (#f1f5f9), and a new one
+// must join the list. No style `color` (any ternary / && branch) and no SVG
+// <text fill> in styles.js or a UI file is a raw accent or caption-grey hex,
+// and no style background is a slate dark-surface literal (the hidden scan
+// buttons aside): text and surfaces on a theme card use tokens. Syntactic -
+// a hex held in a variable is not seen; fills under white text, chart marks,
+// borders, tints and exports keep their literals.
+{
+  const THEME_DARK = {
+    "accent-sky": "#0ea5e9", "accent-sky-soft": "#38bdf8", "accent-green": "#10b981", "accent-green-soft": "#34d399",
+    "accent-amber": "#f59e0b", "accent-amber-soft": "#fbbf24", "accent-amber-pale": "#fcd34d", "accent-star": "#fbbf24",
+    "accent-violet": "#a78bfa", "accent-violet-deep": "#8b5cf6", "accent-red": "#ef4444", "accent-red-soft": "#f87171",
+    "accent-pink": "#ec4899", "accent-cyan": "#06b6d4", "accent-orange": "#f97316",
+    "bg-track": "rgba(51,65,85,0.6)", "bg-track-deep": "#0f172a", "mark-goal": "rgba(251,191,36,0.5)",
+    "tag-bg": "rgba(100,116,139,0.15)", "bar-rest-from": "#334155", "bar-rest-to": "#475569",
+    "text-bright": "#f8fafc", "text-primary": "#e2e8f0", "text-secondary": "#cbd5e1", "text-muted": "#94a3b8",
+    "text-dim": "#64748b", "text-faint": "#475569"
+  };
+  // Existing surface / text tokens the replaced literals now map to: their
+  // dark values are pinned too (a change would move dark mode everywhere).
+  const SURFACE_DARK = {
+    "bg-base": "#0f172a", "bg-card": "#1e293b", "bg-inset": "#0f172a", "border-subtle": "#1e293b",
+    "border-default": "#334155", "card-main-from": "#1e293b", "card-main-to": "#0f172a",
+    "text-ghost": "#334155", "selected-code": "#38bdf8", "global-90": "#f59e0b", "global-10": "#0ea5e9", "global-0": "#94a3b8"
+  };
+  // Every text token (--text-*, --accent-*, --global-*, --selected-code) is
+  // AA in light; --text-ghost (the empty favourite star) is faint in both
+  // themes by design and exempt. A NEW text token must join this list.
+  const TEXT_AA = Object.keys(THEME_DARK).filter(k => k.indexOf("accent-") === 0 || k.indexOf("text-") === 0)
+    .concat(["selected-code", "global-90", "global-10", "global-0"]);
+  const bad = [];
+  const ss = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8").replace(/\r/g, "");
+  const block = open => {
+    const out = {}, a = ss.indexOf(open), b = a < 0 ? -1 : ss.indexOf('"}",', a);
+    if (b < 0) return out;
+    ss.slice(a, b).split("\n").forEach(l => { const m = /^\s*"\s*--([a-z0-9-]+):\s*([^;]+);",\s*$/.exec(l); if (m) out[m[1]] = m[2].trim(); });
+    return out;
+  };
+  const dark = block('":root {",'), light = block('"body.light-mode {",');
+  if (Object.keys(dark).length < 20 || Object.keys(light).length < 20) bad.push("styles.js: the :root / body.light-mode token blocks were not found");
+  Object.keys(dark).forEach(k => { if (!(k in light)) bad.push("--" + k + " has no light value"); });
+  Object.keys(light).forEach(k => { if (!(k in dark)) bad.push("--" + k + " has no dark value"); });
+  Object.keys(THEME_DARK).concat(Object.keys(SURFACE_DARK)).forEach(k => { const want = THEME_DARK[k] || SURFACE_DARK[k]; if (dark[k] !== want) bad.push("--" + k + " dark value is " + dark[k] + ", want " + want); });
+  Object.keys(light).forEach(k => { if (/^(text-|accent-|global-)/.test(k) && k !== "text-ghost" && TEXT_AA.indexOf(k) === -1) bad.push("--" + k + " is a text token with no light AA check (a new --text-* / --accent-* goes in THEME_DARK; any other in the TEXT_AA .concat list)"); });
+  const rgb = h => { const m = /^#([0-9a-f]{6})$/i.exec(h || ""); if (!m) return null; const v = parseInt(m[1], 16); return [(v >> 16) & 255, (v >> 8) & 255, v & 255]; };
+  const lum = c => { const ch = x => { x /= 255; return x <= 0.03928 ? x / 12.92 : Math.pow((x + 0.055) / 1.055, 2.4); }; return 0.2126 * ch(c[0]) + 0.7152 * ch(c[1]) + 0.0722 * ch(c[2]); };
+  const ratio = (p, q) => { const x = lum(p), y = lum(q); return (Math.max(x, y) + 0.05) / (Math.min(x, y) + 0.05); };
+  TEXT_AA.forEach(k => {
+    const c = rgb(light[k]);
+    if (!c) { bad.push("--" + k + " light value " + light[k] + " is not #rrggbb"); return; }
+    [["white", [255, 255, 255]], ["#f1f5f9", [241, 245, 249]]].forEach(bg => { const r = ratio(c, bg[1]); if (r < 4.5) bad.push("--" + k + " light " + light[k] + " is " + r.toFixed(2) + ":1 on " + bg[0]); });
+  });
+  const used = {};
+  jsFiles.forEach(f => {
+    const src = fs.readFileSync(path.join(JS_DIR, f), "utf8");
+    let m; const re = /var\(--([a-z0-9-]+)\)/g;
+    while ((m = re.exec(src))) if (!(m[1] in dark) || !(m[1] in light)) used[f + ": var(--" + m[1] + ")"] = true;
+  });
+  Object.keys(used).forEach(u => bad.push(u + " is not defined in both theme blocks"));
+  const FORBID = {};
+  Object.keys(THEME_DARK).forEach(k => { if (k.indexOf("accent-") === 0 || k.indexOf("text-") === 0) FORBID[THEME_DARK[k]] = true; });
+  const lits = n => !n ? [] : n.type === "StringLiteral" ? [n.value] : n.type === "ConditionalExpression" ? lits(n.consequent).concat(lits(n.alternate)) : n.type === "LogicalExpression" ? lits(n.left).concat(lits(n.right)) : [];
+  let colorProps = 0, bgProps = 0, darkExempt = 0;
+  // A hard-coded slate dark surface (the Trends cards and tiles this pass
+  // themed): no background literal of these in a UI file, the hidden scan
+  // buttons' disabled background aside (exactly 3 in log.js - the count is
+  // also the regex's positive control).
+  const DARK_SURFACE = /#0f172a|#1e293b|#334155|#475569|rgba\(\s*(15\s*,\s*23\s*,\s*42|30\s*,\s*41\s*,\s*59|51\s*,\s*65\s*,\s*85)\s*,/i;
+  const keyIs = (n, names) => !n.computed && ((n.key.type === "Identifier" && names.indexOf(n.key.name) !== -1) || (n.key.type === "StringLiteral" && names.indexOf(n.key.value) !== -1));
+  jsFiles.filter(f => ["utils.js", "crypto.js", "cpt-data.js"].indexOf(f) === -1).forEach(f => {
+    let ast;
+    try { ast = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS); } catch (e) { bad.push(f + ": parse"); return; }
+    walk(ast.program, n => {
+      if (n.type === "ObjectProperty" && keyIs(n, ["background", "backgroundColor", "backgroundImage"])) {
+        bgProps++;
+        lits(n.value).forEach(v => {
+          if (!DARK_SURFACE.test(v)) return;
+          if (f === "log.js" && v === "rgba(30,41,59,0.5)") darkExempt++;
+          else bad.push(f + ":" + n.loc.start.line + ": dark surface background " + v);
+        });
+      }
+      if (n.type === "ObjectProperty" && !n.computed && ((n.key.type === "Identifier" && n.key.name === "color") || (n.key.type === "StringLiteral" && n.key.value === "color"))) {
+        colorProps++;
+        lits(n.value).forEach(v => { if (FORBID[v.toLowerCase()]) bad.push(f + ":" + n.loc.start.line + ": color " + v); });
+      }
+      if (n.type === "JSXElement" && n.openingElement.name && n.openingElement.name.name === "text") {
+        n.openingElement.attributes.forEach(a => {
+          if (a.type !== "JSXAttribute" || !a.name || a.name.name !== "fill" || !a.value) return;
+          const v = a.value.type === "StringLiteral" ? [a.value.value] : a.value.expression ? lits(a.value.expression) : [];
+          v.forEach(s => { if (FORBID[s.toLowerCase()]) bad.push(f + ":" + n.loc.start.line + ": <text fill> " + s); });
+        });
+      }
+    });
+  });
+  if (colorProps < 300 || bgProps < 200) bad.push("only " + colorProps + " style color / " + bgProps + " background properties seen - the walk is broken");
+  if (darkExempt !== 3) bad.push("log.js: " + darkExempt + " rgba(30,41,59,0.5) backgrounds, want exactly 3 (the hidden scan buttons' no-key state)");
+  check("5f-13: theme tokens - every token in both theme blocks and every var(--x) defined; accent / track / surface dark values pinned (dark mode unchanged); every text token AA in light; no raw accent or caption-grey hex as a text colour; no hard-coded dark surface",
     bad.length === 0, bad.join(", "));
 }
 

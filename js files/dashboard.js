@@ -248,23 +248,23 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
     {/* Two independent goal tracks, equal weight. Wraps to stacked below ~340px. */}
     <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 12 }}>
       <div style={{ ...S.card, flex: "1 1 150px", marginBottom: 0 }}>
-        <div style={{ fontSize: 10, color: "#38bdf8", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Tracked OR wRVUs</div>
+        <div style={{ fontSize: 10, color: "var(--accent-sky-soft)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Tracked OR wRVUs</div>
         <div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", marginTop: 6 }}>{trackedRVU.toFixed(1)}</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{settings.annualGoal > 0 ? "of " + settings.annualGoal.toLocaleString() + " goal" : "no goal set"}</div>
-        <div style={{ height: 6, borderRadius: 3, background: "rgba(51,65,85,0.6)", marginTop: 8, overflow: "hidden" }}><div style={{ width: orPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #0ea5e9, #38bdf8)", transition: "width 0.5s" }} /></div>
+        <div style={{ height: 6, borderRadius: 3, background: "var(--bg-track)", marginTop: 8, overflow: "hidden" }}><div style={{ width: orPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #0ea5e9, #38bdf8)", transition: "width 0.5s" }} /></div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, minHeight: 13 }}>
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{settings.annualGoal > 0 ? orPct.toFixed(0) + "%" : ""}</span>
-          {isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: settings.annualGoal > 0 ? (orPace >= settings.annualGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {orPace.toFixed(0)}/yr</span>}
+          {isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: settings.annualGoal > 0 ? (orPace >= settings.annualGoal ? "var(--accent-green-soft)" : "var(--accent-amber-soft)") : "var(--text-dim)" }}>pace {orPace.toFixed(0)}/yr</span>}
         </div>
       </div>
       <div style={{ ...S.card, flex: "1 1 150px", marginBottom: 0 }}>
-        <div style={{ fontSize: 10, color: "#34d399", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Reconciliation</div>
+        <div style={{ fontSize: 10, color: "var(--accent-green-soft)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Reconciliation</div>
         <div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", marginTop: 6 }}>{reconYTD.toFixed(1)}</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{reconGoal > 0 ? "of " + reconGoal.toLocaleString() + " goal" : "no goal set"}</div>
-        <div style={{ height: 6, borderRadius: 3, background: "rgba(51,65,85,0.6)", marginTop: 8, overflow: "hidden" }}><div style={{ width: reconPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #059669, #34d399)", transition: "width 0.5s" }} /></div>
+        <div style={{ height: 6, borderRadius: 3, background: "var(--bg-track)", marginTop: 8, overflow: "hidden" }}><div style={{ width: reconPct + "%", height: "100%", borderRadius: 3, background: "linear-gradient(90deg, #059669, #34d399)", transition: "width 0.5s" }} /></div>
         <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6, minHeight: 13 }}>
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{reconGoal > 0 && reconCount > 0 ? reconPct.toFixed(0) + "%" : ""}</span>
-          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "#34d399" : "#fbbf24") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span onClick={function() { setView("compare"); }} style={{ fontSize: 10, color: "var(--text-faint)", cursor: "pointer" }}>{"add months in Compare \u203A"}</span>}
+          {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "var(--accent-green-soft)" : "var(--accent-amber-soft)") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span onClick={function() { setView("compare"); }} style={{ fontSize: 10, color: "var(--text-faint)", cursor: "pointer" }}>{"add months in Compare \u203A"}</span>}
         </div>
       </div>
     </div>
@@ -282,29 +282,29 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       {(callPay.shifts > 0 || callPay.needsType > 0) && <div onClick={function() { if (openCallPay) openCallPay("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer" }}>
         <div style={{ display: "flex", alignItems: "center", minHeight: 24 }}>
           <span>{"Call pay (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}{callPay.shifts > 0
-            ? <span><span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
-            : <span style={{ color: "#f59e0b" }}>nothing counted yet</span>}</span>
-          <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+            ? <span><span style={{ fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>{fmtDollar(callPay.total, showComp)}</span>{" across " + callPay.shifts + " shift" + (callPay.shifts === 1 ? "" : "s")}</span>
+            : <span style={{ color: "var(--accent-amber)" }}>nothing counted yet</span>}</span>
+          <span style={{ marginLeft: 6, color: "var(--accent-green)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
         </div>
         {callPay.split.length > 0 && <div style={{ paddingLeft: 10, color: "var(--text-faint)", lineHeight: 1.6 }}>
           {callPay.split.map(function(b, i) { return (<span key={b.key || "other"} style={{ whiteSpace: "nowrap" }}>{(i ? " \u00B7 " : "") + b.label + " " + b.shifts + " "}<span style={{ fontFamily: "JetBrains Mono" }}>{fmtDollar(b.total, showComp)}</span></span>); })}
         </div>}
         {callPay.split.filter(function(b) { return b.ciShifts > 0; }).map(function(b) { return (<div key={"in-" + (b.key || "other")} style={{ paddingLeft: 10, color: "var(--text-faint)", lineHeight: 1.6 }}>{b.label + "s: " + payBucketInLine(b)}</div>); })}
-        {callPay.needsType > 0 && <div style={{ paddingLeft: 10, color: "#f59e0b", lineHeight: 1.6 }}>{callPay.needsType + " shift" + (callPay.needsType === 1 ? " needs" : "s need") + " a type - not in the total"}</div>}
+        {callPay.needsType > 0 && <div style={{ paddingLeft: 10, color: "var(--accent-amber)", lineHeight: 1.6 }}>{callPay.needsType + " shift" + (callPay.needsType === 1 ? " needs" : "s need") + " a type - not in the total"}</div>}
       </div>}
       {dirList(data).length > 0 && dirPay.entries > 0 && <div onClick={function() { if (openDirectorships) openDirectorships("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginBottom: 3, cursor: "pointer", display: "flex", alignItems: "center", minHeight: 24 }}>
-        <span>{"Directorships (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{dirMoneyShown(dirPay.total, showComp)}</span></span>
-        <span style={{ marginLeft: 6, color: "#10b981", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+        <span>{"Directorships (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>{dirMoneyShown(dirPay.total, showComp)}</span></span>
+        <span style={{ marginLeft: 6, color: "var(--accent-green)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
       {reconCount > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)" }}>
-        Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
+        Call + clinic (derived): <span style={{ fontFamily: "JetBrains Mono", color: derivedCallClinic >= 0 ? "var(--text-primary)" : "var(--accent-amber)", fontWeight: 600 }}>{(derivedCallClinic >= 0 ? "+" : "") + derivedCallClinic.toFixed(1)}</span> across {reconCount} entered month{reconCount === 1 ? "" : "s"}
       </div>}
       {myAcuteCount > 0 && <div onClick={function() { if (openAcute) openAcute("dashboard"); }} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3, cursor: "pointer", display: "flex", alignItems: "center" }}>
-        <span>{"My acute share (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "#34d399", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}</span>
-        <span style={{ marginLeft: 6, color: "#34d399", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
+        <span>{"My acute share (" + (isCurrent ? "YTD" : yearBounds.label) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--accent-green-soft)", fontWeight: 600 }}>{myAcuteYTD.toFixed(2)}</span> across {myAcuteCount} entered month{myAcuteCount === 1 ? "" : "s"}</span>
+        <span style={{ marginLeft: 6, color: "var(--accent-green-soft)", fontSize: 13, lineHeight: 1 }}>{"\u203A"}</span>
       </div>}
       {myAcuteCount > 0 && reconCount > 0 && overlapKeys.length > 0 && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 3 }}>
-        Clinic + other (derived): <span style={{ fontFamily: "JetBrains Mono", color: clinicOther >= 0 ? "var(--text-primary)" : "#f59e0b", fontWeight: 600 }}>{(clinicOther >= 0 ? "+" : "") + clinicOther.toFixed(1)}</span> across {overlapKeys.length} overlapping month{overlapKeys.length === 1 ? "" : "s"}
+        Clinic + other (derived): <span style={{ fontFamily: "JetBrains Mono", color: clinicOther >= 0 ? "var(--text-primary)" : "var(--accent-amber)", fontWeight: 600 }}>{(clinicOther >= 0 ? "+" : "") + clinicOther.toFixed(1)}</span> across {overlapKeys.length} overlapping month{overlapKeys.length === 1 ? "" : "s"}
       </div>}
     </div>}
     {/* Backup nudge: 14+ days since this phone saved a backup (or never),
@@ -336,23 +336,23 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
             never a Compare total (that includes call + clinic). */}
         <div style={S.statCard}><div style={S.statValue}>{credEnc > 0 ? (trackedRVU / credEnc).toFixed(1) : "0"}</div><div style={S.statLabel}>Avg/Enc</div></div>
       </>}
-      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(proj.ytdComp, showComp)}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "var(--accent-green)" }}>{fmtDollar(proj.ytdComp, showComp)}</div><div style={S.statLabel}>{isCurrent ? "Comp YTD" : "Comp " + yearBounds.label}</div></div>
     </div>
 
     {/* Year-over-year comparison - the same span on both sides (yoy) */}
     {Math.round(yoy.prev) > 0 && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.2)", background: "rgba(139,92,246,0.02)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>vs. Prior Year</div>
-          <div style={{ fontSize: 11, color: "#64748b", marginTop: 2 }}>{yoyLabel}: {yoy.prev.toFixed(0)} wRVUs</div>
+          <div style={{ fontSize: 10, color: "var(--accent-violet)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>vs. Prior Year</div>
+          <div style={{ fontSize: 11, color: "var(--text-dim)", marginTop: 2 }}>{yoyLabel}: {yoy.prev.toFixed(0)} wRVUs</div>
         </div>
         <div style={{ textAlign: "right" }}>
           {(function() {
             var yoyDiff = yoy.cur - yoy.prev;
             var yoyPct = (yoyDiff / yoy.prev) * 100;
             return <>
-              <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: yoyDiff >= 0 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>{yoyDiff >= 0 ? "+" : ""}{yoyDiff.toFixed(0)}</div>
-              <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#64748b" }}>{yoyDiff >= 0 ? "+" : ""}{yoyPct.toFixed(1)}%</div>
+              <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: yoyDiff >= 0 ? "var(--accent-green)" : "var(--accent-amber)", fontWeight: 700 }}>{yoyDiff >= 0 ? "+" : ""}{yoyDiff.toFixed(0)}</div>
+              <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{yoyDiff >= 0 ? "+" : ""}{yoyPct.toFixed(1)}%</div>
             </>;
           })()}
         </div>
@@ -366,10 +366,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
         <div>
           <div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 700 }}>{prevYearRVU.instTotal.toFixed(0)}</div>
           <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 1 }}>wRVUs total</div>
-          <div style={{ fontSize: 10, color: "#64748b", marginTop: 1 }}>W: {prevYearRVU.instWork.toFixed(0)} | C: {prevYearRVU.instSplit.toFixed(0)}</div>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 1 }}>W: {prevYearRVU.instWork.toFixed(0)} | C: {prevYearRVU.instSplit.toFixed(0)}</div>
         </div>
         <div style={{ textAlign: "right" }}>
-          {settings.ratePerRVU > 0 && <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 600 }}>{fmtDollar(prevYearComp, showComp)}</div>}
+          {settings.ratePerRVU > 0 && <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>{fmtDollar(prevYearComp, showComp)}</div>}
           {settings.ratePerRVU > 0 && <div style={{ fontSize: 10, color: "var(--text-dim)" }}>prior year comp</div>}
           {prevYearRVU.monthCount > 0 && <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 2 }}>{prevYearRVU.monthCount} months | avg {(prevYearRVU.instTotal / prevYearRVU.monthCount).toFixed(0)}/mo</div>}
         </div>
@@ -389,21 +389,21 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
           <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{proj.goalWRVU.toLocaleString()} wRVUs</div>
         </div>
         <div>
-          <div style={{ fontSize: 10, color: proj.onPace ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>Projected</div>
-          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: proj.onPace ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{fmtDollar(proj.comp, showComp)}</div>
+          <div style={{ fontSize: 10, color: proj.onPace ? "var(--accent-green)" : "var(--accent-amber)", textTransform: "uppercase", letterSpacing: 0.5, fontWeight: 600 }}>Projected</div>
+          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: proj.onPace ? "var(--accent-green)" : "var(--accent-amber)", fontWeight: 600 }}>{fmtDollar(proj.comp, showComp)}</div>
           <div style={{ fontSize: 10, color: "var(--text-faint)" }}>{proj.wrvu.toFixed(0)} wRVUs</div>
           <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{proj.sourceLabel}</div>
         </div>
       </div>
       <div style={{ marginTop: 10, padding: "6px 10px", borderRadius: 8, background: proj.onPace ? "rgba(16,185,129,0.08)" : "rgba(245,158,11,0.08)", display: "flex", flexWrap: "wrap", gap: 4, justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 11, color: proj.onPace ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{(showComp ? (proj.onPace ? "+" : "") + proj.diff.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "$\u2022\u2022\u2022\u2022\u2022") + " vs " + proj.goalName}</span>
+        <span style={{ fontSize: 11, color: proj.onPace ? "var(--accent-green)" : "var(--accent-amber)", fontWeight: 600 }}>{(showComp ? (proj.onPace ? "+" : "") + proj.diff.toLocaleString("en-US", { style: "currency", currency: "USD", maximumFractionDigits: 0 }) : "$\u2022\u2022\u2022\u2022\u2022") + " vs " + proj.goalName}</span>
         <span style={{ marginLeft: "auto", fontSize: 10, color: "var(--text-dim)" }}>{showComp ? "$" + settings.ratePerRVU + "/wRVU" : ""}</span>
       </div>
     </div>}
 
     <div style={S.card}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}><div style={S.cardLabel}>{isCurrent ? "Monthly wRVUs" : yearBounds.label + " Monthly wRVUs"}</div>{chartInst && <div style={{ display: "flex", gap: 8 }}>
-      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#a78bfa" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst (Compare)</span>
-      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "#0ea5e9" }}><span style={{ display: "inline-block", width: 8, height: 3, borderRadius: 1, background: "#0ea5e9" }}></span>Tracked</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "var(--accent-violet)" }}><span style={{ display: "inline-block", width: 8, height: 8, borderRadius: 2, background: "#a78bfa" }}></span>Inst (Compare)</span>
+      <span style={{ display: "flex", alignItems: "center", gap: 3, fontSize: 9, color: "var(--accent-sky)" }}><span style={{ display: "inline-block", width: 8, height: 3, borderRadius: 1, background: "#0ea5e9" }}></span>Tracked</span>
     </div>}</div>
     <div style={{ display: "flex", alignItems: "flex-end", gap: 8, height: 110, marginTop: 12 }}>{months.map(function(m, i) {
       var instH = maxM > 0 ? (m.inst / maxM) * 80 : 0;
@@ -412,12 +412,12 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       return (<div key={i} style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", gap: 3 }}>
         <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: chartInst && !m.hasRow ? "var(--global-10)" : "var(--text-secondary)", fontWeight: 500 }}>{(chartInst && m.hasRow) || m.primary > 0 ? m.primary.toFixed(0) : ""}</span>
         <div style={{ width: "100%", position: "relative" }}>
-          {chartInst && m.hasRow && <div style={{ width: "100%", height: Math.max(instH > 0 ? instH : 0, instH > 0 ? 4 : 0), background: isLast ? "linear-gradient(to top, #8b5cf6, #a78bfa)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4, transition: "height 0.3s" }} />}
+          {chartInst && m.hasRow && <div style={{ width: "100%", height: Math.max(instH > 0 ? instH : 0, instH > 0 ? 4 : 0), background: isLast ? "linear-gradient(to top, #8b5cf6, #a78bfa)" : "linear-gradient(to top, var(--bar-rest-from), var(--bar-rest-to))", borderRadius: 4, transition: "height 0.3s" }} />}
           {chartInst && m.hasRow && m.inst > 0 && m.tracked > 0 && <div style={{ position: "absolute", bottom: 0, left: "25%", width: "50%", height: Math.max(4, trackH), background: "#0ea5e9", borderRadius: 2, opacity: 0.8 }} />}
           {/* No Compare bar to sit on (no row, or a row of 0): the narrow
               Tracked bar sits in the flow, so the number stays above it. */}
           {chartInst && !(m.hasRow && m.inst > 0) && m.tracked > 0 && <div style={{ width: "50%", margin: "0 auto", height: Math.max(4, trackH), background: "#0ea5e9", borderRadius: 2, opacity: 0.8 }} />}
-          {!chartInst && <div style={{ width: "100%", height: Math.max(4, trackH > 0 ? trackH : 0), background: isLast ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, #334155, #475569)", borderRadius: 4 }} />}
+          {!chartInst && <div style={{ width: "100%", height: Math.max(4, trackH > 0 ? trackH : 0), background: isLast ? "linear-gradient(to top, #0ea5e9, #38bdf8)" : "linear-gradient(to top, var(--bar-rest-from), var(--bar-rest-to))", borderRadius: 4 }} />}
         </div>
         <span style={{ fontSize: 10, color: "var(--text-muted)" }}>{m.label}</span>
       </div>);
@@ -430,10 +430,10 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
       <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <span style={{ fontSize: 18 }}>{"\u2194"}</span>
         <div style={{ flex: 1 }}>
-          <div style={{ fontSize: 12, fontWeight: 600, color: "#a78bfa" }}>Add Institution Data</div>
+          <div style={{ fontSize: 12, fontWeight: 600, color: "var(--accent-violet)" }}>Add Institution Data</div>
           <div style={{ fontSize: 11, color: "var(--text-muted)" }}>Open Compare to add your institution's monthly RVU figures for a month-by-month comparison</div>
         </div>
-        <span style={{ color: "#a78bfa", fontSize: 16, lineHeight: 1 }}>{"\u203a"}</span>
+        <span style={{ color: "var(--accent-violet)", fontSize: 16, lineHeight: 1 }}>{"\u203a"}</span>
       </div>
     </div>}
 

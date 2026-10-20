@@ -361,24 +361,24 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
     {instData.length > 0 && <>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
         <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.3)" }}>
-          <div style={{ fontSize: 10, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Institution Total</div>
-          <div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "#a78bfa", fontWeight: 700, marginTop: 4 }}>{totals.instTotal.toFixed(1)}</div>
+          <div style={{ fontSize: 10, color: "var(--accent-violet)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Institution Total</div>
+          <div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "var(--accent-violet)", fontWeight: 700, marginTop: 4 }}>{totals.instTotal.toFixed(1)}</div>
           <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>Work: {totals.instWork.toFixed(1)} | Call: {totals.instSplit.toFixed(1)}</div>
         </div>
         <div style={{ ...S.card, border: "1px solid rgba(14,165,233,0.3)" }}>
-          <div style={{ fontSize: 10, color: "#0ea5e9", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Your Tracked</div>
-          <div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 700, marginTop: 4 }}>{totals.measRVU.toFixed(1)}</div>
+          <div style={{ fontSize: 10, color: "var(--accent-sky)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Your Tracked</div>
+          <div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 700, marginTop: 4 }}>{totals.measRVU.toFixed(1)}</div>
           <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>{totals.measNC > 0 ? totals.measCases + " credited cases, " + totals.measNC + " no credit" : totals.measCases + " cases logged"}</div>
         </div>
       </div>
       <div style={{ ...S.card, border: diff >= 0 ? "1px solid rgba(16,185,129,0.3)" : "1px solid rgba(245,158,11,0.3)", marginBottom: 12 }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div>
-            <div style={{ fontSize: 10, color: diff >= 0 ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Difference</div>
+            <div style={{ fontSize: 10, color: diff >= 0 ? "var(--accent-green)" : "var(--accent-amber)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 600 }}>Difference</div>
             <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{diff >= 0 ? "You tracked more than institution reported" : "Institution reported more than you tracked"}</div>
           </div>
           <div style={{ textAlign: "right" }}>
-            <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: diff >= 0 ? "#10b981" : "#f59e0b", fontWeight: 700 }}>{diff >= 0 ? "+" : ""}{diff.toFixed(1)}</div>
+            <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: diff >= 0 ? "var(--accent-green)" : "var(--accent-amber)", fontWeight: 700 }}>{diff >= 0 ? "+" : ""}{diff.toFixed(1)}</div>
             <div style={{ fontSize: 11, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{diff >= 0 ? "+" : ""}{diffPct.toFixed(1)}%</div>
           </div>
         </div>
@@ -495,9 +495,9 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
                 <line x1={tx} y1={padT} x2={tx} y2={padT + cH} stroke="var(--border-default)" strokeWidth="1" strokeDasharray="3,3" />
                 <rect x={flipLeft ? tx - 108 : tx + 8} y={padT} width={100} height={52} rx="4" fill="var(--bg-inset)" stroke="var(--border-default)" strokeWidth="1" opacity="0.95" />
                 <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 12} fill="var(--text-muted)" fontSize="9" fontFamily="DM Sans">{monthLabel(hp.month)}</text>
-                <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 25} fill="#a78bfa" fontSize="10" fontFamily="JetBrains Mono" fontWeight="600">{"Inst: " + hp.inst.toFixed(0)}</text>
-                <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 37} fill="#0ea5e9" fontSize="10" fontFamily="JetBrains Mono" fontWeight="600">{"Trk: " + hp.meas.toFixed(0)}</text>
-                <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 49} fill={hp.meas - hp.inst >= 0 ? "#10b981" : "#f59e0b"} fontSize="9" fontFamily="JetBrains Mono">{(hp.meas - hp.inst >= 0 ? "+" : "") + (hp.meas - hp.inst).toFixed(0) + " diff"}</text>
+                <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 25} fill="var(--accent-violet)" fontSize="10" fontFamily="JetBrains Mono" fontWeight="600">{"Inst: " + hp.inst.toFixed(0)}</text>
+                <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 37} fill="var(--accent-sky)" fontSize="10" fontFamily="JetBrains Mono" fontWeight="600">{"Trk: " + hp.meas.toFixed(0)}</text>
+                <text x={flipLeft ? tx - 103 : tx + 13} y={padT + 49} fill={hp.meas - hp.inst >= 0 ? "var(--accent-green)" : "var(--accent-amber)"} fontSize="9" fontFamily="JetBrains Mono">{(hp.meas - hp.inst >= 0 ? "+" : "") + (hp.meas - hp.inst).toFixed(0) + " diff"}</text>
               </g>);
             })()}
 
@@ -520,17 +520,17 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
     {/* Action buttons */}
     <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
       <input ref={xlRef} type="file" accept=".xlsx,.xls,.csv" style={{ display: "none" }} onChange={function(e) { if (e.target.files && e.target.files[0]) handleExcelUpload(e.target.files[0]); e.target.value = ""; }} />
-      <button onClick={function() { if (showAdd) { resetForm(); } else { setShowAdd(true); setEditMonth(todayLocal().slice(0, 7)); } }} style={{ ...S.secondaryBtn, flex: 1, color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>{showAdd ? "Cancel" : "+ Add Month"}</button>
-      <button onClick={function() { if (!xlLoading && xlRef.current) xlRef.current.click(); }} disabled={xlLoading} style={{ ...S.secondaryBtn, flex: 1, color: "#10b981", borderColor: "rgba(16,185,129,0.3)", opacity: xlLoading ? 0.6 : 1 }}>{xlLoading ? "Loading Excel engine..." : "\u2191 Upload Excel"}</button>
+      <button onClick={function() { if (showAdd) { resetForm(); } else { setShowAdd(true); setEditMonth(todayLocal().slice(0, 7)); } }} style={{ ...S.secondaryBtn, flex: 1, color: "var(--accent-violet)", borderColor: "rgba(139,92,246,0.3)" }}>{showAdd ? "Cancel" : "+ Add Month"}</button>
+      <button onClick={function() { if (!xlLoading && xlRef.current) xlRef.current.click(); }} disabled={xlLoading} style={{ ...S.secondaryBtn, flex: 1, color: "var(--accent-green)", borderColor: "rgba(16,185,129,0.3)", opacity: xlLoading ? 0.6 : 1 }}>{xlLoading ? "Loading Excel engine..." : "\u2191 Upload Excel"}</button>
     </div>
 
-    {xlError && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: xlError.startsWith("Imported") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", color: xlError.startsWith("Imported") ? "#10b981" : "#ef4444", fontSize: 13, textAlign: "center" }}>{xlError}</div>}
+    {xlError && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: xlError.startsWith("Imported") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", color: xlError.startsWith("Imported") ? "var(--accent-green)" : "var(--accent-red)", fontSize: 13, textAlign: "center" }}>{xlError}</div>}
 
     {/* Excel preview panel */}
     {xlPreview && <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
-          <div style={{ fontSize: 14, fontWeight: 700, color: "#10b981" }}>Excel Import Preview</div>
+          <div style={{ fontSize: 14, fontWeight: 700, color: "var(--accent-green)" }}>Excel Import Preview</div>
           <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{xlPreview.length} months found</div>
         </div>
         <button onClick={function() { setXlPreview(null); setXlRawWb(null); setXlSheets([]); setXlError(""); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Cancel</button>
@@ -541,7 +541,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         <div style={{ fontSize: 10, color: "var(--text-dim)", marginBottom: 4 }}>Sheet:</div>
         <div style={{ display: "flex", gap: 4, flexWrap: "wrap" }}>
           {xlSheets.map(function(name, idx) {
-            return <button key={idx} onClick={function() { switchXlSheet(idx); }} style={{ padding: "4px 10px", borderRadius: 6, border: idx === xlSheet ? "1px solid #10b981" : "1px solid var(--border-default)", background: idx === xlSheet ? "rgba(16,185,129,0.1)" : "transparent", color: idx === xlSheet ? "#10b981" : "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>{name}</button>;
+            return <button key={idx} onClick={function() { switchXlSheet(idx); }} style={{ padding: "4px 10px", borderRadius: 6, border: idx === xlSheet ? "1px solid #10b981" : "1px solid var(--border-default)", background: idx === xlSheet ? "rgba(16,185,129,0.1)" : "transparent", color: idx === xlSheet ? "var(--accent-green)" : "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>{name}</button>;
           })}
         </div>
       </div>}
@@ -555,8 +555,8 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
           var total = d.workRVU + d.splitRVU;
           var existing = instData.find(function(x) { return x.month === d.month; });
           return (<div key={d.month} style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 0, fontSize: 12, padding: "6px 0", borderBottom: "1px solid rgba(51,65,85,0.3)", alignItems: "center" }}>
-            <span style={{ color: "var(--text-bright)", fontFamily: "JetBrains Mono", fontSize: 11 }}>{d.month}{existing && <span style={{ fontSize: 8, color: "#f59e0b", marginLeft: 3 }} title="Will update existing">{"\u25CF"}</span>}</span>
-            <span style={{ textAlign: "right", color: "#a78bfa", fontFamily: "JetBrains Mono" }}>{d.workRVU.toFixed(1)}</span>
+            <span style={{ color: "var(--text-bright)", fontFamily: "JetBrains Mono", fontSize: 11 }}>{d.month}{existing && <span style={{ fontSize: 8, color: "var(--accent-amber)", marginLeft: 3 }} title="Will update existing">{"\u25CF"}</span>}</span>
+            <span style={{ textAlign: "right", color: "var(--accent-violet)", fontFamily: "JetBrains Mono" }}>{d.workRVU.toFixed(1)}</span>
             <span style={{ textAlign: "right", color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{d.splitRVU.toFixed(1)}</span>
             <span style={{ textAlign: "right", color: "var(--text-primary)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{total.toFixed(1)}</span>
             <span style={{ textAlign: "right", color: "var(--text-dim)", fontFamily: "JetBrains Mono" }}>{d.cases || "-"}</span>
@@ -567,13 +567,13 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
       {/* Import totals and buttons */}
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 0, fontSize: 11, padding: "8px 0 4px", borderTop: "1px solid var(--border-default)", marginTop: 4, fontWeight: 600 }}>
         <span style={{ color: "var(--text-muted)" }}>Total</span>
-        <span style={{ textAlign: "right", color: "#a78bfa", fontFamily: "JetBrains Mono" }}>{xlPreview.reduce(function(s, d) { return s + d.workRVU; }, 0).toFixed(0)}</span>
+        <span style={{ textAlign: "right", color: "var(--accent-violet)", fontFamily: "JetBrains Mono" }}>{xlPreview.reduce(function(s, d) { return s + d.workRVU; }, 0).toFixed(0)}</span>
         <span style={{ textAlign: "right", color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{xlPreview.reduce(function(s, d) { return s + d.splitRVU; }, 0).toFixed(0)}</span>
         <span style={{ textAlign: "right", color: "var(--text-primary)", fontFamily: "JetBrains Mono" }}>{xlPreview.reduce(function(s, d) { return s + d.workRVU + d.splitRVU; }, 0).toFixed(0)}</span>
         <span style={{ textAlign: "right", color: "var(--text-dim)", fontFamily: "JetBrains Mono" }}>{xlPreview.reduce(function(s, d) { return s + (d.cases || 0); }, 0)}</span>
       </div>
 
-      {instData.length > 0 && <div style={{ fontSize: 10, color: "#f59e0b", marginTop: 6 }}>{"\u25CF"} Orange dot = month already exists and will be updated</div>}
+      {instData.length > 0 && <div style={{ fontSize: 10, color: "var(--accent-amber)", marginTop: 6 }}>{"\u25CF"} Orange dot = month already exists and will be updated</div>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         {instData.length > 0 && <button onClick={function() { importXlData("merge"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: "linear-gradient(135deg, #10b981, #059669)" }}>Merge ({xlPreview.length} months)</button>}
@@ -601,7 +601,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         <label style={S.fieldLabel}>Case Count (optional)</label>
         <input type="text" inputMode="numeric" value={editCases} onChange={function(e) { setEditCases(e.target.value.replace(/[^0-9]/g, "")); }} placeholder="0" style={{ ...S.numberInput, width: "100%" }} />
       </div>
-      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>Total: <span style={{ fontFamily: "JetBrains Mono", color: "#a78bfa", fontWeight: 600 }}>{((parseFloat(editWork) || 0) + (parseFloat(editSplit) || 0)).toFixed(1)} wRVUs</span></div>
+      <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>Total: <span style={{ fontFamily: "JetBrains Mono", color: "var(--accent-violet)", fontWeight: 600 }}>{((parseFloat(editWork) || 0) + (parseFloat(editSplit) || 0)).toFixed(1)} wRVUs</span></div>
       <button onClick={saveMonth} disabled={!editMonth} style={{ ...S.saveBtn, opacity: editMonth ? 1 : 0.4, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{editRow ? "Update Month" : "Save Month"}</button>
     </div>}
 
@@ -632,18 +632,18 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
                 <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-bright)" }}>{monthLabel(d.month)}</div>
                 <div style={{ display: "flex", gap: 12, marginTop: 4 }}>
                   <div>
-                    <div style={{ fontSize: 9, color: "#a78bfa", textTransform: "uppercase", letterSpacing: 0.5 }}>Institution</div>
-                    <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: "#a78bfa", fontWeight: 600 }}>{instT.toFixed(1)}</div>
+                    <div style={{ fontSize: 9, color: "var(--accent-violet)", textTransform: "uppercase", letterSpacing: 0.5 }}>Institution</div>
+                    <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: "var(--accent-violet)", fontWeight: 600 }}>{instT.toFixed(1)}</div>
                     <div style={{ fontSize: 9, color: "var(--text-dim)" }}>W:{(d.workRVU || 0).toFixed(0)} C:{(d.splitRVU || 0).toFixed(0)}{d.cases ? " | " + d.cases + " cases" : ""}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 9, color: "#0ea5e9", textTransform: "uppercase", letterSpacing: 0.5 }}>Tracked</div>
-                    <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{measT.toFixed(1)}</div>
+                    <div style={{ fontSize: 9, color: "var(--accent-sky)", textTransform: "uppercase", letterSpacing: 0.5 }}>Tracked</div>
+                    <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{measT.toFixed(1)}</div>
                     <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{m ? m.cases + " cases" + (m.nc > 0 ? " + " + m.nc + " no credit" : "") : "No data"}</div>
                   </div>
                   <div>
-                    <div style={{ fontSize: 9, color: mDiff >= 0 ? "#10b981" : "#f59e0b", textTransform: "uppercase", letterSpacing: 0.5 }}>Diff</div>
-                    <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: mDiff >= 0 ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{mDiff >= 0 ? "+" : ""}{mDiff.toFixed(1)}</div>
+                    <div style={{ fontSize: 9, color: mDiff >= 0 ? "var(--accent-green)" : "var(--accent-amber)", textTransform: "uppercase", letterSpacing: 0.5 }}>Diff</div>
+                    <div style={{ fontSize: 15, fontFamily: "JetBrains Mono", color: mDiff >= 0 ? "var(--accent-green)" : "var(--accent-amber)", fontWeight: 600 }}>{mDiff >= 0 ? "+" : ""}{mDiff.toFixed(1)}</div>
                   </div>
                 </div>
               </div>
@@ -663,11 +663,11 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 8 }}>
         <div>
           <div style={{ fontSize: 10, color: "var(--text-dim)" }}>Institution Based</div>
-          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#a78bfa", fontWeight: 600 }}>{fmtDollar(totals.instTotal * settings.ratePerRVU, showComp)}</div>
+          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-violet)", fontWeight: 600 }}>{fmtDollar(totals.instTotal * settings.ratePerRVU, showComp)}</div>
         </div>
         <div>
           <div style={{ fontSize: 10, color: "var(--text-dim)" }}>Your Tracked</div>
-          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{fmtDollar(totals.measRVU * settings.ratePerRVU, showComp)}</div>
+          <div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{fmtDollar(totals.measRVU * settings.ratePerRVU, showComp)}</div>
         </div>
       </div>
       <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>{showComp ? "Based on $" + settings.ratePerRVU + "/wRVU rate" : ""}</div>

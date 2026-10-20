@@ -99,7 +99,7 @@ function AcuteHistory({ data, onBack }) {
               <th rowSpan={2} style={{ ...thBase, verticalAlign: "bottom" }}>Units</th>
               <th rowSpan={2} style={{ ...thBase, verticalAlign: "bottom" }}>Value/Unit</th>
               {names.map(function(nm) { return (
-                <th key={nm} colSpan={2} style={{ ...thBase, textAlign: "center", color: nm === me ? "#34d399" : "var(--text-muted)", borderLeft: "1px solid var(--border-subtle)" }}>{nm}{nm === me ? " (me)" : ""}</th>
+                <th key={nm} colSpan={2} style={{ ...thBase, textAlign: "center", color: nm === me ? "var(--accent-green-soft)" : "var(--text-muted)", borderLeft: "1px solid var(--border-subtle)" }}>{nm}{nm === me ? " (me)" : ""}</th>
               ); })}
             </tr>
             <tr>
@@ -130,7 +130,7 @@ function AcuteHistory({ data, onBack }) {
                     return (
                       <React.Fragment key={nm}>
                         <td style={{ ...tdBase, color: "var(--text-muted)", borderLeft: "1px solid var(--border-subtle)" }}>{here ? fmtUnits(r.m.shifts[nm] || 0) : DASH}</td>
-                        <td style={{ ...tdBase, color: nm === me ? "#34d399" : "var(--text-primary)", fontWeight: nm === me ? 700 : 400 }}>{!here || r.sp.empty ? DASH : round2(r.sp.shares[nm] || 0).toFixed(2)}</td>
+                        <td style={{ ...tdBase, color: nm === me ? "var(--accent-green-soft)" : "var(--text-primary)", fontWeight: nm === me ? 700 : 400 }}>{!here || r.sp.empty ? DASH : round2(r.sp.shares[nm] || 0).toFixed(2)}</td>
                       </React.Fragment>
                     );
                   })}
@@ -145,7 +145,7 @@ function AcuteHistory({ data, onBack }) {
               {names.map(function(nm) { return (
                 <React.Fragment key={nm}>
                   <td style={{ ...tdBase, fontWeight: 700, color: "var(--text-muted)", borderLeft: "1px solid var(--border-subtle)", borderBottom: "none", borderTop: "1px solid var(--border-default)" }}>{tot.present[nm] ? fmtUnits(round2(tot.shifts[nm])) : DASH}</td>
-                  <td style={{ ...tdBase, fontWeight: 700, color: nm === me ? "#34d399" : "var(--text-bright)", borderBottom: "none", borderTop: "1px solid var(--border-default)" }}>{tot.present[nm] ? round2(tot.shares[nm]).toFixed(2) : DASH}</td>
+                  <td style={{ ...tdBase, fontWeight: 700, color: nm === me ? "var(--accent-green-soft)" : "var(--text-bright)", borderBottom: "none", borderTop: "1px solid var(--border-default)" }}>{tot.present[nm] ? round2(tot.shares[nm]).toFixed(2) : DASH}</td>
                 </React.Fragment>
               ); })}
             </tr>

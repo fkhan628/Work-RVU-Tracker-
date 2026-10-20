@@ -261,7 +261,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   }, [data.acuteMonths, data.institutionData, data.acuteMe, selectedYear, yearStart]);
 
   var maxMonthRVU = monthlyData.reduce(function(m, d) { return Math.max(m, d.rvu); }, 0);
-  var emptyHint = { fontSize: 11, color: "#64748b", padding: "6px 0" };
+  var emptyHint = { fontSize: 11, color: "var(--text-dim)", padding: "6px 0" };
 
   var monthLabel = function(key) {
     var parts = key.split("-");
@@ -334,12 +334,12 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       <div style={S.statsRow}>
         <div style={S.statCard}><div style={S.statValue}>{dm.rvu.toFixed(1)}</div><div style={S.statLabel}>wRVUs</div></div>
         <div style={S.statCard}><div style={S.statValue}>{dm.count}</div><div style={S.statLabel}>Procedures</div></div>
-        <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(dm.comp, showComp)}</div><div style={S.statLabel}>Compensation</div></div>
+        <div style={S.statCard}><div style={{ ...S.statValue, color: "var(--accent-green)" }}>{fmtDollar(dm.comp, showComp)}</div><div style={S.statLabel}>Compensation</div></div>
       </div>
       {dmNC.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncMonthRange(detailMonth)); }} style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{dmNCRVU.toFixed(1)}</span>{" wRVU across " + dmNC.length + " procedure" + (dmNC.length === 1 ? "" : "s")}</span>{ncChevron}</div>}
       <div style={S.card}><div style={S.cardLabel}>Procedures</div><div style={{ marginTop: 8 }}>{monthProcList.map(function(p) {
         return (<div key={p.code} style={{ display: "flex", justifyContent: "space-between", padding: "8px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}>
-          <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 11, color: "#64748b", marginLeft: 6 }}>x{p.count}</span><div style={{ fontSize: 11, color: "#94a3b8", marginTop: 2 }}>{p.desc}</div></div>
+          <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 6 }}>x{p.count}</span><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{p.desc}</div></div>
           <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{p.totalRVU.toFixed(2)}</div>
         </div>);
       })}</div></div>
@@ -403,27 +403,27 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     })()}
 
     {/* Goal Pace Card - pace math is meaningless on a finished year */}
-    {goal > 0 && isCurrent && <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: "1px solid #334155" }}>
+    {goal > 0 && isCurrent && <div style={{ ...S.card, background: "linear-gradient(135deg, var(--card-main-from), var(--card-main-to))", border: "1px solid var(--border-default)" }}>
       <div style={S.cardLabel}>Goal Pace</div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 12 }}>
-        <div style={{ textAlign: "center" }}><div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 700 }}>{ytdRVU.toFixed(0)}</div><div style={{ fontSize: 10, color: "#64748b" }}>Current</div></div>
-        <div style={{ textAlign: "center" }}><div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "#64748b", fontWeight: 700 }}>{expectedRVU.toFixed(0)}</div><div style={{ fontSize: 10, color: "#64748b" }}>Expected</div></div>
-        <div style={{ textAlign: "center" }}><div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 700 }}>{goal.toFixed ? goal.toFixed(0) : goal}</div><div style={{ fontSize: 10, color: "#64748b" }}>Goal</div></div>
+        <div style={{ textAlign: "center" }}><div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 700 }}>{ytdRVU.toFixed(0)}</div><div style={{ fontSize: 10, color: "var(--text-dim)" }}>Current</div></div>
+        <div style={{ textAlign: "center" }}><div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "var(--text-dim)", fontWeight: 700 }}>{expectedRVU.toFixed(0)}</div><div style={{ fontSize: 10, color: "var(--text-dim)" }}>Expected</div></div>
+        <div style={{ textAlign: "center" }}><div style={{ fontSize: 24, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 700 }}>{goal.toFixed ? goal.toFixed(0) : goal}</div><div style={{ fontSize: 10, color: "var(--text-dim)" }}>Goal</div></div>
       </div>
       {/* Progress bar */}
-      <div style={{ marginTop: 12, height: 8, background: "#0f172a", borderRadius: 4, overflow: "hidden", position: "relative" }}>
+      <div style={{ marginTop: 12, height: 8, background: "var(--bg-track-deep)", borderRadius: 4, overflow: "hidden", position: "relative" }}>
         <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (expectedRVU / goal * 100)) + "%", background: "rgba(100,116,139,0.3)", borderRadius: 4 }} />
         <div style={{ position: "absolute", left: 0, top: 0, height: "100%", width: Math.min(100, (ytdRVU / goal * 100)) + "%", background: onPace ? "linear-gradient(90deg, #10b981, #34d399)" : "linear-gradient(90deg, #f59e0b, #fbbf24)", borderRadius: 4, transition: "width 0.5s" }} />
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", marginTop: 6 }}>
-        <span style={{ fontSize: 11, color: onPace ? "#10b981" : "#f59e0b" }}>{onPace ? "Ahead of pace" : "Behind pace"} ({(onPace ? "+" : "-") + Math.abs(ytdRVU - expectedRVU).toFixed(0)})</span>
-        <span style={{ fontSize: 11, color: "#64748b" }}>{(ytdRVU / goal * 100).toFixed(1)}%</span>
+        <span style={{ fontSize: 11, color: onPace ? "var(--accent-green)" : "var(--accent-amber)" }}>{onPace ? "Ahead of pace" : "Behind pace"} ({(onPace ? "+" : "-") + Math.abs(ytdRVU - expectedRVU).toFixed(0)})</span>
+        <span style={{ fontSize: 11, color: "var(--text-dim)" }}>{(ytdRVU / goal * 100).toFixed(1)}%</span>
       </div>
-      <div style={{ marginTop: 12, padding: "10px 0", borderTop: "1px solid #334155", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
-        <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Remaining</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 600 }}>{rvuNeeded.toFixed(0)}</div></div>
-        <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Needed/Month</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: rvuPerMonthNeeded > avgMonthly * 1.2 ? "#f87171" : "#10b981", fontWeight: 600 }}>{rvuPerMonthNeeded.toFixed(0)}</div></div>
-        <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Projected Annual</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: onPace ? "#10b981" : "#f59e0b", fontWeight: 600 }}>{projectedAnnual.toFixed(0)}</div></div>
-        <div><div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Months Left</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 600 }}>{monthsRemaining.toFixed(1)}</div></div>
+      <div style={{ marginTop: 12, padding: "10px 0", borderTop: "1px solid var(--border-default)", display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+        <div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase" }}>Remaining</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 600 }}>{rvuNeeded.toFixed(0)}</div></div>
+        <div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase" }}>Needed/Month</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: rvuPerMonthNeeded > avgMonthly * 1.2 ? "var(--accent-red-soft)" : "var(--accent-green)", fontWeight: 600 }}>{rvuPerMonthNeeded.toFixed(0)}</div></div>
+        <div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase" }}>Projected Annual</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: onPace ? "var(--accent-green)" : "var(--accent-amber)", fontWeight: 600 }}>{projectedAnnual.toFixed(0)}</div></div>
+        <div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase" }}>Months Left</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 600 }}>{monthsRemaining.toFixed(1)}</div></div>
       </div>
     </div>}
 
@@ -433,7 +433,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       {isCurrent
         ? <div style={S.statCard}><div style={S.statValue}>{avgWeekly.toFixed(0)}</div><div style={S.statLabel}>Avg/Week</div></div>
         : <div style={S.statCard}><div style={S.statValue}>{monthlyData.length}</div><div style={S.statLabel}>Months</div></div>}
-      <div style={S.statCard}><div style={{ ...S.statValue, color: "#10b981" }}>{fmtDollar(selComp, showComp)}</div><div style={S.statLabel}>Logged Comp</div></div>
+      <div style={S.statCard}><div style={{ ...S.statValue, color: "var(--accent-green)" }}>{fmtDollar(selComp, showComp)}</div><div style={S.statLabel}>Logged Comp</div></div>
     </div>
     {creditSplit.nc.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncYearRange); }} style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit (" + (isCurrent ? "YTD" : year) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{creditSplit.ncRVU.toFixed(1)}</span>{" wRVU across " + creditSplit.ncEnc + " encounter" + (creditSplit.ncEnc === 1 ? "" : "s")}</span>{ncChevron}</div>}
 
@@ -446,26 +446,28 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
           var goalLine = goal > 0 ? (goal / 12) : 0;
           var goalPct = maxMonthRVU > 0 ? Math.min(100, goalLine / maxMonthRVU * 100) : 0;
           return (<div key={m.key} onClick={function() { setDetailMonth(m.key); }} style={{ display: "flex", alignItems: "center", gap: 8, padding: "6px 0", cursor: "pointer", borderBottom: "1px solid rgba(51,65,85,0.2)" }}>
-            <div style={{ width: 50, fontSize: 11, color: "#94a3b8", fontFamily: "JetBrains Mono" }}>{monthLabel(m.key)}</div>
-            <div style={{ flex: 1, height: 20, background: "#0f172a", borderRadius: 4, position: "relative", overflow: "hidden" }}>
+            <div style={{ width: 50, fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{monthLabel(m.key)}</div>
+            <div style={{ flex: 1, height: 20, background: "var(--bg-track-deep)", borderRadius: 4, position: "relative", overflow: "hidden" }}>
               <div style={{ height: "100%", width: pct + "%", background: m.rvu >= goalLine && goal > 0 ? "linear-gradient(90deg, #10b981, #34d399)" : "linear-gradient(90deg, #0ea5e9, #38bdf8)", borderRadius: 4, transition: "width 0.3s" }} />
-              {goal > 0 && <div style={{ position: "absolute", top: 0, left: goalPct + "%", width: 2, height: "100%", background: "rgba(251,191,36,0.5)" }} />}
+              {goal > 0 && <div style={{ position: "absolute", top: 0, left: goalPct + "%", width: 2, height: "100%", background: "var(--mark-goal)" }} />}
             </div>
             <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{m.rvu.toFixed(0)}</div>
-            <div style={{ width: 20, textAlign: "right", fontSize: 10, color: "#64748b" }}>{m.count}</div>
+            <div style={{ width: 20, textAlign: "right", fontSize: 10, color: "var(--text-dim)" }}>{m.count}</div>
           </div>);
         })}
-        {goal > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}><div style={{ width: 12, height: 2, background: "rgba(251,191,36,0.5)" }} /><span style={{ fontSize: 10, color: "#64748b" }}>Monthly goal ({(goal/12).toFixed(0)})</span></div>}
+        {goal > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}><div style={{ width: 12, height: 2, background: "var(--mark-goal)" }} /><span style={{ fontSize: 10, color: "var(--text-dim)" }}>Monthly goal ({(goal/12).toFixed(0)})</span></div>}
         {monthlyData.length === 0 && <div style={emptyHint}>{noneText}</div>}
       </div>
     </div>
 
     {/* 1. CASE MIX - what fills time vs what pays */}
-    <div style={{ ...S.card, background: "linear-gradient(135deg, #1e293b, #0f172a)", border: "1px solid #334155", padding: 16 }}>
-      <div style={{ fontSize: 14, fontWeight: 700, color: "#f8fafc", marginBottom: 4 }}>Case Mix</div>
-      <div style={{ fontSize: 11, color: "#64748b", marginBottom: 12 }}>Share of procedures (grey) vs share of wRVUs (color) - what fills time vs what pays</div>
+    <div style={{ ...S.card, background: "linear-gradient(135deg, var(--card-main-from), var(--card-main-to))", border: "1px solid var(--border-default)", padding: 16 }}>
+      <div style={{ fontSize: 14, fontWeight: 700, color: "var(--text-bright)", marginBottom: 4 }}>Case Mix</div>
+      <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 12 }}>Share of procedures (grey) vs share of wRVUs (color) - what fills time vs what pays</div>
       {caseMix.list.length === 0 ? <div style={emptyHint}>{noneText}</div> : caseMix.list.map(function(c, i) {
         var catColors = ["#0ea5e9","#10b981","#8b5cf6","#f59e0b","#ef4444","#ec4899","#06b6d4","#f97316"];
+        // The figure's text twins: same colours in dark, readable shades in light.
+        var catText = ["var(--accent-sky)","var(--accent-green)","var(--accent-violet-deep)","var(--accent-amber)","var(--accent-red)","var(--accent-pink)","var(--accent-cyan)","var(--accent-orange)"];
         var color = catColors[i % catColors.length];
         var caseShare = caseMix.totalProcs > 0 ? (c.count / caseMix.totalProcs * 100) : 0;
         var rvuShare = caseMix.totalRVU > 0 ? (c.rvu / caseMix.totalRVU * 100) : 0;
@@ -473,21 +475,21 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginBottom: 5 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 8, minWidth: 0 }}>
               <div style={{ width: 10, height: 10, borderRadius: 3, background: color, flexShrink: 0 }} />
-              <span style={{ fontSize: 13, color: "#f8fafc", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
-              <span style={{ fontSize: 11, color: "#64748b", flexShrink: 0 }}>x{c.count}</span>
+              <span style={{ fontSize: 13, color: "var(--text-bright)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c.name}</span>
+              <span style={{ fontSize: 11, color: "var(--text-dim)", flexShrink: 0 }}>x{c.count}</span>
             </div>
             <div style={{ textAlign: "right", flexShrink: 0, marginLeft: 8 }}>
-              <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: color, fontWeight: 700 }}>{c.rvu.toFixed(1)}</span>
-              <div style={{ fontSize: 9, color: "#64748b" }}>avg {(c.count > 0 ? c.rvu / c.count : 0).toFixed(1)}/proc</div>
+              <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: catText[i % catText.length], fontWeight: 700 }}>{c.rvu.toFixed(1)}</span>
+              <div style={{ fontSize: 9, color: "var(--text-dim)" }}>avg {(c.count > 0 ? c.rvu / c.count : 0).toFixed(1)}/proc</div>
             </div>
           </div>
           {[["cases", caseShare, "#64748b"], ["wRVU", rvuShare, color]].map(function(b) {
             return (<div key={b[0]} style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 2 }}>
-              <span style={{ width: 34, fontSize: 9, color: "#64748b", textTransform: "uppercase", flexShrink: 0 }}>{b[0]}</span>
-              <div style={{ flex: 1, height: 6, background: "#0f172a", borderRadius: 3, overflow: "hidden" }}>
+              <span style={{ width: 34, fontSize: 9, color: "var(--text-dim)", textTransform: "uppercase", flexShrink: 0 }}>{b[0]}</span>
+              <div style={{ flex: 1, height: 6, background: "var(--bg-track-deep)", borderRadius: 3, overflow: "hidden" }}>
                 <div style={{ height: "100%", width: b[1] + "%", background: b[2], borderRadius: 3, transition: "width 0.3s" }} />
               </div>
-              <span style={{ width: 40, textAlign: "right", fontSize: 10, fontFamily: "JetBrains Mono", color: "#94a3b8", flexShrink: 0 }}>{b[1].toFixed(1)}%</span>
+              <span style={{ width: 40, textAlign: "right", fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-muted)", flexShrink: 0 }}>{b[1].toFixed(1)}%</span>
             </div>);
           })}
         </div>);
@@ -503,12 +505,12 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
           var label = (f && f.friendly) || c.desc || ("CPT " + c.code);
           return (<div key={c.code} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < topCodes.length - 1 ? "1px solid rgba(51,65,85,0.3)" : "none" }}>
             <div style={{ flex: 1, minWidth: 0 }}>
-              <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{c.code}</span><span style={{ fontSize: 11, color: "#64748b", marginLeft: 6 }}>x{c.count}</span></div>
-              <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
+              <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{c.code}</span><span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 6 }}>x{c.count}</span></div>
+              <div style={{ fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{label}</div>
             </div>
             <div style={{ textAlign: "right", marginLeft: 8, flexShrink: 0 }}>
               <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{c.rvu.toFixed(1)}</div>
-              <div style={{ fontSize: 9, color: "#64748b" }}>avg {(c.rvu / c.count).toFixed(2)}</div>
+              <div style={{ fontSize: 9, color: "var(--text-dim)" }}>avg {(c.rvu / c.count).toFixed(2)}</div>
             </div>
           </div>);
         })}
@@ -521,13 +523,13 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       <div style={{ marginTop: 8 }}>{topProcs.map(function(p, i) {
         return (<div key={p.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "8px 0", borderBottom: i < topProcs.length - 1 ? "1px solid rgba(51,65,85,0.3)" : "none" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.primaryCode}</span><span style={{ fontSize: 11, color: "#64748b", marginLeft: 6 }}>x{p.count}</span></div>
-            <div style={{ fontSize: 11, color: "#94a3b8", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.primaryDesc}</div>
-            {p.addons.length > 0 && <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#64748b", marginTop: 2 }}>+ {p.addons.join(", ")}</div>}
+            <div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{p.primaryCode}</span><span style={{ fontSize: 11, color: "var(--text-dim)", marginLeft: 6 }}>x{p.count}</span></div>
+            <div style={{ fontSize: 11, color: "var(--text-muted)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{p.primaryDesc}</div>
+            {p.addons.length > 0 && <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)", marginTop: 2 }}>+ {p.addons.join(", ")}</div>}
           </div>
           <div style={{ textAlign: "right", marginLeft: 8, flexShrink: 0 }}>
             <div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{p.totalRVU.toFixed(1)}</div>
-            <div style={{ fontSize: 9, color: "#64748b" }}>{(p.totalRVU / p.count).toFixed(1)}/enc</div>
+            <div style={{ fontSize: 9, color: "var(--text-dim)" }}>{(p.totalRVU / p.count).toFixed(1)}/enc</div>
           </div>
         </div>);
       })}</div>
@@ -536,7 +538,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     {/* 3. WRVU PER ENCOUNTER TREND - inline SVG polyline, no chart library */}
     <div style={S.card}>
       <div style={S.cardLabel}>wRVU per Encounter</div>
-      <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>{"Monthly average, " + year + ". Months with no " + (creditSplit.nc.length > 0 ? "credited " : "") + "encounters are skipped."}</div>
+      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2, marginBottom: 8 }}>{"Monthly average, " + year + ". Months with no " + (creditSplit.nc.length > 0 ? "credited " : "") + "encounters are skipped."}</div>
       {encTrend.length === 0 ? <div style={emptyHint}>{creditSplit.nc.length > 0 ? "No credited encounters in " + year + "." : "No encounters logged in " + year + "."}</div> : (function() {
         var W = 320, H = 90, PX = 12, PY = 14;
         var vals = encTrend.map(function(p) { return p.avg; });
@@ -556,8 +558,8 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
           </svg>
           <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 8 }}>
             {encTrend.map(function(p) {
-              return (<div key={p.key} style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#94a3b8", background: "#0f172a", borderRadius: 4, padding: "2px 6px" }}>
-                {monthLabel(p.key).split(" ")[0]} <span style={{ color: "#e2e8f0", fontWeight: 600 }}>{p.avg.toFixed(1)}</span>
+              return (<div key={p.key} style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-muted)", background: "var(--bg-inset)", borderRadius: 4, padding: "2px 6px" }}>
+                {monthLabel(p.key).split(" ")[0]} <span style={{ color: "var(--text-primary)", fontWeight: 600 }}>{p.avg.toFixed(1)}</span>
               </div>);
             })}
           </div>
@@ -568,17 +570,17 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     {/* 6. DAY OF WEEK - weekday from local date parts, never string parsing */}
     <div style={S.card}>
       <div style={S.cardLabel}>Day of Week</div>
-      <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>Cases and wRVUs by weekday, {year}.</div>
+      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2, marginBottom: 8 }}>Cases and wRVUs by weekday, {year}.</div>
       {creditSplit.credited.length === 0 ? <div style={emptyHint}>{noneText}</div> : (function() {
         var maxDow = dayOfWeek.reduce(function(m, d) { return Math.max(m, d.rvu); }, 0);
         return dayOfWeek.map(function(d) {
           return (<div key={d.name} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.2)" }}>
-            <div style={{ width: 50, fontSize: 11, color: "#94a3b8", fontFamily: "JetBrains Mono" }}>{d.name}</div>
-            <div style={{ flex: 1, height: 14, background: "#0f172a", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ width: 50, fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{d.name}</div>
+            <div style={{ flex: 1, height: 14, background: "var(--bg-track-deep)", borderRadius: 4, overflow: "hidden" }}>
               <div style={{ height: "100%", width: (maxDow > 0 ? d.rvu / maxDow * 100 : 0) + "%", background: "linear-gradient(90deg, #0ea5e9, #38bdf8)", borderRadius: 4, transition: "width 0.3s" }} />
             </div>
             <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{d.rvu.toFixed(0)}</div>
-            <div style={{ width: 24, textAlign: "right", fontSize: 10, color: "#64748b" }}>{d.count}</div>
+            <div style={{ width: 24, textAlign: "right", fontSize: 10, color: "var(--text-dim)" }}>{d.count}</div>
           </div>);
         });
       })()}
@@ -587,13 +589,13 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     {/* 4. VALUE PER SHIFT - all acute months, deliberately not year-scoped */}
     <div style={S.card}>
       <div style={S.cardLabel}>Value per Shift (Acute)</div>
-      <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>All acute months - spans years, not filtered by the year chips.</div>
+      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2, marginBottom: 8 }}>All acute months - spans years, not filtered by the year chips.</div>
       {shiftValueSeries.length === 0 ? <div style={emptyHint}>No acute months entered yet - add them in Settings.</div> : (function() {
         var maxV = shiftValueSeries.reduce(function(m, p) { return p.vpu !== null ? Math.max(m, p.vpu) : m; }, 0);
         return shiftValueSeries.map(function(p) {
           return (<div key={p.key} style={{ display: "flex", alignItems: "center", gap: 8, padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.2)" }}>
-            <div style={{ width: 50, fontSize: 11, color: "#94a3b8", fontFamily: "JetBrains Mono" }}>{monthLabel(p.key)}</div>
-            <div style={{ flex: 1, height: 14, background: "#0f172a", borderRadius: 4, overflow: "hidden" }}>
+            <div style={{ width: 50, fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{monthLabel(p.key)}</div>
+            <div style={{ flex: 1, height: 14, background: "var(--bg-track-deep)", borderRadius: 4, overflow: "hidden" }}>
               {p.vpu !== null && <div style={{ height: "100%", width: (maxV > 0 ? p.vpu / maxV * 100 : 0) + "%", background: "linear-gradient(90deg, #059669, #34d399)", borderRadius: 4, transition: "width 0.3s" }} />}
             </div>
             <div style={{ width: 50, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: p.vpu === null ? "var(--text-dim)" : "var(--text-primary)", fontWeight: 600 }}>{p.vpu === null ? "\u2014" : round2(p.vpu).toFixed(2)}</div>
@@ -605,31 +607,31 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     {/* 5. ACUTE CROSS-CHECK - catches institution restatements automatically */}
     <div style={S.card}>
       <div style={S.cardLabel}>Acute Cross-Check</div>
-      <div style={{ fontSize: 10, color: "#64748b", marginTop: 2, marginBottom: 8 }}>Compare's call figure vs your computed acute share, {year}. Flags gaps over {CROSSCHECK_FLAG}.</div>
+      <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2, marginBottom: 8 }}>Compare's call figure vs your computed acute share, {year}. Flags gaps over {CROSSCHECK_FLAG}.</div>
       {crossCheck.noMe ? <div style={emptyHint}>Tap Me on the partner roster in Settings to enable the cross-check.</div>
         : crossCheck.rows.length === 0 ? <div style={emptyHint}>No {year} months have both a Compare call figure and acute shifts yet.</div>
         : (<div>
-          <div style={{ display: "grid", gridTemplateColumns: "50px 1fr 1fr 1fr", gap: 4, padding: "2px 0 6px", fontSize: 9, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>
+          <div style={{ display: "grid", gridTemplateColumns: "50px 1fr 1fr 1fr", gap: 4, padding: "2px 0 6px", fontSize: 9, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>
             <span>Month</span><span style={{ textAlign: "right" }}>Inst call</span><span style={{ textAlign: "right" }}>My share</span><span style={{ textAlign: "right" }}>Diff</span>
           </div>
           {crossCheck.rows.map(function(r) {
             return (<div key={r.key} style={{ display: "grid", gridTemplateColumns: "50px 1fr 1fr 1fr", gap: 4, padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.2)", background: r.flag ? "rgba(245,158,11,0.07)" : "transparent", borderRadius: r.flag ? 4 : 0 }}>
-              <span style={{ fontSize: 11, color: "#94a3b8", fontFamily: "JetBrains Mono" }}>{monthLabel(r.key).split(" ")[0]}</span>
-              <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "#94a3b8" }}>{r.inst.toFixed(2)}</span>
+              <span style={{ fontSize: 11, color: "var(--text-muted)", fontFamily: "JetBrains Mono" }}>{monthLabel(r.key).split(" ")[0]}</span>
+              <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)" }}>{r.inst.toFixed(2)}</span>
               <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{r.share.toFixed(2)}</span>
-              <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: r.flag ? 700 : 400, color: r.flag ? "#f59e0b" : "#64748b" }}>{(r.diff >= 0 ? "+" : "") + r.diff.toFixed(2)}{r.flag ? " !" : ""}</span>
+              <span style={{ textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: r.flag ? 700 : 400, color: r.flag ? "var(--accent-amber)" : "var(--text-dim)" }}>{(r.diff >= 0 ? "+" : "") + r.diff.toFixed(2)}{r.flag ? " !" : ""}</span>
             </div>);
           })}
-          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid #334155" }}>
-            <span style={{ fontSize: 11, color: "#94a3b8" }}>Cumulative drift {year}</span>
-            <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: 700, color: Math.abs(crossCheck.cum) > CROSSCHECK_FLAG ? "#f59e0b" : "#64748b" }}>{(crossCheck.cum >= 0 ? "+" : "") + crossCheck.cum.toFixed(2)}</span>
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 8, paddingTop: 8, borderTop: "1px solid var(--border-default)" }}>
+            <span style={{ fontSize: 11, color: "var(--text-muted)" }}>Cumulative drift {year}</span>
+            <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", fontWeight: 700, color: Math.abs(crossCheck.cum) > CROSSCHECK_FLAG ? "var(--accent-amber)" : "var(--text-dim)" }}>{(crossCheck.cum >= 0 ? "+" : "") + crossCheck.cum.toFixed(2)}</span>
           </div>
         </div>)}
-      {crossCheck.skipped > 0 && <div style={{ fontSize: 10, color: "#64748b", marginTop: 6 }}>{crossCheck.skipped} month{crossCheck.skipped === 1 ? "" : "s"} skipped (total-only - work/call split unknown).</div>}
+      {crossCheck.skipped > 0 && <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 6 }}>{crossCheck.skipped} month{crossCheck.skipped === 1 ? "" : "s"} skipped (total-only - work/call split unknown).</div>}
     </div>
 
     {/* Monthly Summary Report */}
-    <button onClick={function() { setShowSummary(!showSummary); }} style={{ ...S.secondaryBtn, width: "100%", marginBottom: 8, color: "#a78bfa", borderColor: "rgba(139,92,246,0.3)" }}>{showSummary ? "Hide Summary" : "Monthly Summary Report"}</button>
+    <button onClick={function() { setShowSummary(!showSummary); }} style={{ ...S.secondaryBtn, width: "100%", marginBottom: 8, color: "var(--accent-violet)", borderColor: "rgba(139,92,246,0.3)" }}>{showSummary ? "Hide Summary" : "Monthly Summary Report"}</button>
     {showSummary && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.25)" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
         <div style={S.cardLabel}>Monthly Report</div>
@@ -637,30 +639,30 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       </div>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8, marginBottom: 12 }}><div style={{ fontSize: 16, fontWeight: 700, color: "var(--text-bright)" }}>{summaryMonthName(summaryMonth)}</div><CompEye showComp={showComp} toggleComp={toggleComp} /></div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8, marginBottom: 12 }}>
-        <div style={{ background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
-          <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "#f8fafc", fontWeight: 700 }}>{summaryData.totalRVU.toFixed(1)}</div>
-          <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>wRVUs</div>
+        <div style={{ background: "var(--bg-inset)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "var(--text-bright)", fontWeight: 700 }}>{summaryData.totalRVU.toFixed(1)}</div>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase" }}>wRVUs</div>
         </div>
-        <div style={{ background: "#0f172a", borderRadius: 8, padding: 10, textAlign: "center" }}>
-          <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 700 }}>{fmtDollar(summaryData.totalComp, showComp)}</div>
-          <div style={{ fontSize: 10, color: "#64748b", textTransform: "uppercase" }}>Compensation</div>
+        <div style={{ background: "var(--bg-inset)", borderRadius: 8, padding: 10, textAlign: "center" }}>
+          <div style={{ fontSize: 22, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 700 }}>{fmtDollar(summaryData.totalComp, showComp)}</div>
+          <div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase" }}>Compensation</div>
         </div>
       </div>
       <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr", gap: 6, marginBottom: 12 }}>
-        {[[summaryData.caseCount, "Encounters"], [summaryData.totalProcs, "Procedures"], [summaryData.avgRVU.toFixed(1), "Avg/Enc"], [summaryData.workDays, "Days"]].map(function(item) { return <div key={item[1]} style={{ background: "#0f172a", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}><div style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#e2e8f0", fontWeight: 600 }}>{item[0]}</div><div style={{ fontSize: 8, color: "#64748b", textTransform: "uppercase", letterSpacing: 0.5 }}>{item[1]}</div></div>; })}
+        {[[summaryData.caseCount, "Encounters"], [summaryData.totalProcs, "Procedures"], [summaryData.avgRVU.toFixed(1), "Avg/Enc"], [summaryData.workDays, "Days"]].map(function(item) { return <div key={item[1]} style={{ background: "var(--bg-inset)", borderRadius: 6, padding: "6px 4px", textAlign: "center" }}><div style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{item[0]}</div><div style={{ fontSize: 8, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>{item[1]}</div></div>; })}
       </div>
       {summaryData.privateCases + summaryData.callCases > 0 && <div style={{ display: "flex", gap: 8, marginBottom: 12 }}>
-        <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)" }}><div style={{ fontSize: 10, color: "#0ea5e9", fontWeight: 600 }}>Private</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{summaryData.privateRVU.toFixed(1)} wRVU | {summaryData.privateCases} enc</div></div>
-        <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}><div style={{ fontSize: 10, color: "#a78bfa", fontWeight: 600 }}>Call</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{summaryData.callRVU.toFixed(1)} wRVU | {summaryData.callCases} enc</div></div>
+        <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(14,165,233,0.06)", border: "1px solid rgba(14,165,233,0.15)" }}><div style={{ fontSize: 10, color: "var(--accent-sky)", fontWeight: 600 }}>Private</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{summaryData.privateRVU.toFixed(1)} wRVU | {summaryData.privateCases} enc</div></div>
+        <div style={{ flex: 1, padding: "6px 10px", borderRadius: 6, background: "rgba(139,92,246,0.06)", border: "1px solid rgba(139,92,246,0.15)" }}><div style={{ fontSize: 10, color: "var(--accent-violet)", fontWeight: 600 }}>Call</div><div style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{summaryData.callRVU.toFixed(1)} wRVU | {summaryData.callCases} enc</div></div>
       </div>}
       {summaryData.ncProcs > 0 && <div onClick={function() { if (openHistory) openHistory(monthBoundsYMD(summaryMonth)); }} style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -4, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit: "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{summaryData.ncRVU.toFixed(1)}</span>{" wRVU | " + summaryData.ncEnc + " enc"}</span>{ncChevron}</div>}
       {goal > 0 && <div style={{ padding: "8px 10px", borderRadius: 6, background: "rgba(16,185,129,0.06)", border: "1px solid rgba(16,185,129,0.15)", marginBottom: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <div><span style={{ fontSize: 11, color: "#10b981", fontWeight: 600 }}>Monthly Goal Pace</span><div style={{ fontSize: 10, color: "#64748b", marginTop: 2 }}>Target: {(goal / 12).toFixed(0)} wRVU/month</div></div>
-        <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "#10b981", fontWeight: 700 }}>{((summaryData.totalRVU / (goal / 12)) * 100).toFixed(0)}%</span>
+        <div><span style={{ fontSize: 11, color: "var(--accent-green)", fontWeight: 600 }}>Monthly Goal Pace</span><div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 2 }}>Target: {(goal / 12).toFixed(0)} wRVU/month</div></div>
+        <span style={{ fontSize: 14, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 700 }}>{((summaryData.totalRVU / (goal / 12)) * 100).toFixed(0)}%</span>
       </div>}
       {summaryData.topProcs.length > 0 && <div style={{ marginBottom: 12 }}>
         <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Top Encounters</div>
-        {summaryData.topProcs.map(function(p) { return (<div key={p.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "#0ea5e9", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 10, color: "#64748b", marginLeft: 4 }}>x{p.count}</span><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.desc.length > 35 ? p.desc.slice(0, 35) + "..." : p.desc}</div>{p.addons.length > 0 && <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "#64748b" }}>+ {p.addons.join(", ")}</div>}</div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{p.rvu.toFixed(1)}</span></div>); })}
+        {summaryData.topProcs.map(function(p) { return (<div key={p.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 4 }}>x{p.count}</span><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.desc.length > 35 ? p.desc.slice(0, 35) + "..." : p.desc}</div>{p.addons.length > 0 && <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>+ {p.addons.join(", ")}</div>}</div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{p.rvu.toFixed(1)}</span></div>); })}
       </div>}
       <button onClick={copySummary} style={{ ...S.saveBtn, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{copyStatus || "Copy Summary to Clipboard"}</button>
     </div>}
