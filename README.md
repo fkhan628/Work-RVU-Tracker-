@@ -11,23 +11,26 @@ A mobile-first Progressive Web App for physicians to track surgical procedure wo
 - **Full CMS CY2026 CPT database** — all 7,305 codes from the CMS Physician Fee Schedule embedded directly in the app, with 300+ enhanced surgical descriptions and search keywords for common shorthand (e.g., "lap chole", "appy", "TAR").
 - **Multi-procedure encounter logging** — log multiple CPTs per patient encounter with inline modifier support and patient initials.
 - **RVU Wallet CSV import** — auto-detects the RVU Wallet format, splits multi-code rows, and extracts modifiers automatically. Generic CSV import also supported.
-- **Analytics & Trends** — goal pacing, monthly bar charts, projected year-end totals, top procedures, and category breakdowns.
+- **Trends** — goal pacing, monthly bars (tap a month for its codes), projected year-end totals, top codes and encounters, and category breakdowns.
 - **History** — browse and edit past encounters, grouped by date.
-- **Compare** — compare RVU performance across time periods.
+- **Compare** — enter or import (Excel) the institution's monthly wRVU statements and compare them with the cases you logged.
 - **Compensation tracking** — set your contracted $/RVU rate and two yearly wRVU goals (decimals supported): an OR goal for the cases you log, and a Reconciliation goal for the hospital's monthly totals from Compare (incl. call + clinic). Home's Compensation card projects the year from this year's Compare months when you have them and compares that with the Reconciliation goal (or, if none is set, the OR goal); otherwise it projects your logged pace and compares it with the OR goal. The card names the goal it used, and is hidden with no rate or no goal to compare with.
+- **Call pay** — log call shifts per site with dated rate versions (stipend, call-in fees, hourly, Day/Night shift types); month and year totals stay separate from wRVU compensation.
+- **Acute care** — enter each month's acute pool and partner shifts to see your share.
+- **Directorships** — log directorship hours by month and create each month's time-sheet PDF.
 - **Offline-first** — all data stored in browser `localStorage`; works without a network connection after first load.
-- **Backup & Restore** — export/import your entire dataset as a base64 string via clipboard for easy cross-device transfer.
-- **PIN lock with encryption** — optional PIN-protected access with AES-GCM encrypted API key storage.
+- **Backup & Restore** — save the whole dataset as a PIN-encrypted backup, either as a file or as a copied code, and restore it from either.
+- **PIN lock** — a required PIN lock, plus AES-GCM encrypted storage for an optional API key.
 - **Dark and light modes** — theme auto-persists across sessions.
 
 ---
 
 ## Architecture
 
-The app is split into 14 files and loaded as a plain static site — no bundler, no build step (npm is only for the dev tools).
+The app is split into 15 files (index.html plus 14 scripts) and loaded as a plain static site — no bundler, no build step (npm is only for the dev tools).
 
 ```
-index.html              # ~60-line shell, loads scripts in order
+index.html              # Shell: loads scripts in order, startup watchdog
 manifest.json           # PWA manifest (name, icons, theme, scope)
 icon-192.png            # PWA icon (Android/Chrome)
 icon-512.png            # PWA icon (Android/Chrome, also used for iOS)
@@ -41,21 +44,22 @@ js files/
   log.js                # Procedure entry
   analytics.js          # Trends and projections
   history.js            # History browser + CSV import
-  compare.js            # Period comparison
+  compare.js            # Institution statements vs tracked wRVUs (manual + Excel)
   acute.js              # Acute-care history table (read-only, nav-less view)
   callpay.js            # Call pay: shift log, sites + dated rate versions (no nav tab of its own; an unsaved shift form survives a tab switch)
   settings.js           # Settings, backup/restore, theme toggle
+  directorships.js      # Directorships: hour log + monthly time-sheet PDFs (nav-less view)
   app.js                # ErrorBoundary, App root, Nav, render entry point
 ```
 
 ### Load order
 
-1. React 18.3.1 and ReactDOM (UMD, from unpkg)
-2. Babel standalone 7.26.10 (from unpkg)
+1. React 18.3.1 and ReactDOM (UMD, from unpkg, with a same-hash jsdelivr fallback)
+2. Babel standalone 7.26.10 (from unpkg, with a same-hash jsdelivr fallback)
 3. **Plain scripts** (execute during parse, in document order): `crypto`, `cpt-data`, `utils`, `styles` — all JSX-free. utils/styles were moved out of Babel to skip two compiles; their top-level `const` names become parse-time global bindings that no Babel file may redeclare.
-4. **Babel scripts** (`type="text/babel"`, execute after transform at DOMContentLoaded): `dashboard`, `log`, `analytics`, `history`, `compare`, `acute`, `callpay`, `settings`, `app`.
+4. **Babel scripts** (`type="text/babel"`, execute after transform at DOMContentLoaded): `dashboard`, `log`, `analytics`, `history`, `compare`, `acute`, `callpay`, `settings`, `directorships`, `app`.
 5. All local script URLs carry `?v=ASSET_V` — a hand-bumped constant in index.html's head. **Every deploy that changes any js file must bump ASSET_V** (build reports state the new value). Browsers cache and revalidate per GitHub Pages headers (~10-min max-age), so updates propagate even without a bump; the bump forces immediate refetch.
-6. SheetJS xlsx 0.20.1 is **not loaded at boot** — Compare's Excel upload and Settings' Excel export lazy-load it via `loadXLSX()` (utils.js) with the same pinned SRI hash.
+6. SheetJS xlsx 0.20.1 is **not loaded at boot** — Compare's Excel upload and Settings' Excel export lazy-load it via `loadXLSX()` (utils.js) with the same pinned SRI hash and a 15 s timeout. jsPDF 4.2.1 (the Directorships time-sheet PDF) is lazy too: `loadPDF()` tries unpkg, then the same path and hash on jsdelivr, 15 s per host.
 
 ### Design principles
 
@@ -109,7 +113,7 @@ The app itself runs entirely in the browser. It still needs a local server, beca
 
 - **Every deploy that changes any js file must bump ASSET_V**, and the build report states the new value. `npm run check` confirms the constant exists, but it can't know whether you bumped it.
 - Without a bump, GitHub Pages' cache headers (about 10 minutes) still let a change through eventually. Until then, a phone can run old and new files side by side, which can white-screen when files depend on each other.
-- The CDN libraries (React, ReactDOM, Babel standalone, and the lazily loaded SheetJS) are pinned to exact versions with SRI hashes, so they never change underneath the app. Bumping a pinned version means recomputing its hash.
+- The CDN libraries (React, ReactDOM, Babel standalone, and the lazily loaded SheetJS and jsPDF) are pinned to exact versions with SRI hashes, so they never change underneath the app. Bumping a pinned version means recomputing its hash.
 - The local preview server (`npm run serve`) sends `Cache-Control: no-store`, so a plain refresh always shows your latest edits there.
 
 ### Editing gotchas
@@ -123,9 +127,10 @@ The app itself runs entirely in the browser. It still needs a local server, beca
 
 ## Tech stack
 
-- **React 18.3.1** (UMD build, loaded via unpkg)
+- **React 18.3.1** (UMD build, loaded via unpkg, jsdelivr fallback)
 - **Babel standalone 7.26.10** (in-browser JSX transform)
-- **SheetJS xlsx 0.20.1** (Excel file imports)
+- **SheetJS xlsx 0.20.1** (Excel import and export, lazy-loaded)
+- **jsPDF 4.2.1** (Directorships time-sheet PDFs, lazy-loaded)
 - **GitHub Pages** (hosting)
 - **`localStorage`** (data persistence, on the device only)
 - **Web Crypto API** (AES-GCM encryption for the optional PIN-locked API key)
