@@ -1233,6 +1233,14 @@ function payTypePreview(t) {
 }
 // Call-ins on a shift of either kind.
 function payShiftCallInCount(s) { return !s ? 0 : payShiftIsTyped(s) ? (Array.isArray(s.callIns) ? s.callIns.length : 0) : (Array.isArray(s.events) ? s.events.length : 0); }
+// A shift row's call-in words (Recent, the month lists, the Set Day or Night
+// header): the count, "0 call-ins" included - except "" on a typed shift
+// whose type has no call-in rule (a Day cannot have call-ins); the caller
+// then leaves the part out.
+function payShiftCallInWords(s) {
+  var n = payShiftCallInCount(s);
+  return n === 0 && payShiftIsTyped(s) && !s.rates.shiftType.callIn ? "" : n + " call-in" + (n === 1 ? "" : "s");
+}
 // The time-in line of a split bucket (paySplitOut), e.g. "18:59 in \u00B7 3:00+
 // on 3 of 8" - the same words on Home, the Totals year block and a month.
 function payBucketInLine(b) {
@@ -3558,6 +3566,12 @@ function dismissDirReminder(ym) { try { localStorage.setItem(DIR_REMIND_KEY, ym)
 // --- File hand-off helpers (the Share Backup patterns, settings.js) ---
 function canShareFile(f) { try { return !!(f && navigator.share && navigator.canShare && navigator.canShare({ files: [f] })); } catch (e) { return false; } }
 function finePointer() { try { return !!(window.matchMedia && window.matchMedia("(pointer: fine)").matches); } catch (e) { return false; } }
+// The ONE download path: History and Settings exports, the backup file and
+// the directorships PDF all call it with their exact name and MIME type.
+// The anchor is attached for the click and the blob URL is released on a
+// 60 s timer, never in the same tick - WebKit (iOS Safari, the home-screen
+// app) can cancel or blank a download whose URL goes before it is read.
+// It never shares: navigator.share stays in its own tap.
 function downloadBlob(blob, name) {
   var u = URL.createObjectURL(blob), a = document.createElement("a");
   a.href = u; a.download = name; a.style.display = "none";
@@ -3585,26 +3599,42 @@ function availableDataYears(data) {
 // pinned version + SRI hash + crossorigin as the old index.html head tag -
 // if the version is ever bumped, recompute the sha384 or the script is
 // blocked. A single in-flight promise guards double-injection; on failure
-// the promise resets so the next tap retries cleanly.
+// the promise resets so the next tap retries cleanly. One host only: 0.20.x
+// is published on cdn.sheetjs.com, not on npm, so there is no same-path
+// jsdelivr copy (loadPDF's fallback pattern does not apply). XLSX_MS
+// because a blackholed CDN never fires onerror: the tap fails with the
+// connection message instead of "Loading..." forever. Removing a timed-out
+// tag does not cancel its script; if it runs late and defines XLSX, the
+// next tap resolves at once (an in-flight retry settles when its own tag
+// loads, errors or times out).
 var XLSX_SRC = "https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js";
 var XLSX_SRI = "sha384-QCIdq2UMVEoSRhR3ZWZwdz2/pivLowr+eokFMdYyukq7qI26VYRxFa4Nl6FKetmL";
+var XLSX_MS = 15000;
 var _xlsxLoad = null;
 function loadXLSX() {
   if (window.XLSX) return Promise.resolve();
   if (_xlsxLoad) return _xlsxLoad;
   _xlsxLoad = new Promise(function(resolve, reject) {
-    var s = document.createElement("script");
+    var done = false, s = document.createElement("script"), t = null;
+    var fail = function() {
+      if (done) return;
+      done = true; clearTimeout(t);
+      if (s.parentNode) s.parentNode.removeChild(s);
+      if (window.XLSX) { resolve(); return; }   // an earlier timed-out tag's script ran after all
+      _xlsxLoad = null;
+      reject(new Error("Could not load the Excel library - check your connection and try again."));
+    };
     s.src = XLSX_SRC;
     s.integrity = XLSX_SRI;
     s.crossOrigin = "anonymous";
     s.onload = function() {
-      if (window.XLSX) { resolve(); }
-      else { _xlsxLoad = null; reject(new Error("The Excel library loaded but did not initialize - try again.")); }
+      if (done) return;                       // already settled by the timer
+      done = true; clearTimeout(t);
+      if (window.XLSX) { resolve(); return; }
+      _xlsxLoad = null; reject(new Error("The Excel library loaded but did not initialize - try again."));
     };
-    s.onerror = function() {
-      _xlsxLoad = null;
-      reject(new Error("Could not load the Excel library - check your connection and try again."));
-    };
+    s.onerror = fail;                         // network failure OR an SRI mismatch
+    t = setTimeout(fail, XLSX_MS);
     document.head.appendChild(s);
   });
   return _xlsxLoad;

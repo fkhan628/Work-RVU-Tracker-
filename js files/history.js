@@ -274,14 +274,8 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
       return [e.date, e.cptCode, e.description || "", e.category, e.isCall ? "Call" : "Private", e.baseRVU, (e.modifiers || []).join(";"), e.adjustedRVU.toFixed(2), (creditedRVU(e) * settings.ratePerRVU).toFixed(2), e.encounterId || "", e.notes || "", isNoCredit(e) ? "No credit" : "Credited"];
     });
     var csv = [h.join(",")].concat(rows.map(function(r) { return r.map(csvField).join(","); })).join("\n");
-    var b = new Blob([csv], { type: "text/csv" });
-    var u = URL.createObjectURL(b);
-    var a = document.createElement("a");
-    a.href = u;
     var suffix = dateRange !== "all" ? "-" + dateRange : "";
-    a.download = "rvu-history" + suffix + "-" + todayLocal() + ".csv";
-    a.click();
-    URL.revokeObjectURL(u);
+    downloadBlob(new Blob([csv], { type: "text/csv" }), "rvu-history" + suffix + "-" + todayLocal() + ".csv");
   };
 
   // Opening the panel from the list remembers where the list was.

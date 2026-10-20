@@ -496,8 +496,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
       var part = !t.callIn ? t.hours + "h" : ci && ci.trips > 0 ? payFmtHM(ci.minutes) + " in" + DOT + (ci.met ? payFmtHM(ci.threshold) + " met" : "under " + payFmtHM(ci.threshold)) : "quiet night";
       return part + DOT + (p ? paid(p.total) : "?");
     }
-    var n = (s.events || []).length;
-    return s.callHours + "h" + DOT + n + " call-in" + (n === 1 ? "" : "s") + DOT + (p ? paid(p.total) : "?");
+    return s.callHours + "h" + DOT + payShiftCallInWords(s) + DOT + (p ? paid(p.total) : "?");
   };
   var typeTag = function(s) { return payShiftIsTyped(s) ? DOT + s.rates.shiftType.label : ""; };
   var FLAG_TAG = <span style={{ marginLeft: 6, fontSize: 10, padding: "1px 6px", borderRadius: 8, background: "rgba(245,158,11,0.15)", color: "var(--accent-amber)", fontFamily: "inherit", whiteSpace: "nowrap" }}>Set Day or Night</span>;
@@ -746,7 +745,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
         {header}
         {editFlagged && <div style={{ ...S.card, border: "1px solid rgba(245,158,11,0.4)", background: "rgba(245,158,11,0.06)" }}>
           <div style={{ fontSize: 12, fontWeight: 700, color: amber }}>Logged before Day/Night shifts</div>
-          <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 4, lineHeight: 1.5 }}>{dayLabel(editOrig.date) + DOT + editOrig.callHours + "h" + DOT + plural((editOrig.events || []).length, "call-in") + (savedMin ? " (" + payFmtHM(savedMin) + ")" : "")}</div>
+          <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 4, lineHeight: 1.5 }}>{dayLabel(editOrig.date) + DOT + editOrig.callHours + "h" + DOT + payShiftCallInWords(editOrig) + (savedMin ? " (" + payFmtHM(savedMin) + ")" : "")}</div>
           <div style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 4, lineHeight: 1.5 }}>{"Pick Day, Night or both. It is re-priced with the " + ratesWord + "."}</div>
         </div>}
         {siteCard}
@@ -1173,9 +1172,9 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
             </div>}
             {m.unpriced > 0 && <div style={{ fontSize: 11, color: amber, marginBottom: 4 }}>{plural(m.unpriced, "shift") + " could not be priced - open " + (m.unpriced === 1 ? "it" : "them") + " to check."}</div>}
             {m.list.map(function(s) {
-              var p = computeShiftPay(s), flagged = payShiftNeedsType(s, sites);
+              var p = computeShiftPay(s), flagged = payShiftNeedsType(s, sites), tail = flagged ? "Set Day or Night" : payShiftCallInWords(s);
               return (<button key={s.id} onClick={function() { openEdit(s, false); }} style={{ width: "100%", minHeight: 44, display: "flex", alignItems: "center", gap: 8, background: "none", border: "none", borderTop: "1px solid rgba(51,65,85,0.25)", padding: "2px 0", cursor: "pointer", textAlign: "left" }}>
-                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: flagged ? amber : "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s) + typeTag(s) + DOT + (flagged ? "Set Day or Night" : plural(payShiftCallInCount(s), "call-in"))}</span>
+                <span style={{ flex: 1, minWidth: 0, fontSize: 12, color: flagged ? amber : "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{shortDay(s.date) + DOT + shiftSiteName(s) + typeTag(s) + (tail ? DOT + tail : "")}</span>
                 {staleTag(s)}
                 <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-muted)", flexShrink: 0 }}>{flagged ? "-" : p ? paid(p.total) : "?"}</span>
               </button>);

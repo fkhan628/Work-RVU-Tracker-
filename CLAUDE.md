@@ -29,10 +29,12 @@ Script execution order:
    every plain script.
 4. SheetJS and jsPDF are NOT loaded at boot: `loadXLSX()` and `loadPDF()`
    in utils.js lazy-inject them (pinned version + SRI, in-flight guard,
-   reset on failure). loadPDF tries unpkg, then the same path and hash on
-   jsdelivr, 15 s per host (a blackholed CDN never fires onerror); its
-   provenance comment records the cross-mirror hash check - bump PDF_PATH
-   and PDF_SRI together (check.js G11).
+   reset on failure, 15 s per host because a blackholed CDN never fires
+   onerror). loadPDF tries unpkg, then the same path and hash on
+   jsdelivr; its provenance comment records the cross-mirror hash check -
+   bump PDF_PATH and PDF_SRI together (check.js G11). loadXLSX has one
+   host, cdn.sheetjs.com (0.20.x is not on npm, so there is no same-path
+   mirror); check.js X1/X2 pin its shape and timeout.
 
 Startup: an inline watchdog in index.html sits AFTER #app-loader and
 BEFORE the CDN tags (so it still runs while one hangs). At 15 s it shows
@@ -152,7 +154,7 @@ the per-file gates below. Run it after EVERY file change.
   readers payEffKey/payRateIsTyped/payShiftIsTyped and the Day/Night
   helpers (cleanPayTyped/payRateTypes/payTypeByKey; the ONE call-in rule
   payCallInSummary with payHM/payFmtHM/payCiRowProblem; the labels
-  payTypePreview/payVersionDateLabel/payDateLabel/payShiftCallInCount/
+  payTypePreview/payVersionDateLabel/payDateLabel/payShiftCallInCount/payShiftCallInWords/
   payBucketInLine; payBuiltInFrom/payBuiltInVersion; the offer
   payTypedOffers/payTypedPlan/payApplyTyped; the writer payShiftsFromDraft
   with payDraftTypes/payDraftId2/payDraftUseSaved; the flags
@@ -360,7 +362,12 @@ the per-file gates below. Run it after EVERY file change.
   Excel import closes an edit form whose row it replaced. A migrated month
   keeps totalOnly when its edit leaves the call split at 0. The Excel import
   keeps its own merge (Merge overwrites a month's FIRST row; Replace All
-  starts empty). Readers of a duplicate an older build left: Home's
+  starts empty). Its preview panel opens on xlPanel (a preview, or a loaded
+  workbook of two or more sheets), so a sheet with no rows keeps the sheet
+  chooser and says so, and the open panel reads xlPreview only under an
+  xlPreview guard; a FileReader error shows the banner and frees Upload,
+  whose busy state lasts until the file is read (check.js 5f-3b).
+  Readers of a duplicate an older build left: Home's
   Reconciliation / pace / Comp / vs. Prior Year / monthly chart and Trends'
   cross-check keep the LAST row; Settings' Acute reference reads the
   FIRST; Compare's list and totals, Home's Prior Year (Institution) card and
@@ -572,6 +579,11 @@ the per-file gates below. Run it after EVERY file change.
 - PIN pad DOM is appendChild-only (never `innerHTML +=`); clipboard writes
   need a catch fallback; no `viewport-fit=cover`; chunked u8toB64 in
   crypto paths.
+- Settings' Recovery Hint: hintText mirrors the STORED "rvu-pin-hint" (what
+  the lock screen's Forgot PIN shows). The editor types into hintDraft,
+  seeded from hintText on every open, so Cancel just closes; only Save (after
+  its storage write, the trimmed value) and Remove set hintText (check.js
+  pins it).
 - `crypto.js` DATA_KEY must equal `utils.js` SK (check.js asserts).
 - Backups: the file text IS the clipboard code (one builder, settings.js
   buildBackupCode). "Restore from File..." and a pasted code share
@@ -589,6 +601,15 @@ the per-file gates below. Run it after EVERY file change.
   directly from its own tap (iOS gesture rule; one sheet at a time), never
   after the async encrypt - in settings.js and in directorships.js alike.
   check.js pins all of this.
+- Downloads: every file download (History Export CSV, Settings Export
+  CSV/JSON, the backup file, the directorships PDF) goes through utils.js
+  downloadBlob(blob, name) under its exact file name and MIME type: the
+  anchor is attached for the click and the object URL is revoked on a
+  60 s timer, never in the same tick (WebKit - iOS Safari and the
+  home-screen app - can cancel or blank such a download). No other file
+  calls createObjectURL/revokeObjectURL or sets .download, and
+  downloadBlob never shares. Export Excel stays on SheetJS XLSX.writeFile
+  (it revokes on its own 60 s timer). check.js pins it.
 - Directorships (directorships.js holds only state and rendering; every
   rule is in utils.js - the `// --- Directorships ---` block):
   - Store fields `directorships`, `dirEntries`, `dirHandoff`,

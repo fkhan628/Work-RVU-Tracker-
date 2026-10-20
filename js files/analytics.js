@@ -368,7 +368,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
   };
 
   return (<div style={S.page}>
-    <div style={{ ...S.header, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}><h1 style={S.title}>Analytics</h1><CompEye showComp={showComp} toggleComp={toggleComp} /></div>
+    <div style={{ ...S.header, display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}><h1 style={S.title}>Trends</h1><CompEye showComp={showComp} toggleComp={toggleComp} /></div>
 
     {/* Year selector - same pattern and same year set as the Dashboard */}
     {availableYears.length > 1 && (function() {
@@ -437,7 +437,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
     </div>
     {creditSplit.nc.length > 0 && <div onClick={function() { if (openHistory) openHistory(ncYearRange); }} style={{ fontSize: 11, color: "var(--text-muted)", padding: "0 4px", marginTop: -6, marginBottom: 12, ...ncLink }}><span>{"Logged, no credit (" + (isCurrent ? "YTD" : year) + "): "}<span style={{ fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{creditSplit.ncRVU.toFixed(1)}</span>{" wRVU across " + creditSplit.ncEnc + " encounter" + (creditSplit.ncEnc === 1 ? "" : "s")}</span>{ncChevron}</div>}
 
-    {/* Monthly bar chart */}
+    {/* Monthly bar chart - a row opens that month's detail, so it ends in ncChevron */}
     <div style={S.card}>
       <div style={S.cardLabel}>Monthly wRVUs</div>
       <div style={{ marginTop: 12 }}>
@@ -453,6 +453,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
             </div>
             <div style={{ width: 55, textAlign: "right", fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{m.rvu.toFixed(0)}</div>
             <div style={{ width: 20, textAlign: "right", fontSize: 10, color: "var(--text-dim)" }}>{m.count}</div>
+            {ncChevron}
           </div>);
         })}
         {goal > 0 && <div style={{ display: "flex", alignItems: "center", gap: 6, marginTop: 6 }}><div style={{ width: 12, height: 2, background: "var(--mark-goal)" }} /><span style={{ fontSize: 10, color: "var(--text-dim)" }}>Monthly goal ({(goal/12).toFixed(0)})</span></div>}

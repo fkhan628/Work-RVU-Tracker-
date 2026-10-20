@@ -23,6 +23,10 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
   var [xlRawWb, setXlRawWb] = useState(null);
   var [xlLoading, setXlLoading] = useState(false);
   var xlRef = useRef(null);
+  // The Excel preview panel is open while there is a preview, and also while
+  // a workbook of two or more sheets is loaded with no preview (the chosen
+  // sheet has no rows), so its sheet chooser stays reachable.
+  var xlPanel = !!xlPreview || (!!xlRawWb && xlSheets.length > 1);
 
   // Excel cell value -> "YYYY-MM". ALL LOCAL, no UTC anywhere: the old path
   // built an absolute UTC instant ((serial - 25569) * 86400000) and read it
@@ -119,11 +123,16 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
     if (!file) return;
     setXlError("");
     setXlPreview(null);
+    // A new file drops the last workbook, so a failed read never leaves the
+    // previous file's sheet chooser on screen.
+    setXlRawWb(null);
+    setXlSheets([]);
     // SheetJS is lazy-loaded on first use (loadXLSX in utils.js). The
     // in-flight guard lives in the helper; the visible state lives here.
+    // Busy lasts until the file is read: readExcelFile's onload and onerror
+    // clear it (this catch covers a failed load).
     setXlLoading(true);
     loadXLSX().then(function() {
-      setXlLoading(false);
       readExcelFile(file);
     }).catch(function(err) {
       setXlLoading(false);
@@ -133,7 +142,15 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
 
   var readExcelFile = function(file) {
     var reader = new FileReader();
+    // A file the browser cannot read (a cloud file that never downloaded, a
+    // permission that lapsed) fires error, never load: say so and free the
+    // Upload button instead of leaving the screen silent.
+    reader.onerror = function() {
+      setXlLoading(false);
+      setXlError("Could not read the file" + (reader.error && reader.error.message ? " (" + reader.error.message + ")" : "") + ". Try choosing it again.");
+    };
     reader.onload = function(ev) {
+      setXlLoading(false);
       try {
         var ab = ev.target.result;
         // cellDates deliberately OFF: date cells stay raw serial numbers so
@@ -165,11 +182,14 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         }
         setXlSheet(bestSheet);
         var parsed = parseExcelSheet(wb, bestSheet);
-        if (parsed.length === 0) {
-          setXlError("No monthly RVU data found in '" + wb.SheetNames[bestSheet] + "'. Try a different sheet.");
-        } else {
+        if (parsed.length > 0) {
           setXlPreview(parsed);
+        } else if (wb.SheetNames.length < 2) {
+          // One sheet: nothing to switch to, so no chooser - just say so.
+          setXlError("No monthly RVU data found in '" + (wb.SheetNames[bestSheet] || "this file") + "'. Try a different file.");
         }
+        // Two or more sheets and no rows here: the preview panel stays open
+        // on this sheet with its chooser and a "no rows" line.
       } catch (e) {
         setXlError("Could not read Excel file: " + e.message);
       }
@@ -181,13 +201,11 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
     setXlSheet(idx);
     if (xlRawWb) {
       var parsed = parseExcelSheet(xlRawWb, idx);
-      if (parsed.length === 0) {
-        setXlError("No monthly RVU data found in '" + xlRawWb.SheetNames[idx] + "'. Try a different sheet.");
-        setXlPreview(null);
-      } else {
-        setXlError("");
-        setXlPreview(parsed);
-      }
+      // A sheet with no rows keeps the panel and its chooser open (the panel
+      // opens on a workbook of two or more sheets, not only on a preview)
+      // and says so there, so another sheet stays one tap away.
+      setXlError("");
+      setXlPreview(parsed.length > 0 ? parsed : null);
     }
   };
 
@@ -526,12 +544,12 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
 
     {xlError && <div style={{ marginBottom: 10, padding: "8px 12px", borderRadius: 8, background: xlError.startsWith("Imported") ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", color: xlError.startsWith("Imported") ? "var(--accent-green)" : "var(--accent-red)", fontSize: 13, textAlign: "center" }}>{xlError}</div>}
 
-    {/* Excel preview panel */}
-    {xlPreview && <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 12 }}>
+    {/* Excel preview panel (xlPanel: also open on a sheet with no rows) */}
+    {xlPanel && <div style={{ ...S.card, border: "1px solid rgba(16,185,129,0.3)", marginBottom: 12 }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
         <div>
           <div style={{ fontSize: 14, fontWeight: 700, color: "var(--accent-green)" }}>Excel Import Preview</div>
-          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{xlPreview.length} months found</div>
+          <div style={{ fontSize: 11, color: "var(--text-dim)" }}>{xlPreview ? xlPreview.length : 0} months found</div>
         </div>
         <button onClick={function() { setXlPreview(null); setXlRawWb(null); setXlSheets([]); setXlError(""); }} style={{ padding: "4px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Cancel</button>
       </div>
@@ -546,6 +564,9 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         </div>
       </div>}
 
+      {!xlPreview && <div style={{ marginTop: 10, padding: "10px 12px", borderRadius: 8, background: "var(--bg-inset)", color: "var(--text-muted)", fontSize: 13, textAlign: "center" }}>This sheet has no rows to import. Pick another sheet above.</div>}
+
+      {xlPreview && <>
       {/* Preview table */}
       <div style={{ maxHeight: 280, overflowY: "auto", marginTop: 10, scrollbarWidth: "thin" }}>
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr 1fr 1fr", gap: 0, fontSize: 10, color: "var(--text-dim)", padding: "4px 0", borderBottom: "1px solid var(--border-default)", fontWeight: 600 }}>
@@ -579,6 +600,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         {instData.length > 0 && <button onClick={function() { importXlData("merge"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: "linear-gradient(135deg, #10b981, #059669)" }}>Merge ({xlPreview.length} months)</button>}
         <button onClick={function() { importXlData("replace"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: instData.length > 0 ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #10b981, #059669)" }}>{instData.length > 0 ? "Replace All" : "Import " + xlPreview.length + " months"}</button>
       </div>
+      </>}
     </div>}
 
     {showAdd && <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.3)", marginBottom: 12 }}>
@@ -673,7 +695,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
       <div style={{ fontSize: 10, color: "var(--text-faint)", marginTop: 6 }}>{showComp ? "Based on $" + settings.ratePerRVU + "/wRVU rate" : ""}</div>
     </div>}
 
-    {instData.length === 0 && !showAdd && !xlPreview && <div style={{ ...S.card, textAlign: "center", padding: 30 }}>
+    {instData.length === 0 && !showAdd && !xlPanel && <div style={{ ...S.card, textAlign: "center", padding: 30 }}>
       <div style={{ fontSize: 28, marginBottom: 8 }}>{"\u2194"}</div>
       <div style={{ fontSize: 14, fontWeight: 600, color: "var(--text-muted)", marginBottom: 4 }}>No Institution Data Yet</div>
       <div style={{ fontSize: 12, color: "var(--text-dim)", lineHeight: 1.5 }}>Upload your Excel spreadsheet or add months manually to compare institution RVUs against what you're tracking.</div>

@@ -26,6 +26,9 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     try { return localStorage.getItem("rvu-pin-hint") || ""; } catch(e) { return ""; }
   });
   const [editingHint, setEditingHint] = useState(false);
+  // hintText is the STORED hint (what Forgot PIN shows); the editor types into
+  // hintDraft, seeded from it on every open, so Cancel just drops the draft.
+  const [hintDraft, setHintDraft] = useState("");
   const [bioAvailable, setBioAvailable] = useState(false);
   const [bioEnabled, setBioEnabled] = useState(function() { try { return window.RVU_CRYPTO && window.RVU_CRYPTO.hasBiometrics && window.RVU_CRYPTO.hasBiometrics(); } catch(e) { return false; } });
   const [bioStatus, setBioStatus] = useState("");
@@ -157,11 +160,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     var bf = backupFile;
     if (!bf) return;
     try {
-      var u = URL.createObjectURL(new Blob([bf.text], { type: "text/plain" }));
-      var a = document.createElement("a");
-      a.href = u; a.download = bf.name; a.style.display = "none";
-      document.body.appendChild(a); a.click(); document.body.removeChild(a);
-      setTimeout(function() { try { URL.revokeObjectURL(u); } catch(e) {} }, 60000);   // not in the same tick
+      downloadBlob(new Blob([bf.text], { type: "text/plain" }), bf.name);
       setBackupStamp(markBackupSaved("file", todayLocal()));
       setBackupFile(null); setBackupWarn(false);
       setBackupStatus("Backup file downloaded (" + bf.name + ").");
@@ -626,7 +625,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       });
       csv += "\n\n" + acuteRows.map(function(r) { return r.map(csvField).join(","); }).join("\n");
     }
-    const b = new Blob([csv], { type: "text/csv" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".csv"; a.click(); URL.revokeObjectURL(u);
+    downloadBlob(new Blob([csv], { type: "text/csv" }), "rvu-export-" + todayLocal() + ".csv");
   };
   const expJSON = () => {
     // Key material is deliberately NOT part of the device-transfer export.
@@ -637,7 +636,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     delete clean.settings.apiKeyLast4;
     // The signature never leaves in a plaintext file, not even as ciphertext.
     delete clean.dirSignatureEnc;
-    const b = new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }); const u = URL.createObjectURL(b); const a = document.createElement("a"); a.href = u; a.download = "rvu-export-" + todayLocal() + ".json"; a.click(); URL.revokeObjectURL(u);
+    downloadBlob(new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }), "rvu-export-" + todayLocal() + ".json");
   };
 
   // SheetJS is lazy-loaded on first use (loadXLSX in utils.js) - the
@@ -821,15 +820,15 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
       <div style={{ marginTop: 10, padding: "10px 12px", background: "var(--bg-inset)", borderRadius: 8, border: "1px solid var(--border-subtle)" }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
           <div style={{ fontSize: 12, color: "var(--text-muted)", fontWeight: 600 }}>Recovery Hint</div>
-          <button onClick={() => setEditingHint(!editingHint)} style={{ background: "none", border: "none", color: "var(--accent-sky)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{editingHint ? "Cancel" : (hintText ? "Edit" : "Add")}</button>
+          <button onClick={() => { if (!editingHint) setHintDraft(hintText); setEditingHint(!editingHint); }} style={{ background: "none", border: "none", color: "var(--accent-sky)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>{editingHint ? "Cancel" : (hintText ? "Edit" : "Add")}</button>
         </div>
         {!editingHint ? (
           <div style={{ fontSize: 12, color: hintText ? "var(--text-primary)" : "var(--text-faint)", marginTop: 4, fontStyle: hintText ? "normal" : "italic" }}>{hintText || "No hint set"}</div>
         ) : (
           <div style={{ marginTop: 6 }}>
-            <input type="text" maxLength={100} value={hintText} onChange={e => setHintText(e.target.value)} placeholder="e.g. Birthday year + house number" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "var(--bg-inset)", color: "var(--text-primary)", fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
+            <input type="text" maxLength={100} value={hintDraft} onChange={e => setHintDraft(e.target.value)} placeholder="e.g. Birthday year + house number" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "var(--bg-inset)", color: "var(--text-primary)", fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-              <button onClick={() => { try { if (hintText.trim()) localStorage.setItem("rvu-pin-hint", hintText.trim()); else localStorage.removeItem("rvu-pin-hint"); } catch(e) {} setEditingHint(false); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Save Hint</button>
+              <button onClick={() => { var h = hintDraft.trim(); try { if (h) localStorage.setItem("rvu-pin-hint", h); else localStorage.removeItem("rvu-pin-hint"); setHintText(h); } catch(e) {} setEditingHint(false); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Save Hint</button>
               {hintText && <button onClick={() => { setHintText(""); try { localStorage.removeItem("rvu-pin-hint"); } catch(e) {} setEditingHint(false); }} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "none", color: "var(--accent-red)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Remove</button>}
             </div>
           </div>

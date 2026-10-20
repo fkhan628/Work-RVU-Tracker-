@@ -251,6 +251,42 @@ check("wRVU editor: no override write on a keystroke (the row input commits only
   settingsSrc.indexOf("setOverride(") === -1 && edInputs.length === 1 && !!edBlur && edCalls(edBlur, ["commitOverride"]) === 1 && edCommitAll === 1 && edBad.length === 0,
   JSON.stringify({ inputs: edInputs.length, blurCommits: edBlur ? edCalls(edBlur, ["commitOverride"]) : 0, commitAll: edCommitAll, bad: edBad }));
 
+// Settings' PIN recovery hint: hintText mirrors the STORED hint (what Forgot
+// PIN shows) and the editor types into hintDraft only. The header toggle seeds
+// the draft from hintText on open (under if (!editingHint)); only Save (a
+// top-level statement of its try, after the storage write, with the same
+// trimmed value) and Remove ("") set hintText -
+// so Cancel never leaves unsaved text showing as the hint.
+const hintInputs = [];
+if (settingsAst) walk(settingsAst.program, n => {
+  if (n.type !== "JSXOpeningElement" || !n.name || n.name.name !== "input") return;
+  const v = edAttr(n, "value");
+  if (v && (edUses(v, "hintText") || edUses(v, "hintDraft"))) hintInputs.push(n);
+});
+const hintCallsOf = (root, name) => { const out = []; walk(root, x => { if (x.type === "CallExpression" && x.callee && x.callee.type === "Identifier" && x.callee.name === name) out.push(x); }); return out; };
+const hintBad = [];
+if (!settingsAst) hintBad.push("settings.js does not parse");
+else {
+  const hIn = hintInputs.length === 1 ? hintInputs[0] : null;
+  const hVal = hIn && edAttr(hIn, "value"), hChg = hIn && edAttr(hIn, "onChange");
+  if (!hIn || !hVal || hVal.value.expression.type !== "Identifier" || hVal.value.expression.name !== "hintDraft") hintBad.push("the hint input's value is not hintDraft");
+  if (!hChg || hintCallsOf(hChg, "setHintDraft").length !== 1 || hintCallsOf(hChg, "setHintText").length !== 0) hintBad.push("the hint input's onChange does not write setHintDraft only");
+  const draftSets = hintCallsOf(settingsAst.program, "setHintDraft");
+  const seedIfs = []; walk(settingsAst.program, x => { if (x.type === "IfStatement" && x.test.type === "UnaryExpression" && x.test.operator === "!" && x.test.argument.type === "Identifier" && x.test.argument.name === "editingHint" && x.consequent.type === "ExpressionStatement") seedIfs.push(x.consequent.expression); });
+  const seeds = draftSets.filter(c => c.arguments.length === 1 && c.arguments[0].type === "Identifier" && c.arguments[0].name === "hintText" && seedIfs.indexOf(c) !== -1);
+  if (draftSets.length !== 2 || seeds.length !== 1) hintBad.push("setHintDraft is not exactly the onChange plus one seed from hintText under if (!editingHint) (" + draftSets.length + ")");
+  const textSets = hintCallsOf(settingsAst.program, "setHintText");
+  const tries = []; walk(settingsAst.program, x => { if (x.type === "TryStatement") tries.push(x); });
+  const saveOk = textSets.filter(c => c.arguments.length === 1 && c.arguments[0].type === "Identifier" && tries.some(t => {
+    if (!t.block.body.some(st => st.type === "ExpressionStatement" && st.expression === c)) return false;
+    let w = null; walk(t.block, x => { if (!w && x.type === "CallExpression" && x.callee.type === "MemberExpression" && x.callee.property.name === "setItem" && x.arguments[0] && x.arguments[0].value === "rvu-pin-hint") w = x; });
+    return w && w.end < c.start && w.arguments[1] && w.arguments[1].type === "Identifier" && w.arguments[1].name === c.arguments[0].name;
+  }));
+  const removeOk = textSets.filter(c => c.arguments.length === 1 && c.arguments[0].type === "StringLiteral" && c.arguments[0].value === "");
+  if (textSets.length !== 2 || saveOk.length !== 1 || removeOk.length !== 1) hintBad.push("setHintText is not exactly Save (a top-level statement of its try, after its rvu-pin-hint write, same value) + Remove (\"\") (" + textSets.length + ")");
+}
+check("Settings PIN hint: input types into hintDraft only, seeded from the stored hintText on open; hintText set only by Save after its write and by Remove (Cancel shows the stored hint)", hintBad.length === 0, hintBad.join("; "));
+
 // Backup stamp ("Last backup" + Home nudge): ONE per-device key, outside the
 // data store, touched only by the utils.js helpers, never a name utils.js
 // deletes on load (rvu-backup / rvu-backup-time) or any other key's name.
@@ -276,6 +312,33 @@ check("backup file share runs from its own tap (not after the async encrypt)",
   bkSaveFn.indexOf("buildBackupCode(pin)") !== -1 &&
   !/navigator|share\w*\s*\(/i.test(bkSaveFn.replace(/shareFailed/g, "")),
   String(bkSaveFn.length) + "/" + String(bkShareFn.length));
+// Downloads: utils.js downloadBlob is the ONE download path. It makes the
+// only object URL, attaches the anchor for the click and revokes on a timer,
+// never in the same tick (WebKit can cancel or blank such a download). No
+// other file creates/revokes an object URL or sets .download; every site
+// keeps its exact file name and MIME type; the backup share and encrypt taps
+// never download (the share sheet stays in its own tap).
+const dlRead = f => fs.readFileSync(path.join(JS_DIR, f), "utf8");
+const dlDecl = utilsAst ? findDeclared(utilsAst, "downloadBlob") : null;
+const dlBody = dlDecl ? utils.slice(dlDecl.start, dlDecl.end) : "";
+const dlTimer = /setTimeout\(function\(\) \{ try \{ URL\.revokeObjectURL\(u\); \} catch \(e\) \{\} \}, (\d+)\);/.exec(dlBody);
+const dlOrder = ["URL.createObjectURL(blob)", "document.body.appendChild(a)", "a.click()", "document.body.removeChild(a)", "setTimeout("].map(t => dlBody.indexOf(t));
+const dlLeak = jsFiles.filter(f => /createObjectURL|revokeObjectURL|\.download\s*=/.test(f === "utils.js" ? utils.split(dlBody).join("") : dlRead(f)));
+const DL_SITES = {
+  "history.js": ['downloadBlob(new Blob([csv], { type: "text/csv" }), "rvu-history" + suffix + "-" + todayLocal() + ".csv");'],
+  "settings.js": ['downloadBlob(new Blob([csv], { type: "text/csv" }), "rvu-export-" + todayLocal() + ".csv");',
+    'downloadBlob(new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }), "rvu-export-" + todayLocal() + ".json");',
+    'downloadBlob(new Blob([bf.text], { type: "text/plain" }), bf.name);'],
+  "directorships.js": ["downloadBlob(p.blob, p.name);"],
+};
+const dlCalls = jsFiles.filter(f => f !== "utils.js").reduce((o, f) => { const c = (dlRead(f).match(/downloadBlob\(/g) || []).length; if (c) o[f] = c; return o; }, {});
+const dlMissing = Object.keys(DL_SITES).reduce((out, f) => out.concat(DL_SITES[f].filter(s => dlRead(f).split(s).length !== 2).map(s => f + ": " + s.slice(0, 60))), []);
+check("downloads: ONE utils.js downloadBlob (anchor attached, clicked, removed; URL revoked only by a >= 30 s timer, never in the same tick); no other object URL or .download; each site keeps its file name + MIME; the backup share/encrypt taps never download and downloadBlob never shares",
+  !!dlBody && (utils.match(/function downloadBlob\(/g) || []).length === 1 && dlOrder.every((v, i) => v !== -1 && (i === 0 || v > dlOrder[i - 1])) &&
+  !!dlTimer && Number(dlTimer[1]) >= 30000 && (dlBody.match(/revokeObjectURL\(/g) || []).length === 1 && dlLeak.length === 0 &&
+  JSON.stringify(dlCalls) === JSON.stringify({ "directorships.js": 1, "history.js": 1, "settings.js": 3 }) && dlMissing.length === 0 &&
+  bkShareFn.indexOf("downloadBlob(") === -1 && bkSaveFn.indexOf("downloadBlob(") === -1 && !/navigator|share\w*\s*\(/i.test(dlBody),
+  JSON.stringify({ order: dlOrder, ms: dlTimer ? dlTimer[1] : null, leak: dlLeak, calls: dlCalls, missing: dlMissing }));
 // ONE restore path: paste (doRestore) and file (restoreFromFile) both go
 // through restoreFromText, which holds every finishRestore call; an
 // undecodable payload ("Invalid encrypted data") is handled before the one
@@ -920,6 +983,43 @@ const COMP_MONEY_PIN = 8;
   });
   check("5f-3: Compare month rows by row object - instSaveMonth / instDeleteRow / instSameMonth once each, confirm in the tap before the one upd, updater on its own prev, the row passed (no index), delete closes the edited row, import closes a stale form",
     bad.length === 0, bad.join(", "));
+  // 5f-3b. Excel import: a FileReader error is reported and frees Upload
+  // (reader.onerror and onload both clear the busy state; onerror sets the
+  // banner), and the preview panel also opens on a workbook of two or more
+  // sheets with no preview, so a sheet with no rows never hides the chooser.
+  const xb = [];
+  const rd = declFn("readExcelFile");
+  const onFn = p => rd ? deep(rd, n => n.type === "AssignmentExpression" && n.operator === "=" && n.left.type === "MemberExpression" && isId(n.left.object, "reader") && !n.left.computed && n.left.property.name === p && isFn(n.right)).map(n => n.right) : [];
+  const callsIn = (fn, name) => deep(fn, m => m.type === "CallExpression" && callName(m) === name);
+  // setXlLoading(false) is the handler's FIRST statement, so it runs before
+  // the try and no branch or throw can skip it.
+  const busyOff = fn => { const st = fn.body.type === "BlockStatement" ? fn.body.body[0] : null; const c = st && st.type === "ExpressionStatement" ? st.expression : null; return !!c && c.type === "CallExpression" && callName(c) === "setXlLoading" && c.arguments.length === 1 && c.arguments[0].type === "BooleanLiteral" && c.arguments[0].value === false; };
+  const onErr = onFn("onerror"), onLoad = onFn("onload");
+  if (!rd) xb.push("readExcelFile: not found");
+  if (onErr.length !== 1 || !busyOff(onErr[0]) || !callsIn(onErr[0], "setXlError").length) xb.push("readExcelFile: reader.onerror must call setXlLoading(false) as its first statement, and setXlError");
+  if (onLoad.length !== 1 || !busyOff(onLoad[0])) xb.push("readExcelFile: reader.onload must call setXlLoading(false) as its first statement");
+  const isLen1 = n => !!n && n.type === "BinaryExpression" && n.operator === ">" && n.left.type === "MemberExpression" && isId(n.left.object, "xlSheets") && n.left.property.name === "length" && n.right.type === "NumericLiteral" && n.right.value === 1;
+  const bool = (n, name) => isId(n, name) || (!!n && n.type === "UnaryExpression" && n.operator === "!" && n.argument.type === "UnaryExpression" && n.argument.operator === "!" && isId(n.argument.argument, name));
+  const pDecl = cAst ? deep(cAst.program, n => n.type === "VariableDeclarator" && isId(n.id, "xlPanel")) : [];
+  const t = pDecl.length === 1 ? pDecl[0].init : null;
+  if (!(t && t.type === "LogicalExpression" && t.operator === "||" && bool(t.left, "xlPreview") && t.right.type === "LogicalExpression" && t.right.operator === "&&" && bool(t.right.left, "xlRawWb") && isLen1(t.right.right))) xb.push("xlPanel must be declared once as !!xlPreview || (!!xlRawWb && xlSheets.length > 1)");
+  const panel = cAst ? deep(cAst.program, n => n.type === "LogicalExpression" && n.operator === "&&" && n.right.type === "JSXElement" && JSON.stringify(n.right).indexOf("Excel Import Preview") !== -1) : [];
+  if (panel.length !== 1 || !isId(panel[0].left, "xlPanel")) xb.push("the Excel Import Preview panel must open on xlPanel");
+  // In the panel xlPreview may be null (a sheet with no rows): every
+  // xlPreview.<x> read there sits under `xlPreview && ...` or in the
+  // consequent of `xlPreview ? ... : ...`, so the open panel never reads null.
+  const bare = [];
+  if (cAst) walkStack(csrc, (n, stack) => {
+    if (n.type !== "MemberExpression" || !isId(n.object, "xlPreview")) return;
+    const pi = stack.findIndex(a => a.type === "LogicalExpression" && a.operator === "&&" && isId(a.left, "xlPanel"));
+    if (pi < 0) return;
+    const chain = stack.slice(pi + 1).concat([n]);
+    const safe = chain.some((a, i) => i < chain.length - 1 && ((a.type === "LogicalExpression" && a.operator === "&&" && isId(a.left, "xlPreview") && a.right === chain[i + 1]) || (a.type === "ConditionalExpression" && isId(a.test, "xlPreview") && a.consequent === chain[i + 1])));
+    if (!safe) bare.push(n.loc.start.line + ":xlPreview." + (n.property.name || "?"));
+  });
+  if (bare.length) xb.push("xlPreview read in the open panel outside an xlPreview guard: " + bare.join(" "));
+  check("5f-3b: Compare's Excel import - reader.onerror sets the banner and clears busy, onload clears busy, and the preview panel opens on xlPanel (= !!xlPreview || (!!xlRawWb && xlSheets.length > 1)) so the sheet chooser survives a sheet with no rows, and the open panel reads xlPreview only under an xlPreview guard",
+    xb.length === 0, xb.join(", "));
 }
 
 // 5f-4. Call Pay's parked shift form (CLAUDE.md, beside Log's save bar). App
@@ -2786,6 +2886,18 @@ if (sb) {
     sb.payRateZero({ shiftTypes: [{ key: "a", label: "A", hours: 1, flat: 0, stipend: 0, stipendLabel: "", callIn: { hourly: 0, thresholdMinutes: 0 } }] }) === true &&
     sb.payRateZero({ shiftTypes: [{ key: "a", label: "A", hours: 1, flat: 0, stipend: 0, stipendLabel: "", callIn: { hourly: 1, thresholdMinutes: 0 } }] }) === false && sb.payRateZero({ shiftTypes: [] }) === false &&
     sb.payShiftCallInCount(TSHIFT) === 2 && sb.payShiftCallInCount(OSHIFT) === 0 && sb.payShiftCallInCount(mkShift("cc", S1, "2026-03-10", [dEv()])) === 1 && sb.payShiftCallInCount(null) === 0);
+  const DSHIFT = Object.assign({}, TSHIFT, { id: "ds1", rates: { id: "tv", effective: "2026-10-01", shiftType: TD }, callIns: [] });
+  check("payShiftCallInWords: a count whenever call-ins are stored (either kind, any type); none reads '0 call-ins' on a legacy shift or a Night and '' on a Day (the row leaves the part out)",
+    sb.payShiftCallInWords(TSHIFT) === "2 call-ins" && sb.payShiftCallInWords(Object.assign({}, TSHIFT, { callIns: [45] })) === "1 call-in" &&
+    sb.payShiftCallInWords(Object.assign({}, TSHIFT, { callIns: [] })) === "0 call-ins" && sb.payShiftCallInWords(DSHIFT) === "" &&
+    sb.payShiftCallInWords(Object.assign({}, DSHIFT, { callIns: [30] })) === "1 call-in" &&
+    sb.payShiftCallInWords(OSHIFT) === "0 call-ins" && sb.payShiftCallInWords(mkShift("cw1", S1, "2026-03-10", [dEv()])) === "1 call-in" &&
+    sb.payShiftCallInWords(mkShift("cw2", S1, "2026-03-10", [dEv(), dEv({ time: "23:30" })])) === "2 call-ins" && sb.payShiftCallInWords(null) === "0 call-ins");
+  {
+    const cpWords = fs.readFileSync(path.join(JS_DIR, "callpay.js"), "utf8");
+    check("callpay.js turns a shift's call-in count into words only through payShiftCallInWords (no payShiftCallInCount call, no hand-built ' call-in' plural), so a Day row never reads '0 call-ins'",
+      cpWords.indexOf("payShiftCallInCount") === -1 && cpWords.indexOf("\" call-in\" + (") === -1 && cpWords.indexOf("payShiftCallInWords(") !== -1);
+  }
   const hand0 = (id, name, rates) => ({ id: id, name: name, weekendDays: [0, 6], casesEarnRVU: true, rates: rates });
   const propo = Object.assign({}, RA, { id: "prop", effective: "2026-10-01", label: "Proposal" });
   const seededLike = hand0("site-made", "Made", [propo]);
@@ -4519,6 +4631,36 @@ if (sb) {
     check("backupNudgeDue: due at 14+ days (or never) with data to lose; a snooze within 7 days hides it (" + DUE.length + " cases)",
       dueBad.length === 0, J(dueBad.map(t => [t[0], t[1], t[2]])));
     check("backupFileName: rvu-backup-<date>.txt", sb.backupFileName("2026-10-14") === "rvu-backup-2026-10-14.txt" && /^rvu-backup-\d{4}-\d{2}-\d{2}\.txt$/.test(sb.backupFileName("junk")));
+    // downloadBlob (the ONE download path): in the tap it makes one object
+    // URL, attaches the anchor, clicks it with the exact name and removes
+    // it; the URL is revoked only by one >= 30 s timer (WebKit can cancel or
+    // blank a download revoked in the same tick); a throwing revoke stays
+    // inside the timer. Stubs are swapped in and restored exactly.
+    {
+      const had = { URL: "URL" in sb, setTimeout: "setTimeout" in sb }, realDoc = sb.document, realURL = sb.URL, realST = sb.setTimeout;
+      const ev = [], timers = [], a = { style: {}, click: () => ev.push("click:" + a.href + ":" + a.download) };
+      let sync = "", after = "", ms1 = [], throwOk = false, err = "";
+      try {
+        sb.document = { createElement: t => { ev.push("create:" + t); return a; }, body: { appendChild: x => ev.push("append:" + (x === a)), removeChild: x => ev.push("remove:" + (x === a)) } };
+        sb.URL = { createObjectURL: b => { ev.push("url:" + b.t); return "blob:x1"; }, revokeObjectURL: u => ev.push("revoke:" + u) };
+        sb.setTimeout = (fn, ms) => { timers.push([fn, ms]); };
+        sb.downloadBlob({ t: "B" }, "rvu-export-2026-10-20.csv");
+        sync = ev.join(); ms1 = timers.map(t => t[1]);
+        timers.forEach(t => t[0]());
+        after = ev.join();
+        timers.length = 0;
+        sb.URL = { createObjectURL: () => "blob:x2", revokeObjectURL: () => { throw new Error("gone"); } };
+        try { sb.downloadBlob({ t: "C" }, "x.json"); timers.forEach(t => t[0]()); throwOk = timers.length === 1; } catch (e) { throwOk = false; }
+      } catch (e) { err = String(e && e.message); } finally {
+        sb.document = realDoc;
+        if (had.URL) sb.URL = realURL; else delete sb.URL;
+        if (had.setTimeout) sb.setTimeout = realST; else delete sb.setTimeout;
+      }
+      check("downloadBlob: in the tap one object URL, anchor attached + clicked with the exact name + removed; revoked only by one >= 30 s timer (never in the same tick); a throwing revoke stays in the timer",
+        sync === "url:B,create:a,append:true,click:blob:x1:rvu-export-2026-10-20.csv,remove:true" && ms1.length === 1 && ms1[0] >= 30000 &&
+        after === sync + ",revoke:blob:x1" && a.style.display === "none" && throwOk && !err,
+        JSON.stringify({ sync: sync, after: after, ms: ms1, throwOk: throwOk, err: err }));
+    }
   }
   // ---- 7d. Directorships (the REAL utils.js). The preset is the owner's
   // built-in data (CLAUDE.md exception); every other value is made up. ----
@@ -5166,6 +5308,79 @@ if (sb) {
       sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "ICU \u2013 Trauma" }), "2026-10", P18) === "The monthly email task finds these PDFs by this exact file name: Khan - ICU - Trauma Timesheet - 2026-10.pdf (was Khan - ICU Co-Director Timesheet - 2026-10.pdf).",
       J({ cap433: capDraft("4.33").errors, colon: colonQ.r, tinyFlags: tiny.flags.map(f => f.code) }));
   }
+}
+
+// X1-X2: the lazy SheetJS loader (utils.js loadXLSX) - one pinned host with
+// SRI, and a 15 s timeout so a blackholed CDN fails the tap with a message
+// instead of leaving Compare's upload / Settings' export on "Loading..."
+// until the app is reloaded.
+{
+  const xlUrl = (utils.match(/var XLSX_SRC = "([^"]+)";/) || [])[1] || "", xlSri = (utils.match(/var XLSX_SRI = "([^"]+)";/) || [])[1] || "";
+  const xlNode = utilsAst ? findDeclared(utilsAst, "loadXLSX") : null, xlFn = xlNode ? utils.slice(xlNode.start, xlNode.end) : "";
+  check("xlsx X1: loadXLSX pins XLSX_SRC (cdn.sheetjs.com) + XLSX_SRI with crossOrigin anonymous and a 15 s XLSX_MS timer, and index.html never loads SheetJS at boot",
+    /^https:\/\/cdn\.sheetjs\.com\/xlsx-\d+\.\d+\.\d+\/package\/dist\/xlsx\.full\.min\.js$/.test(xlUrl) && /^sha384-[A-Za-z0-9+\/]{64}$/.test(xlSri) &&
+    utils.indexOf("var XLSX_MS = 15000;") !== -1 && xlFn.indexOf("t = setTimeout(fail, XLSX_MS);") !== -1 &&
+    xlFn.indexOf('s.crossOrigin = "anonymous"') !== -1 && xlFn.indexOf("s.integrity = XLSX_SRI") !== -1 && !/sheetjs|xlsx/i.test(html.replace(/<!--[\s\S]*?-->/g, "")),
+    JSON.stringify({ src: xlUrl, sri: xlSri.slice(0, 12), fn: xlFn.length }));
+  const probeX2 = String.raw`
+    const vm = require("vm"), fs = require("fs");
+    const mk = () => {
+      const scripts = [], timers = [];
+      const head = { appendChild: s => { s.parentNode = head; scripts.push(s); }, removeChild: s => { s.parentNode = null; } };
+      const doc = { createElement: () => ({ style: {}, setAttribute: () => {}, appendChild: () => {} }), head: head, body: { appendChild: () => {} }, getElementById: () => null };
+      const win = {};
+      const ctx = vm.createContext({ console: { log: () => {}, warn: () => {}, error: () => {} }, React: {}, window: win, document: doc,
+        localStorage: { getItem: () => null, setItem: () => {}, removeItem: () => {} },
+        setTimeout: (fn, ms) => { timers.push({ fn: fn, ms: ms, live: true }); return timers.length - 1; }, clearTimeout: id => { if (timers[id]) timers[id].live = false; } });
+      vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+      vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), ctx);
+      return { ctx: ctx, win: win, xs: () => scripts.filter(s => typeof s.src === "string" && s.src.indexOf("sheetjs") !== -1), live: () => timers.filter(t => t.live && t.ms === 15000) };
+    };
+    const tick = () => new Promise(r => setImmediate(r));
+    const watch = p => { const o = { v: "pending" }; p.then(() => { o.v = "resolved"; }, e => { o.v = "rejected:" + e.message; }); return o; };
+    const NET = "rejected:Could not load the Excel library - check your connection and try again.";
+    (async () => {
+      const out = {};
+      const A = mk(), ctx = A.ctx, xs = A.xs, live = A.live;
+      const p1 = ctx.loadXLSX(), p2 = ctx.loadXLSX(), r1 = watch(p1);
+      out.same = p1 === p2 && xs().length === 1 && xs()[0].src === ctx.XLSX_SRC && xs()[0].integrity === ctx.XLSX_SRI && xs()[0].crossOrigin === "anonymous" && live().length === 1;
+      const s0 = xs()[0];
+      live()[0].fn();                                     // the CDN hangs: the timer fails the tap
+      await tick(); out.timeout = r1.v === NET && s0.parentNode === null && live().length === 0;
+      const p3 = ctx.loadXLSX(), r3 = watch(p3);          // the guard reset: a later tap retries
+      out.retry = p3 !== p1 && xs().length === 2;
+      s0.onload(); s0.onerror();                          // the timed-out tag finishes late (no XLSX): ignored
+      await tick(); out.guardKept = ctx.loadXLSX() === p3 && r3.v === "pending" && xs().length === 2;
+      xs()[1].onerror();                                  // network failure / SRI mismatch
+      await tick(); out.error = r3.v === NET && live().length === 0;
+      const r4 = watch(ctx.loadXLSX());
+      xs()[2].onload();                                   // loaded but no global
+      await tick(); out.noInit = r4.v === "rejected:The Excel library loaded but did not initialize - try again." && live().length === 0;
+      const r5 = watch(ctx.loadXLSX());
+      A.win.XLSX = { read: () => {} }; xs()[3].onload();
+      await tick(); out.ok = r5.v === "resolved" && live().length === 0;
+      const r6 = watch(ctx.loadXLSX()); await tick(); out.cached = r6.v === "resolved" && xs().length === 4;
+      // A timed-out tag whose script runs late and defines XLSX serves the next tap...
+      const B = mk(), rb1 = watch(B.ctx.loadXLSX());
+      B.live()[0].fn(); await tick();
+      B.win.XLSX = { read: () => {} }; B.xs()[0].onload();
+      const rb2 = watch(B.ctx.loadXLSX()); await tick();
+      out.lateServesNext = rb1.v === NET && rb2.v === "resolved" && B.xs().length === 1;
+      // ...and resolves a retry already in flight when that retry then hangs.
+      const C = mk(), rc1 = watch(C.ctx.loadXLSX());
+      C.live()[0].fn(); await tick();
+      const rc2 = watch(C.ctx.loadXLSX());
+      C.win.XLSX = { read: () => {} }; C.xs()[0].onload();
+      C.live()[0].fn(); await tick();
+      out.lateDuringRetry = rc1.v === NET && rc2.v === "resolved" && C.xs().length === 2;
+      console.log(JSON.stringify(out));
+    })().catch(e => { console.log(JSON.stringify({ threw: String(e && e.message) })); });`;
+  let outX2 = "";
+  try { outX2 = require("child_process").execFileSync(process.execPath, ["-e", probeX2, path.join(JS_DIR, "cpt-data.js"), path.join(JS_DIR, "utils.js")], { encoding: "utf8" }).trim(); }
+  catch (e) { outX2 = "error: " + e.message; }
+  let oX2 = {}; try { oX2 = JSON.parse(outX2); } catch (e) { oX2 = {}; }
+  check("xlsx X2: loadXLSX - one in-flight promise and tag (XLSX_SRC, SRI, crossOrigin); a hung CDN times out with the connection message and the guard resets; a late finish of a timed-out tag never clears a retry's guard; error and no-global rejected; success clears the timer and is cached; a late load that defines XLSX serves the next tap and an in-flight retry",
+    ["same", "timeout", "retry", "guardKept", "error", "noInit", "ok", "cached", "lateServesNext", "lateDuringRetry"].every(k => oX2[k] === true), outX2);
 }
 
 console.log("");
