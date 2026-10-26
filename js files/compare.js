@@ -597,8 +597,8 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
       {instData.length > 0 && <div style={{ fontSize: 10, color: "var(--accent-amber)", marginTop: 6 }}>{"\u25CF"} Orange dot = month already exists and will be updated</div>}
 
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
-        {instData.length > 0 && <button onClick={function() { importXlData("merge"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: "linear-gradient(135deg, #10b981, #059669)" }}>Merge ({xlPreview.length} months)</button>}
-        <button onClick={function() { importXlData("replace"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: instData.length > 0 ? "linear-gradient(135deg, #8b5cf6, #7c3aed)" : "linear-gradient(135deg, #10b981, #059669)" }}>{instData.length > 0 ? "Replace All" : "Import " + xlPreview.length + " months"}</button>
+        {instData.length > 0 && <button onClick={function() { importXlData("merge"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: "linear-gradient(135deg, #047857, #065f46)" }}>Merge ({xlPreview.length} months)</button>}
+        <button onClick={function() { importXlData("replace"); }} style={{ ...S.saveBtn, flex: 1, fontSize: 13, background: instData.length > 0 ? "linear-gradient(135deg, #7c3aed, #6d28d9)" : "linear-gradient(135deg, #047857, #065f46)" }}>{instData.length > 0 ? "Replace All" : "Import " + xlPreview.length + " months"}</button>
       </div>
       </>}
     </div>}
@@ -624,7 +624,7 @@ function Compare({ data, upd, setView, showComp, toggleComp }) {
         <input type="text" inputMode="numeric" value={editCases} onChange={function(e) { setEditCases(e.target.value.replace(/[^0-9]/g, "")); }} placeholder="0" style={{ ...S.numberInput, width: "100%" }} />
       </div>
       <div style={{ fontSize: 12, color: "var(--text-dim)", marginBottom: 8 }}>Total: <span style={{ fontFamily: "JetBrains Mono", color: "var(--accent-violet)", fontWeight: 600 }}>{((parseFloat(editWork) || 0) + (parseFloat(editSplit) || 0)).toFixed(1)} wRVUs</span></div>
-      <button onClick={saveMonth} disabled={!editMonth} style={{ ...S.saveBtn, opacity: editMonth ? 1 : 0.4, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{editRow ? "Update Month" : "Save Month"}</button>
+      <button onClick={saveMonth} disabled={!editMonth} style={{ ...S.saveBtn, opacity: editMonth ? 1 : 0.4, background: "linear-gradient(135deg, #7c3aed, #6d28d9)" }}>{editRow ? "Update Month" : "Save Month"}</button>
     </div>}
 
     {/* Monthly detail list (collapsible) */}

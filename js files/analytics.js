@@ -665,7 +665,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
         <div style={{ fontSize: 11, fontWeight: 600, color: "var(--text-muted)", textTransform: "uppercase", letterSpacing: 0.8, marginBottom: 6 }}>Top Encounters</div>
         {summaryData.topProcs.map(function(p) { return (<div key={p.key} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "5px 0", borderBottom: "1px solid rgba(51,65,85,0.3)" }}><div style={{ flex: 1, minWidth: 0 }}><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{p.code}</span><span style={{ fontSize: 10, color: "var(--text-dim)", marginLeft: 4 }}>x{p.count}</span><div style={{ fontSize: 11, color: "var(--text-muted)" }}>{p.desc.length > 35 ? p.desc.slice(0, 35) + "..." : p.desc}</div>{p.addons.length > 0 && <div style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>+ {p.addons.join(", ")}</div>}</div><span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600, flexShrink: 0, marginLeft: 8 }}>{p.rvu.toFixed(1)}</span></div>); })}
       </div>}
-      <button onClick={copySummary} style={{ ...S.saveBtn, background: "linear-gradient(135deg, #8b5cf6, #7c3aed)" }}>{copyStatus || "Copy Summary to Clipboard"}</button>
+      <button onClick={copySummary} style={{ ...S.saveBtn, background: "linear-gradient(135deg, #7c3aed, #6d28d9)" }}>{copyStatus || "Copy Summary to Clipboard"}</button>
     </div>}
 
     {/* Quick links */}

@@ -2135,35 +2135,81 @@ const COMP_MONEY_PIN = 8;
     info.lockTest && info.lightTest && info.inShow && info.inUnlock && info.exposed && info.inEffect && info.metaLookups === 1 && info.contentWrites === 1 && info.contentAssigns === 0 && info.htmlMentions === 0 && info.writers.length === 0, JSON.stringify(info));
 }
 
-// 5f-16. Filled buttons (CLAUDE.md "Theme colours"): white text never sits
-// on a sky fill - #0ea5e9 (2.77:1), #0284c7, #38bdf8, or var(--accent-sky*)
-// / var(--global-10) (dark #0ea5e9). Fills under white text use #0369a1
-// (5.93:1, AA for small text) and gradients #0369a1 -> #075985. AST: every
-// style object whose background / backgroundColor / backgroundImage can
-// take a sky value (any ternary or || branch, template or + piece) and
-// whose color can be white (#fff, #ffffff, white, rgb(255,255,255)) fails.
-// CSS text (crypto.js cssText / innerHTML strings, index.html rules) is
-// checked per rule. Not seen: a colour held in a variable or a spread.
+// 5f-16. Filled buttons (CLAUDE.md "Theme colours"): every fill under white
+// text is at least 4.5:1 with white, in every hue and both themes (blue
+// #0369a1 / #075985, green #047857 / #065f46, violet #7c3aed / #6d28d9, red
+// #dc2626), and never a sky fill (#0ea5e9 / #0284c7 / #38bdf8 /
+// var(--accent-sky*) / var(--global-10)). AST: a style object's background /
+// backgroundColor / backgroundImage and color are resolved in source order
+// (later wins, as in JS), through spreads of S.<name> (styles.js) and of
+// file-local style objects (...primary), recursively; every ternary or ||
+// branch, template or + piece counts. A var(--x) fill is checked at its dark
+// AND light value (styles.js); any colour the gate cannot measure (rgb/rgba/
+// hsl, 4- or 8-digit hex, an unknown token) under white text fails. CSS text
+// (crypto.js cssText / innerHTML strings, index.html rules) is checked per
+// rule. Not seen: a colour held in a plain variable, a spread of a function
+// parameter (btn's ...extra) or anything built at runtime.
 {
   const lum = h => { const c = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
   const onWhite = h => (1.05) / (lum(h) + 0.05);
   const SKY = /#0ea5e9|#0284c7|#38bdf8|var\(--accent-sky(-soft)?\)|var\(--global-10\)/i;
   const WHITE = /^\s*(#fff|#ffffff|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))\s*$/i;
-  const vals = n => !n ? [] : n.type === "StringLiteral" ? [n.value]
-    : n.type === "TemplateLiteral" ? [n.quasis.map(q => q.value.cooked).join("")]
-    : n.type === "ConditionalExpression" ? vals(n.consequent).concat(vals(n.alternate))
-    : n.type === "LogicalExpression" || (n.type === "BinaryExpression" && n.operator === "+") ? vals(n.left).concat(vals(n.right)) : [];
   const keyOf = p => p.key && (p.key.type === "Identifier" ? p.key.name : p.key.type === "StringLiteral" ? p.key.value : null);
+  // Theme tokens from styles.js: var(--x) fills are checked at both values.
+  const tok = { dark: {}, light: {} };
+  { let mode = null; fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8").split("\n").forEach(l => {
+    if (/":root \{"/.test(l)) mode = "dark"; else if (/"body\.light-mode \{"/.test(l)) mode = "light";
+    const m = l.match(/"\s*(--[\w-]+):\s*([^;"]+);/); if (m && mode) tok[mode][m[1]] = m[2].trim(); }); }
+  const expand = s => s.replace(/var\((--[\w-]+)\)/g, (m, k) => [tok.dark[k], tok.light[k]].filter(Boolean).join(" ") || m);
+  // Each measurable colour in a fill under white text must reach 4.5:1;
+  // anything the gate cannot measure fails too.
+  const lowFills = s => { const e = expand(s);
+    const low = (e.match(/#[0-9a-f]{6}\b|#[0-9a-f]{3}\b/gi) || [])
+      .map(h => h.length === 4 ? "#" + h[1] + h[1] + h[2] + h[2] + h[3] + h[3] : h.toLowerCase())
+      .filter(h => onWhite(h) < 4.5).map(h => h + "=" + onWhite(h).toFixed(2));
+    const odd = (e.match(/rgba?\([^)]*\)|hsla?\([^)]*\)|#[0-9a-f]{8}\b|#[0-9a-f]{4}\b|var\(--[\w-]+\)/gi) || []).map(x => "unmeasured " + x);
+    return low.concat(odd); };
   const bad = [];
+  // Resolve a style object in source order (later wins), through spreads of
+  // S.<name> and file-local style objects, recursively (cycle-guarded).
+  const FILL_KEYS = ["background", "backgroundColor", "backgroundImage"];
+  const sNodes = {};
+  walk(parser.parse(fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8"), AST_OPTS), n => {
+    if (n.type === "VariableDeclarator" && n.id.name === "S" && n.init && n.init.type === "ObjectExpression")
+      n.init.properties.forEach(p => { if (p.type === "ObjectProperty" && p.value.type === "ObjectExpression") sNodes[keyOf(p)] = p.value; });
+  });
+  // Branch-aware values: each carries the ternary tests it sits under, so a
+  // fill and a text colour pair only when their branches can both hold
+  // (on ? "#0369a1" : "var(--bg-card)" never meets the other ternary's "#fff").
+  const code = n => !n ? "" : n.type === "Identifier" ? n.name : n.type === "MemberExpression" ? code(n.object) + "." + code(n.property)
+    : n.type === "StringLiteral" ? JSON.stringify(n.value) : n.type === "NumericLiteral" ? String(n.value) : n.type === "UnaryExpression" ? n.operator + code(n.argument)
+    : n.type === "BinaryExpression" || n.type === "LogicalExpression" ? "(" + code(n.left) + n.operator + code(n.right) + ")"
+    : n.type === "CallExpression" ? code(n.callee) + "(" + n.arguments.map(code).join(",") + ")" : n.type + "@" + n.start;
+  const valsT = (n, c) => !n ? [] : n.type === "StringLiteral" ? [{ v: n.value, c: c }]
+    : n.type === "TemplateLiteral" ? [{ v: n.quasis.map(q => q.value.cooked).join(""), c: c }]
+    : n.type === "ConditionalExpression" ? valsT(n.consequent, c.concat([[code(n.test), true]])).concat(valsT(n.alternate, c.concat([[code(n.test), false]])))
+    : n.type === "LogicalExpression" || (n.type === "BinaryExpression" && n.operator === "+") ? valsT(n.left, c).concat(valsT(n.right, c)) : [];
+  const together = (a, b) => !a.c.some(x => b.c.some(y => x[0] === y[0] && x[1] !== y[1]));
+  const resolve = (obj, locals, seen) => { const rec = {};
+    obj.properties.forEach(p => {
+      if (p.type === "ObjectProperty") { const k = keyOf(p); if (k === "color" || FILL_KEYS.indexOf(k) !== -1) rec[k] = valsT(p.value, []); return; }
+      if (p.type !== "SpreadElement") return; const a = p.argument;
+      const node = a.type === "MemberExpression" && a.object.name === "S" && a.property ? sNodes[a.property.name] : a.type === "Identifier" ? locals[a.name] : null;
+      if (!node || seen.indexOf(node) !== -1) return;
+      const from = resolve(node, locals, seen.concat([node]));
+      Object.keys(from).forEach(k => { rec[k] = from[k]; }); });
+    return rec; };
   jsFiles.forEach(f => {
     const ast = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS);
+    const locals = {};
+    walk(ast, n => { if (n.type === "VariableDeclarator" && n.id.type === "Identifier" && n.init && n.init.type === "ObjectExpression") locals[n.id.name] = n.init; });
     walk(ast, n => {
       if (n.type !== "ObjectExpression") return;
-      let bg = [], col = [];
-      n.properties.forEach(p => { if (p.type !== "ObjectProperty") return; const k = keyOf(p);
-        if (k === "background" || k === "backgroundColor" || k === "backgroundImage") bg = bg.concat(vals(p.value));
-        if (k === "color") col = col.concat(vals(p.value)); });
-      if (bg.some(v => SKY.test(v)) && col.some(v => WHITE.test(v))) bad.push(f + ":" + n.loc.start.line);
+      const rec = resolve(n, locals, [n]);
+      const bg = [].concat(...FILL_KEYS.map(k => rec[k] || [])), whites = (rec.color || []).filter(w => WHITE.test(w.v));
+      const under = bg.filter(g => whites.some(w => together(w, g))).map(g => g.v);
+      if (under.some(v => SKY.test(v))) bad.push(f + ":" + n.loc.start.line);
+      lowFills(under.join(" ")).forEach(h => bad.push(f + ":" + n.loc.start.line + " " + h));
     });
   });
   // CSS text: one rule or inline-style string at a time.
@@ -2171,13 +2217,14 @@ const COMP_MONEY_PIN = 8;
     const d = {}; seg.split(";").forEach(x => { const i = x.indexOf(":"); if (i > 0) d[x.slice(0, i).trim().toLowerCase()] = x.slice(i + 1); });
     const b = (d.background || "") + (d["background-color"] || "") + (d["background-image"] || "");
     if (SKY.test(b) && d.color !== undefined && WHITE.test(d.color)) bad.push(where + ": " + seg.trim().slice(0, 60));
+    if (d.color !== undefined && WHITE.test(d.color)) lowFills(b).forEach(h => bad.push(where + " " + h));
   });
   cssBad(fs.readFileSync(path.join(JS_DIR, "crypto.js"), "utf8"), "crypto.js");
   cssBad(html, "index.html");
   const ss = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8");
   const info = { bad: bad, fillAA: +onWhite("#0369a1").toFixed(2), gradEndAA: +onWhite("#075985").toFixed(2),
     saveBtns: (ss.match(/background: "linear-gradient\(135deg, #0369a1, #075985\)"/g) || []).length };
-  check("5f-16: filled buttons - no style object, cssText or index.html rule puts white text on a sky fill (#0ea5e9 / #0284c7 / #38bdf8 / var(--accent-sky*) / var(--global-10), any branch); #0369a1 / #075985 stay AA (4.5:1) with white; S.saveBtn / S.fabBtn use the deeper gradient",
+  check("5f-16: filled buttons - no style object (resolved in source order through S.* and local spreads, branch-aware), cssText or index.html rule puts white text on a sky fill or on any fill under 4.5:1 with white (every hue, both gradient stops, theme tokens at both values; unmeasurable colours fail); S.saveBtn / S.fabBtn use the deeper gradient",
     bad.length === 0 && info.fillAA >= 4.5 && info.gradEndAA >= 4.5 && info.saveBtns === 2, JSON.stringify(info));
 }
 
