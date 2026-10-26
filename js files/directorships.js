@@ -30,7 +30,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
   const listScroll = useRef(0);
 
   var btn = function(extra) { return { minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", ...extra }; };
-  var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
+  var primary = { border: "none", background: "#0369a1", color: "#fff" };
   var amber = "var(--global-90)";
   var chip = function(on, label, onClick, key, extra) {
     return (<button key={key} onClick={onClick} style={btn({ padding: "6px 10px", fontSize: 12, textAlign: "left", lineHeight: 1.3, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", ...(extra || {}) })}>{label}</button>);
@@ -769,7 +769,7 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
 
   // ---- Render ----
   var btn = function(extra) { return { minHeight: 44, padding: "0 14px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", ...extra }; };
-  var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
+  var primary = { border: "none", background: "#0369a1", color: "#fff" };
   var amber = "var(--global-90)";
   var line = function(label, value, key) { return <div key={key} style={{ fontSize: 12, color: "var(--text-primary)", marginTop: 3, lineHeight: 1.45 }}><span style={{ fontWeight: 700 }}>{label}</span>{" " + (value === "" ? "(blank)" : value)}</div>; };
   var allFlags = model.flags.concat(layoutFlags);
@@ -982,7 +982,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, wordBreak: "break-word" }}>{"File: " + (fname || "(needs a name and a Print Name with a surname)")}</div>
       {note && <div style={{ fontSize: 11, color: amber, marginTop: 4, lineHeight: 1.5, wordBreak: "break-word" }}>{"! " + note + " Forms already saved to Drive don't change - regenerate a month if needed."}</div>}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
-        <button onClick={save} style={btn({ flex: 1, border: "none", background: "#0ea5e9", color: "#fff" })}>Save</button>
+        <button onClick={save} style={btn({ flex: 1, border: "none", background: "#0369a1", color: "#fff" })}>Save</button>
         <button onClick={function() { setEdit(null); }} style={btn({ flex: 1 })}>Cancel</button>
         {orig && <button onClick={remove} style={btn({ color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>}
       </div>
@@ -1134,7 +1134,7 @@ function DirSignaturePad({ upd, onSaved, onCancel }) {
     <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>Sign with your finger. It is stored encrypted with your PIN.</div>
     <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
       <button onClick={clear} style={{ ...b, flex: 1 }}>Clear</button>
-      <button onClick={save} disabled={points < 2} style={{ ...b, flex: 1, border: "none", background: "#0ea5e9", color: "#fff", opacity: points < 2 ? 0.4 : 1 }}>Save signature</button>
+      <button onClick={save} disabled={points < 2} style={{ ...b, flex: 1, border: "none", background: "#0369a1", color: "#fff", opacity: points < 2 ? 0.4 : 1 }}>Save signature</button>
       {onCancel && <button onClick={onCancel} style={b}>Cancel</button>}
     </div>
     {msg && <div style={{ fontSize: 12, color: "var(--global-90)", marginTop: 6 }}>{msg}</div>}

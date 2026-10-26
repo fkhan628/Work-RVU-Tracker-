@@ -31,7 +31,7 @@ class ErrorBoundary extends React.Component {
         React.createElement("div", { style: { display: "flex", gap: 10, justifyContent: "center", flexWrap: "wrap" } },
           React.createElement("button", {
             onClick: function() { self.setState({ hasError: false, error: null, errorInfo: null }); },
-            style: { padding: "10px 20px", borderRadius: 10, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }
+            style: { padding: "10px 20px", borderRadius: 10, border: "none", background: "#0369a1", color: "#fff", fontSize: 14, fontWeight: 600, cursor: "pointer" }
           }, "Retry"),
           onRetry && React.createElement("button", {
             onClick: function() { self.setState({ hasError: false, error: null, errorInfo: null }); if (onRetry) onRetry(); },
@@ -223,7 +223,7 @@ function App() {
         animation: "rvuSlideUp 0.25s ease-out"
       }}>
         <span style={{ fontSize: 13, color: "var(--text-primary)", flex: 1, minWidth: 0, overflowWrap: "anywhere" }}>{undoAction.message}</span>
-        <button onClick={doUndo} style={{ minHeight: 44, flexShrink: 0, padding: "0 16px", borderRadius: 8, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Undo</button>
+        <button onClick={doUndo} style={{ minHeight: 44, flexShrink: 0, padding: "0 16px", borderRadius: 8, border: "none", background: "#0369a1", color: "#fff", fontSize: 13, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" }}>Undo</button>
         <button onClick={function() { if (undoTimer.current) clearTimeout(undoTimer.current); setUndoAction(null); }} aria-label="Dismiss" style={{ minWidth: 44, minHeight: 44, flexShrink: 0, padding: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "none", border: "none", color: "var(--text-faint)", fontSize: 16, cursor: "pointer", lineHeight: 1 }}>{"\u2715"}</button>
       </div>}
 

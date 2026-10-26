@@ -581,7 +581,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
   };
 
   var danger = { color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" };
-  var primary = { border: "none", background: "#0ea5e9", color: "#fff" };
+  var primary = { border: "none", background: "#0369a1", color: "#fff" };
   var amber = "var(--accent-amber)";
 
   var eyeBtn = <CompEye showComp={showComp} toggleComp={toggleComp} />;

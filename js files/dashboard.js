@@ -229,8 +229,8 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
           onChange={function(e) { if (e.target.value) setSelectedYear(e.target.value); }}
           style={{
             flexShrink: 0, padding: "6px 22px 6px 12px", borderRadius: 20,
-            background: olderSelected ? "#0ea5e9" : "var(--bg-card)",
-            border: olderSelected ? "1px solid #0ea5e9" : "1px solid var(--border-default)",
+            background: olderSelected ? "#0369a1" : "var(--bg-card)",
+            border: olderSelected ? "1px solid #0369a1" : "1px solid var(--border-default)",
             color: olderSelected ? "#fff" : "var(--text-muted)",
             fontSize: 12, fontWeight: olderSelected ? 600 : 400, cursor: "pointer",
             appearance: "none", WebkitAppearance: "none", MozAppearance: "none",

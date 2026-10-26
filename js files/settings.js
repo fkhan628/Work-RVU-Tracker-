@@ -828,7 +828,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
           <div style={{ marginTop: 6 }}>
             <input type="text" maxLength={100} value={hintDraft} onChange={e => setHintDraft(e.target.value)} placeholder="e.g. Birthday year + house number" style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "var(--bg-inset)", color: "var(--text-primary)", fontSize: 12, fontFamily: "inherit", outline: "none", boxSizing: "border-box" }} />
             <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
-              <button onClick={() => { var h = hintDraft.trim(); try { if (h) localStorage.setItem("rvu-pin-hint", h); else localStorage.removeItem("rvu-pin-hint"); setHintText(h); } catch(e) {} setEditingHint(false); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Save Hint</button>
+              <button onClick={() => { var h = hintDraft.trim(); try { if (h) localStorage.setItem("rvu-pin-hint", h); else localStorage.removeItem("rvu-pin-hint"); setHintText(h); } catch(e) {} setEditingHint(false); }} style={{ flex: 1, padding: "6px 10px", borderRadius: 6, border: "none", background: "#0369a1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>Save Hint</button>
               {hintText && <button onClick={() => { setHintText(""); try { localStorage.removeItem("rvu-pin-hint"); } catch(e) {} setEditingHint(false); }} style={{ padding: "6px 10px", borderRadius: 6, border: "1px solid var(--border-default)", background: "none", color: "var(--accent-red)", fontSize: 11, cursor: "pointer", fontFamily: "inherit" }}>Remove</button>}
             </div>
           </div>
@@ -971,7 +971,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
             <button onClick={function() { setAcuteMe(nm); }} style={{ padding: "2px 8px", borderRadius: 10, border: isMe ? "1px solid rgba(52,211,153,0.5)" : "1px solid var(--border-default)", background: isMe ? "rgba(16,185,129,0.12)" : "transparent", color: isMe ? "var(--accent-green-soft)" : "var(--text-faint)", fontSize: 10, fontWeight: 600, cursor: "pointer" }}>Me</button>
             {renaming === nm ? (<>
               <input type="text" value={renameDraft} onChange={function(e) { setRenameDraft(e.target.value); }} autoFocus style={{ ...S.searchInput, flex: 1, padding: "5px 8px", fontSize: 12, marginBottom: 0 }} />
-              <button onClick={function() { renamePartner(nm); }} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
+              <button onClick={function() { renamePartner(nm); }} style={{ padding: "4px 10px", borderRadius: 6, border: "none", background: "#0369a1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
               <button onClick={function() { setRenaming(null); setRenameDraft(""); }} style={{ padding: "4px 8px", borderRadius: 6, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 11, cursor: "pointer" }}>Cancel</button>
             </>) : (<>
               <span style={{ flex: 1, fontSize: 13, color: "var(--text-primary)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{nm}</span>
@@ -982,7 +982,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         })}
         <div style={{ display: "flex", gap: 8, marginTop: 8 }}>
           <input type="text" value={newPartner} onChange={function(e) { setNewPartner(e.target.value); }} placeholder="New partner name" style={{ ...S.searchInput, flex: 1, marginBottom: 0, fontSize: 12 }} />
-          <button onClick={addPartner} disabled={!newPartner.trim()} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: newPartner.trim() ? 1 : 0.4 }}>Add</button>
+          <button onClick={addPartner} disabled={!newPartner.trim()} style={{ padding: "8px 14px", borderRadius: 8, border: "none", background: "#0369a1", color: "#fff", fontSize: 12, fontWeight: 600, cursor: "pointer", opacity: newPartner.trim() ? 1 : 0.4 }}>Add</button>
         </div>
       </div>
       <div style={{ marginTop: 12, borderTop: "1px solid var(--border-default)", paddingTop: 10 }}>
@@ -1061,7 +1061,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
               {tplRenaming === t.id
                 ? <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                     <input type="text" value={tplRenameDraft} onChange={function(e) { setTplRenameDraft(e.target.value); }} autoFocus style={{ ...S.searchInput, flex: 1, padding: "5px 8px", fontSize: 12, marginBottom: 0 }} />
-                    <button onClick={function() { renameTemplate(t.id); }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#0ea5e9", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
+                    <button onClick={function() { renameTemplate(t.id); }} style={{ padding: "5px 10px", borderRadius: 6, border: "none", background: "#0369a1", color: "#fff", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Save</button>
                   </div>
                 : <div>
                     <div style={{ fontSize: 13, color: "var(--text-primary)", fontWeight: 600, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{t.name}</div>

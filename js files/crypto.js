@@ -320,7 +320,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
         + '<input id="pin-hint-input" type="text" maxlength="100" placeholder="e.g. Birthday year + house number" style="width:100%;padding:12px 14px;border-radius:10px;border:1px solid #334155;background:#0f172a;color:#e2e8f0;font-size:14px;font-family:inherit;outline:none;box-sizing:border-box;margin-bottom:16px;" />'
         + '<div style="display:flex;gap:10px;">'
         + '<button id="pin-hint-skip" style="flex:1;padding:12px;border-radius:10px;border:1px solid #334155;background:none;color:#94a3b8;font-size:14px;cursor:pointer;font-family:inherit;">Skip</button>'
-        + '<button id="pin-hint-save" style="flex:1;padding:12px;border-radius:10px;border:none;background:#0ea5e9;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Save Hint</button>'
+        + '<button id="pin-hint-save" style="flex:1;padding:12px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">Save Hint</button>'
         + '</div>'
         + '</div>';
 
@@ -357,7 +357,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
       var extra = document.getElementById("pin-extra");
       var confirmBtn = document.createElement("button");
       confirmBtn.textContent = "Set PIN";
-      confirmBtn.style.cssText = "padding:12px 32px;border-radius:10px;border:none;background:#0ea5e9;color:#fff;font-size:15px;font-weight:700;cursor:pointer;opacity:0.3;pointer-events:none;font-family:inherit;";
+      confirmBtn.style.cssText = "padding:12px 32px;border-radius:10px;border:none;background:#0369a1;color:#fff;font-size:15px;font-weight:700;cursor:pointer;opacity:0.3;pointer-events:none;font-family:inherit;";
       confirmBtn.id = "pin-confirm-btn";
       extra.appendChild(confirmBtn);
 

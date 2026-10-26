@@ -296,7 +296,7 @@ var S = {
   },
   catBtnActive: {
     flexShrink: 0, padding: "6px 12px",
-    background: "#0ea5e9", border: "1px solid #0ea5e9",
+    background: "#0369a1", border: "1px solid #0369a1",
     borderRadius: 20, color: "#fff", fontSize: 12,
     cursor: "pointer", fontWeight: 600, whiteSpace: "nowrap"
   },
@@ -365,14 +365,14 @@ var S = {
   // --- Action Buttons ---
   saveBtn: {
     width: "100%", padding: "14px 20px",
-    background: "linear-gradient(135deg, #0ea5e9, #0284c7)",
+    background: "linear-gradient(135deg, #0369a1, #075985)",
     border: "none", borderRadius: 12, color: "#fff",
     fontSize: 16, fontWeight: 600, cursor: "pointer", marginTop: 8,
     transition: "opacity 0.15s, transform 0.1s"
   },
   fabBtn: {
     width: "100%", padding: "14px 20px",
-    background: "linear-gradient(135deg, #0ea5e9, #0284c7)",
+    background: "linear-gradient(135deg, #0369a1, #075985)",
     border: "none", borderRadius: 12, color: "#fff",
     fontSize: 15, fontWeight: 600, cursor: "pointer", marginTop: 12,
     transition: "transform 0.1s"

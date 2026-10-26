@@ -2135,6 +2135,52 @@ const COMP_MONEY_PIN = 8;
     info.lockTest && info.lightTest && info.inShow && info.inUnlock && info.exposed && info.inEffect && info.metaLookups === 1 && info.contentWrites === 1 && info.contentAssigns === 0 && info.htmlMentions === 0 && info.writers.length === 0, JSON.stringify(info));
 }
 
+// 5f-16. Filled buttons (CLAUDE.md "Theme colours"): white text never sits
+// on a sky fill - #0ea5e9 (2.77:1), #0284c7, #38bdf8, or var(--accent-sky*)
+// / var(--global-10) (dark #0ea5e9). Fills under white text use #0369a1
+// (5.93:1, AA for small text) and gradients #0369a1 -> #075985. AST: every
+// style object whose background / backgroundColor / backgroundImage can
+// take a sky value (any ternary or || branch, template or + piece) and
+// whose color can be white (#fff, #ffffff, white, rgb(255,255,255)) fails.
+// CSS text (crypto.js cssText / innerHTML strings, index.html rules) is
+// checked per rule. Not seen: a colour held in a variable or a spread.
+{
+  const lum = h => { const c = [1, 3, 5].map(i => parseInt(h.slice(i, i + 2), 16) / 255).map(v => v <= 0.03928 ? v / 12.92 : Math.pow((v + 0.055) / 1.055, 2.4)); return 0.2126 * c[0] + 0.7152 * c[1] + 0.0722 * c[2]; };
+  const onWhite = h => (1.05) / (lum(h) + 0.05);
+  const SKY = /#0ea5e9|#0284c7|#38bdf8|var\(--accent-sky(-soft)?\)|var\(--global-10\)/i;
+  const WHITE = /^\s*(#fff|#ffffff|white|rgb\(\s*255\s*,\s*255\s*,\s*255\s*\))\s*$/i;
+  const vals = n => !n ? [] : n.type === "StringLiteral" ? [n.value]
+    : n.type === "TemplateLiteral" ? [n.quasis.map(q => q.value.cooked).join("")]
+    : n.type === "ConditionalExpression" ? vals(n.consequent).concat(vals(n.alternate))
+    : n.type === "LogicalExpression" || (n.type === "BinaryExpression" && n.operator === "+") ? vals(n.left).concat(vals(n.right)) : [];
+  const keyOf = p => p.key && (p.key.type === "Identifier" ? p.key.name : p.key.type === "StringLiteral" ? p.key.value : null);
+  const bad = [];
+  jsFiles.forEach(f => {
+    const ast = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS);
+    walk(ast, n => {
+      if (n.type !== "ObjectExpression") return;
+      let bg = [], col = [];
+      n.properties.forEach(p => { if (p.type !== "ObjectProperty") return; const k = keyOf(p);
+        if (k === "background" || k === "backgroundColor" || k === "backgroundImage") bg = bg.concat(vals(p.value));
+        if (k === "color") col = col.concat(vals(p.value)); });
+      if (bg.some(v => SKY.test(v)) && col.some(v => WHITE.test(v))) bad.push(f + ":" + n.loc.start.line);
+    });
+  });
+  // CSS text: one rule or inline-style string at a time.
+  const cssBad = (text, where) => text.split(/[{}"']/).forEach(seg => {
+    const d = {}; seg.split(";").forEach(x => { const i = x.indexOf(":"); if (i > 0) d[x.slice(0, i).trim().toLowerCase()] = x.slice(i + 1); });
+    const b = (d.background || "") + (d["background-color"] || "") + (d["background-image"] || "");
+    if (SKY.test(b) && d.color !== undefined && WHITE.test(d.color)) bad.push(where + ": " + seg.trim().slice(0, 60));
+  });
+  cssBad(fs.readFileSync(path.join(JS_DIR, "crypto.js"), "utf8"), "crypto.js");
+  cssBad(html, "index.html");
+  const ss = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8");
+  const info = { bad: bad, fillAA: +onWhite("#0369a1").toFixed(2), gradEndAA: +onWhite("#075985").toFixed(2),
+    saveBtns: (ss.match(/background: "linear-gradient\(135deg, #0369a1, #075985\)"/g) || []).length };
+  check("5f-16: filled buttons - no style object, cssText or index.html rule puts white text on a sky fill (#0ea5e9 / #0284c7 / #38bdf8 / var(--accent-sky*) / var(--global-10), any branch); #0369a1 / #075985 stay AA (4.5:1) with white; S.saveBtn / S.fabBtn use the deeper gradient",
+    bad.length === 0 && info.fillAA >= 4.5 && info.gradEndAA >= 4.5 && info.saveBtns === 2, JSON.stringify(info));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {

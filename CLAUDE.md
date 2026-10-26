@@ -546,7 +546,9 @@ the per-file gates below. Run it after EVERY file change.
   also carry Directorships' "x " / "! " prefixes - callpay.js probLine, the
   one renderer, check.js 5f-14), and amber must stay apart from green (the
   pace verdicts) - re-check both pairs before moving either. Literals stay
-  for fills under white text, chart marks, most borders (the Log Private / Call radio rings and the
+  for fills under white text (#0369a1, 5.93:1 with white, gradients #0369a1
+  to #075985, in both themes; never #0ea5e9 at 2.77:1 or var(--accent-sky),
+  which is #0ea5e9 in dark - check.js 5f-16), chart marks, most borders (the Log Private / Call radio rings and the
   directorship status pill follow their token text colour), rgba tints, the
   data-URI select chevrons, and everything exported (directorship PDF,
   Excel, CSV). Trends has no hard-coded dark surface: Goal Pace and Case Mix
