@@ -411,7 +411,11 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
                 }
               }
             } catch(e) {}
-            showPinScreen("setup");
+            // Reload instead of showing setup in place: the React app already
+            // loaded the data, and its next save would write the stripped API
+            // key back (and Settings would keep showing the old hint). With no
+            // PIN hash left, the fresh load opens the Create PIN screen itself.
+            location.reload();
           }
         };
         hintSection.appendChild(resetBtn);

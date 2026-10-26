@@ -2134,6 +2134,20 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
   const modes = (cryptoSrc.match(/showPinScreen\("([a-z]+)"\)/g) || []).map(m => m.slice(15, -2)).filter((m, i, a) => a.indexOf(m) === i).sort();
   check("directorships G5: crypto.js still has exactly 2 aesEncrypt( call sites and only the setup/locked PIN modes - a new PIN flow must re-encrypt settings.encryptedApiKey AND dirSignatureEnc (CLAUDE.md)",
     (cryptoSrc.match(/aesEncrypt\(/g) || []).length === 3 && modes.join() === "locked,setup" && dirSrc.indexOf("RVU_CRYPTO") === -1, JSON.stringify({ aes: (cryptoSrc.match(/aesEncrypt\(/g) || []).length, modes: modes }));
+  // G5b: the lock screen's "Reset PIN & start over" edits storage under a
+  // React app that already loaded the data, so it must reload (never show
+  // setup in place - the app's next save would write the stripped API key
+  // back and Settings would keep the old hint). The reload is the handler's
+  // last statement inside its confirm() branch, with no return that could
+  // skip it.
+  const resetStart = cryptoSrc.indexOf("resetBtn.onclick");
+  const resetEnd = cryptoSrc.indexOf("hintSection.appendChild(resetBtn)");
+  const resetBody = resetStart !== -1 && resetEnd > resetStart ? cryptoSrc.slice(resetStart, resetEnd) : "";
+  const resetCode = resetBody.replace(/\/\/[^\n]*/g, "");
+  const resetInfo = { found: !!resetBody, reloads: (resetCode.match(/location\.reload\(/g) || []).length, showPinScreen: resetCode.indexOf("showPinScreen") !== -1, returns: /\breturn\b/.test(resetCode),
+    reloadLast: /localStorage\.removeItem\(PIN_HASH_KEY\)[\s\S]*location\.reload\(\);\s*\}\s*\};\s*$/.test(resetCode) };
+  check("directorships G5b: crypto.js Reset PIN reloads the app (location.reload() last in its confirm branch, no return before it, no in-place showPinScreen)",
+    resetInfo.reloadLast && resetInfo.reloads === 1 && !resetInfo.showPinScreen && !resetInfo.returns, JSON.stringify(resetInfo));
   // G6: no email addresses in any tracked text file (this file included).
   const EMAIL = /[A-Za-z0-9._%+-]+@[A-Za-z0-9-]+(\.[A-Za-z0-9-]+)*\.[A-Za-z]{2,}/;
   const sample = "a" + "@" + "b.co";

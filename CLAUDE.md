@@ -578,7 +578,16 @@ the per-file gates below. Run it after EVERY file change.
   5f-4).
 - PIN pad DOM is appendChild-only (never `innerHTML +=`); clipboard writes
   need a catch fallback; no `viewport-fit=cover`; chunked u8toB64 in
-  crypto paths.
+  crypto paths. The React app loads the data even behind the lock screen,
+  so a lock-screen write to the store is overwritten by the app's next
+  save unless the page reloads. "Reset PIN & start over" ends in
+  `location.reload()` (the fresh load opens Create PIN), never an in-place
+  setup screen - otherwise the stripped API key comes back and Settings
+  keeps the old hint (check.js G5b). Unsaved memory-only drafts (logDraft,
+  callPayDraft) are lost on a reset. Known gap: Create PIN's migrateApiKey
+  (a legacy plaintext settings.apiKey) still writes in place and unlocks, so
+  the next save can restore the plaintext key; only pre-encryption data
+  reaches it.
 - Settings' Recovery Hint: hintText mirrors the STORED "rvu-pin-hint" (what
   the lock screen's Forgot PIN shows). The editor types into hintDraft,
   seeded from hintText on every open, so Cancel just closes; only Save (after
