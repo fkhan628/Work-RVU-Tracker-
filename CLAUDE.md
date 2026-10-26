@@ -542,10 +542,11 @@ the per-file gates below. Run it after EVERY file change.
   tint of their own hue, so keep them off tints). Light red (#9f1239) and
   amber (#8a5a00, also --global-90's light value, so every warning line is
   one amber) are chosen to stay apart, also for colour-blind eyes: a
-  Call Pay blocking line (red) and warning (amber) differ only by colour,
-  and amber must stay apart from green (the pace verdicts) - re-check both
-  pairs before moving either. Literals stay for fills under white text,
-  chart marks, most borders (the Log Private / Call radio rings and the
+  Call Pay blocking line (red) and warning (amber) sit side by side (they
+  also carry Directorships' "x " / "! " prefixes - callpay.js probLine, the
+  one renderer, check.js 5f-14), and amber must stay apart from green (the
+  pace verdicts) - re-check both pairs before moving either. Literals stay
+  for fills under white text, chart marks, most borders (the Log Private / Call radio rings and the
   directorship status pill follow their token text colour), rgba tints, the
   data-URI select chevrons, and everything exported (directorship PDF,
   Excel, CSV). Trends has no hard-coded dark surface: Goal Pace and Case Mix

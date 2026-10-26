@@ -589,7 +589,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
     return (<button key={key} onClick={onClick} aria-pressed={on} style={btn({ flex: 1, padding: "0 6px", fontSize: 12, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", ...(extra || {}) })}>{label}</button>);
   };
   var probLine = function(p, k) {
-    return (<div key={k} style={{ fontSize: 11, lineHeight: 1.5, marginTop: 4, color: p.block ? "var(--accent-red)" : amber }}>{probText(p)}</div>);
+    return (<div key={k} style={{ fontSize: 11, lineHeight: 1.5, marginTop: 4, color: p.block ? "var(--accent-red)" : amber }}>{(p.block ? "x " : "! ") + probText(p)}</div>);
   };
   var pick = function(on) { return { border: on ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.12)" : "transparent" }; };
   var payCard = function(shift, p, title) {

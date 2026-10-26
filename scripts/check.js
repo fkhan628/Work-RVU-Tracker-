@@ -2074,6 +2074,27 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0, bad.join(", "));
 }
 
+// 5f-14. Call Pay problem lines (CLAUDE.md "Theme colours"): a blocking
+// problem (red) and a warning (amber) also differ by text - "x " / "! ", the
+// Directorships prefixes - so they never differ only by colour. probLine is
+// the ONE renderer: the prefix follows the same p.block test as the colour,
+// it is the only probText( call and the only .block read in callpay.js.
+{
+  const cp = fs.readFileSync(path.join(JS_DIR, "callpay.js"), "utf8");
+  const lineAt = cp.indexOf("var probLine = function(p, k) {");
+  const body = lineAt === -1 ? "" : cp.slice(lineAt, cp.indexOf("};", lineAt));
+  const info = {
+    probLine: lineAt !== -1,
+    colour: body.indexOf('color: p.block ? "var(--accent-red)" : amber }}') !== -1,
+    prefix: body.indexOf('{(p.block ? "x " : "! ") + probText(p)}') !== -1,
+    probTextCalls: (cp.match(/\bprobText\(/g) || []).length,
+    blockReads: (cp.match(/\.block\b/g) || []).length,
+    blockInLine: (body.match(/\.block\b/g) || []).length
+  };
+  check("5f-14: Call Pay problem lines - probLine prefixes \"x \" (blocking, red) / \"! \" (warning, amber) on the same p.block test as its colour; the only probText( call and the only .block reads in callpay.js",
+    info.probLine && info.colour && info.prefix && info.probTextCalls === 1 && info.blockReads === 2 && info.blockInLine === 2, JSON.stringify(info));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
