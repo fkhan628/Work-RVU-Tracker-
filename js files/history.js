@@ -29,14 +29,14 @@ function Import({ data, cptMap, upd, setView, showUndo }) {
     <div style={{ ...S.card, marginTop: 16, background: "var(--bg-inset)", border: "1px solid var(--border-subtle)" }}><div style={{ ...S.cardLabel, marginBottom: 8 }}>Complete CMS Database</div><div style={{ fontSize: 12, color: "var(--text-muted)", lineHeight: 1.6 }}>{Object.keys(cptMap).length} preloaded codes  {DATA_VERSION}</div></div>
   </div>);
 
-  if (mode === "paste") return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => setMode("choose")} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Paste Data</h1></div>
+  if (mode === "paste") return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => setMode("choose")} style={{ ...S.backBtn, minHeight: 44 }}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Paste Data</h1></div>
     <textarea value={raw} onChange={e => setRaw(e.target.value)} placeholder={"Date,CPT,Description,wRVU,Modifier\n01/15/2025,47562,Lap cholecystectomy,10.21,"} style={{ ...S.notesInput, minHeight: 200, fontSize: 12, fontFamily: "'JetBrains Mono', monospace", lineHeight: 1.6 }} />
     <div style={{ display: "flex", gap: 8, marginTop: 12 }}><button onClick={() => setMode("choose")} style={S.secondaryBtn}>Cancel</button><button onClick={() => doParse(raw)} disabled={!raw.trim()} style={{ ...S.saveBtn, flex: 1, opacity: raw.trim() ? 1 : 0.4 }}>Parse Data </button></div>
   </div>);
 
   if (mode === "preview" && parsed) {
     const matched = parsed.entries.filter(e => cptMap[e.cptCode]); const tRVU = parsed.entries.reduce((s, e) => s + creditedRVU(e), 0);
-    return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
+    return (<div style={S.page}><div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={() => { setMode(raw ? "paste" : "choose"); setParsed(null); }} style={{ ...S.backBtn, minHeight: 44 }}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>Import Preview</h1></div>
       {status === 'ok' && <div style={S.successBanner}> Imported {addedCount} procedure{addedCount === 1 ? "" : "s"}{addedCount < parsed.entries.length ? " (" + (parsed.entries.length - addedCount) + " already present, skipped)" : ""}</div>}
       <div style={{ ...S.card, background: "linear-gradient(135deg, var(--bg-card), var(--bg-inset))", border: "1px solid var(--border-default)" }}><div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12 }}>{[[parsed.entries.length, "Procedures", "var(--text-bright)"], [tRVU.toFixed(0), "Total wRVUs", "var(--accent-sky)"], [matched.length, "Matched", "var(--accent-green)"]].map(([v, l, c]) => (<div key={l} style={{ textAlign: "center" }}><div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: c }}>{v}</div><div style={{ fontSize: 10, color: "var(--text-dim)", textTransform: "uppercase", letterSpacing: 0.5 }}>{l}</div></div>))}</div></div>
       {parsed.errors.length > 0 && <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: 12, marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 600, color: "var(--accent-amber-soft)", marginBottom: 4 }}> Warnings</div>{parsed.errors.slice(0, 5).map((e, i) => <div key={i} style={{ fontSize: 11, color: "var(--accent-amber-pale)", padding: "2px 0" }}>{e}</div>)}</div>}
@@ -259,7 +259,9 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
         <div style={{ textAlign: "right", flexShrink: 0 }}>
           <div style={isNoCredit(e) ? { ...S.histRVU, color: "var(--text-dim)" } : S.histRVU}>{e.adjustedRVU.toFixed(2)}</div>
           <div style={{ fontSize: 11, color: "var(--accent-green)", fontFamily: "JetBrains Mono" }}>${(creditedRVU(e) * settings.ratePerRVU).toFixed(0)}</div>
-          {!isSwiped && <button onClick={function(ev) { ev.stopPropagation(); del(e.id); }} style={S.deleteBtn}>Delete</button>}
+          {/* 44px tap area in the same 22px of layout: it grows up over the
+              $ line (the row clips below its 10px bottom padding). */}
+          {!isSwiped && <button onClick={function(ev) { ev.stopPropagation(); del(e.id); }} aria-label={"Delete " + e.cptCode} style={{ ...S.deleteBtn, minWidth: 44, minHeight: 44, padding: "0 4px", marginTop: -12, marginBottom: -10 }}>Delete</button>}
         </div>
       </div>
       {isSwiped && <div style={{ position: "absolute", right: 0, top: 0, bottom: 0, width: 80, display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -522,15 +524,15 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     var editDateOk = isYMD(editDate);
     var editSaveDisabled = (editUnknownChanged && isNaN(parseFloat(editManualBase))) || ci.need || !editDateOk;
     return (<div style={S.page}>
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={S.backBtn}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{isAddMode ? "Add Procedure" : "Edit Procedure"}</h1></div>
+      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 16 }}><button onClick={cancelEdit} style={{ ...S.backBtn, minHeight: 44 }}>Back</button><h1 style={{ ...S.title, marginBottom: 0 }}>{isAddMode ? "Add Procedure" : "Edit Procedure"}</h1></div>
       {isAddMode && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: -10, marginBottom: 12 }}>Adding to this encounter - date, patient, call status and call site are carried over. Pick the CPT code below.</div>}
       <div style={{ display: "flex", gap: 8 }}>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Date</label><input type="date" value={editDate} onChange={e => setEditDate(e.target.value)} style={S.searchInput} />{!editDateOk && <div style={{ fontSize: 11, color: "var(--accent-amber)", marginTop: 4 }}>Pick a valid date</div>}</div></div>
         <div style={{ flex: 1 }}><div style={S.fieldGroup}><label style={S.fieldLabel}>Patient ID</label><input type="text" value={editPatient} onChange={function(e) { var v = e.target.value; var r = notesForInitials(editNotes, editPatient, v, editNotesLinked.current); editNotesLinked.current = r.linked; setEditPatient(v); setEditNotes(r.notes); }} placeholder="Initials" style={S.searchInput} /></div></div>
       </div>
       <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-        <button onClick={function() { setEditIsCall(false); setEditSite(""); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: !editIsCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !editIsCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !editIsCall ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Private</button>
-        <button onClick={function() { setEditIsCall(true); }} style={{ flex: 1, padding: "8px 12px", borderRadius: 10, border: editIsCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: editIsCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: editIsCall ? "var(--accent-violet)" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Call</button>
+        <button onClick={function() { setEditIsCall(false); setEditSite(""); }} style={{ flex: 1, minHeight: 44, padding: "8px 12px", borderRadius: 10, border: !editIsCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !editIsCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !editIsCall ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Private</button>
+        <button onClick={function() { setEditIsCall(true); }} style={{ flex: 1, minHeight: 44, padding: "8px 12px", borderRadius: 10, border: editIsCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: editIsCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: editIsCall ? "var(--accent-violet)" : "var(--text-dim)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>Call</button>
       </div>
       {editIsCall && (ci.sites.length > 0 || ci.gone) && <div style={{ marginBottom: 10 }}>
         <div style={{ fontSize: 11, color: ci.need ? "var(--accent-amber)" : "var(--text-muted)", marginBottom: 6 }}>{ci.need ? "Pick the call site" : "Call site"}</div>

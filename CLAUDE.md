@@ -507,6 +507,27 @@ the per-file gates below. Run it after EVERY file change.
   chosen category still highlighted (the row remounts, so a chip far to the
   right may be scrolled out of view). The search box always stays (check.js
   5f-12: one row, its chips inside it, curSel never reassigned).
+- Tap targets (Log / History): nothing clickable is a `<span>` and no button
+  sits inside a button. Small glyph controls (favourite stars, the card's
+  remove x, the Proc-tab remove x, Favorites' move arrows, the template
+  notice x, "? Guide") are labelled buttons on styles.js S.hitBtn (44x44,
+  zIndex 1 so the overhang wins over the next non-clickable element; pulled
+  back with a negative margin - only as far as it covers nothing clickable:
+  "? Guide" overhangs 6px each way and grows its row by 12px rather than
+  steal the first modifier's top). In the result rows and Proc tabs they are
+  SIBLING buttons laid over the row: an 18px spacer keeps the row's layout;
+  Favorites rows with arrows are at least 88px with the row gap on the
+  wrapper (a child margin would collapse through it and lift the arrows), so
+  star and arrow areas never overlap; a Proc tab with a remove x has 44px of
+  right padding and the x covers only that, never the label that selects
+  the tab (the tab row's rowGap 8 keeps the x's 6px overhang off a wrapped
+  row). Every S.hitBtn button has an aria-label; a star's label is fixed
+  ("Favorite <code>") and aria-pressed carries the state. Check overlaps
+  with elementFromPoint after any change here. Today / Yesterday,
+  Private / Call (Log and History's edit panel), History's Back buttons and
+  the row Delete are 44px tall (Delete grows up over the $ line - the row
+  clips below). The chip rows (S.catBtn, History filters) stay 27-32px by
+  the owner's choice (check.js 5f-17).
 - Trends' Goal Pace card (Current only, like Home's pace line) uses Home's
   Tracked OR pace: Projected Annual = compProjection({ trackedWRVU: ytdRVU,
   trackedDays: daysPassed }).trackedPace with Home's inputs (logged credited

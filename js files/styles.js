@@ -335,9 +335,15 @@ var S = {
     fontSize: 20, fontFamily: "'JetBrains Mono'", color: "var(--selected-code)", fontWeight: 700
   },
   selectedDesc: { fontSize: 14, color: "var(--text-primary)", marginTop: 4 },
-  clearBtn: {
-    background: "none", border: "none", color: "var(--text-dim)",
-    fontSize: 18, cursor: "pointer", padding: "0 4px"
+  // A 44x44 tap area around a small glyph (star, x). Callers pull it back
+  // with a negative margin so the layout does not grow; zIndex keeps the
+  // overhang above the next (non-clickable) element (check.js 5f-17).
+  hitBtn: {
+    position: "relative", zIndex: 1,
+    background: "none", border: "none", padding: 0, margin: 0,
+    minWidth: 44, minHeight: 44, display: "inline-flex", alignItems: "center",
+    justifyContent: "center", cursor: "pointer", fontFamily: "inherit",
+    color: "inherit", lineHeight: 1, flexShrink: 0
   },
 
   // --- Modifiers ---

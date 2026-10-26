@@ -721,7 +721,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
             var on = date === c[1];
             // The date is computed when TAPPED (not at render) so the chip is
             // right after midnight even if the screen has not re-rendered.
-            return (<button key={c[0]} onClick={function() { setDate(c[0] === "Today" ? todayLocal() : addDaysYMD(todayLocal(), -1)); }} style={{ flex: 1, minHeight: 40, borderRadius: 8, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c[0]}</button>);
+            return (<button key={c[0]} onClick={function() { setDate(c[0] === "Today" ? todayLocal() : addDaysYMD(todayLocal(), -1)); }} style={{ flex: 1, minHeight: 44, borderRadius: 8, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)", fontSize: 12, fontWeight: 600, cursor: "pointer" }}>{c[0]}</button>);
           })}
         </div>
       </div></div>
@@ -730,11 +730,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
     {/* Call/Private toggle */}
     <div style={{ display: "flex", gap: 6, marginBottom: 10 }}>
-      <button onClick={function() { setIsCall(false); setCallSite(""); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !isCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !isCall ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <button onClick={function() { setIsCall(false); setCallSite(""); }} style={{ flex: 1, minHeight: 44, padding: "10px 12px", borderRadius: 10, border: !isCall ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: !isCall ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: !isCall ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
         <span style={{ width: 16, height: 16, borderRadius: 8, border: !isCall ? "2px solid var(--accent-sky)" : "2px solid var(--text-faint)", display: "flex", alignItems: "center", justifyContent: "center" }}>{!isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "var(--accent-sky)" }}></span>}</span>
         Private
       </button>
-      <button onClick={function() { setIsCall(true); }} style={{ flex: 1, padding: "10px 12px", borderRadius: 10, border: isCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: isCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: isCall ? "var(--accent-violet)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+      <button onClick={function() { setIsCall(true); }} style={{ flex: 1, minHeight: 44, padding: "10px 12px", borderRadius: 10, border: isCall ? "2px solid #a78bfa" : "1px solid var(--border-default)", background: isCall ? "rgba(139,92,246,0.1)" : "var(--bg-card)", color: isCall ? "var(--accent-violet)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
         <span style={{ width: 16, height: 16, borderRadius: 8, border: isCall ? "2px solid var(--accent-violet)" : "2px solid var(--text-faint)", display: "flex", alignItems: "center", justifyContent: "center" }}>{isCall && <span style={{ width: 8, height: 8, borderRadius: 4, background: "var(--accent-violet)" }}></span>}</span>
         Call
       </button>
@@ -774,22 +774,26 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     </div>}
     {tplNotice && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: tplNotice.warn ? "rgba(245,158,11,0.08)" : "rgba(16,185,129,0.08)", border: tplNotice.warn ? "1px solid rgba(245,158,11,0.25)" : "1px solid rgba(16,185,129,0.25)", color: tplNotice.warn ? "var(--accent-amber)" : "var(--accent-green-soft)", fontSize: 11, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 8 }}>
       <span>{tplNotice.text}</span>
-      <span onClick={function() { setTplNotice(null); }} style={{ cursor: "pointer", fontWeight: 700, flexShrink: 0 }}>x</span>
+      <button onClick={function() { setTplNotice(null); }} aria-label="Dismiss" style={{ ...S.hitBtn, margin: "-14px -12px", fontWeight: 700 }}>x</button>
     </div>}
 
     {/* Procedure tabs */}
-    <div style={{ display: "flex", gap: 4, marginBottom: 8, flexWrap: "wrap" }}>
+    <div style={{ display: "flex", gap: 4, rowGap: 8, marginBottom: 8, flexWrap: "wrap" }}>
       {procs.map(function(p, i) {
         var info = p.code ? cptMap[p.code] : null;
         var isActive = i === activeProc;
-        return (<button key={p.id} onClick={function() { setActiveProc(i); }} style={{
-          padding: "6px 12px", borderRadius: 8, border: isActive ? "2px solid #0ea5e9" : "1px solid var(--border-default)",
+        // The remove x is a sibling button (a button cannot hold a button),
+        // a 44x44 tap area laid over the tab's 44px right padding only, so
+        // it never covers the label that selects the tab.
+        return (<div key={p.id} style={{ position: "relative", display: "inline-flex" }}><button onClick={function() { setActiveProc(i); }} style={{
+          padding: procs.length > 1 ? "6px 44px 6px 12px" : "6px 12px", borderRadius: 8, border: isActive ? "2px solid #0ea5e9" : "1px solid var(--border-default)",
           background: isActive ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: isActive ? "var(--accent-sky)" : "var(--text-muted)",
           fontSize: 12, fontFamily: "JetBrains Mono", cursor: "pointer", fontWeight: isActive ? 700 : 400
         }}>
           {info ? info.code : "Proc " + (i + 1)}
-          {procs.length > 1 && <span onClick={function(ev) { ev.stopPropagation(); removeProc(i); }} style={{ marginLeft: 6, color: "var(--text-dim)", fontSize: 10 }}>x</span>}
-        </button>);
+        </button>
+        {procs.length > 1 && <button onClick={function() { removeProc(i); }} aria-label={"Remove " + (info ? info.code : "Proc " + (i + 1))} style={{ ...S.hitBtn, position: "absolute", right: 0, top: "50%", marginTop: -22, color: "var(--text-dim)", fontSize: 10 }}>x</button>}
+        </div>);
       })}
       <button onClick={addProc} style={{ padding: "6px 12px", borderRadius: 8, border: "1px dashed var(--border-default)", background: "transparent", color: "var(--text-dim)", fontSize: 12, cursor: "pointer" }}>+ Add</button>
     </div>
@@ -817,7 +821,12 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       {favCodes.map(function(cpt, idx) {
         var count = usageCounts[cpt.code] || 0;
         var comp = (cpt.wRVU * data.settings.ratePerRVU);
-        return (<button key={cpt.code} onClick={function() { selectCode(cpt); setShowFavs(false); }} style={{ ...S.resultItem, borderLeft: "3px solid rgba(251,191,36,0.4)", position: "relative" }}>
+        // The star and the move arrows are sibling buttons laid over the row
+        // (a button cannot hold a button); spacers keep the row's layout.
+        var canMove = favCodes.length > 1;
+        // The row's gap sits on the wrapper (a child's bottom margin would
+        // collapse through it and lift the bottom-anchored arrows).
+        return (<div key={cpt.code} style={{ position: "relative", marginBottom: 6 }}><button onClick={function() { selectCode(cpt); setShowFavs(false); }} style={{ ...S.resultItem, marginBottom: 0, borderLeft: "3px solid rgba(251,191,36,0.4)", position: "relative", minHeight: canMove ? 88 : undefined }}>
         <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -836,16 +845,18 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
                 <span style={{ ...S.resultRVU, fontSize: 14 }}>{cpt.wRVU}</span>
                 <span style={{ fontSize: 10, color: "var(--text-dim)" }}> wRVU</span>
               </div>
-              <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: "var(--accent-star)", lineHeight: 1 }}>{"\u2605"}</span>
+              <span aria-hidden="true" style={{ width: 18, flexShrink: 0 }} />
             </div>
             <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{"$"}{comp.toFixed(0)}</span>
-            <div style={{ display: "flex", gap: 2 }}>
-              {idx > 0 && <span onClick={function(ev) { ev.stopPropagation(); moveFav(cpt.code, -1); }} style={{ fontSize: 14, cursor: "pointer", color: "var(--text-faint)", padding: "0 4px", lineHeight: 1 }}>{"\u25B2"}</span>}
-              {idx < favCodes.length - 1 && <span onClick={function(ev) { ev.stopPropagation(); moveFav(cpt.code, 1); }} style={{ fontSize: 14, cursor: "pointer", color: "var(--text-faint)", padding: "0 4px", lineHeight: 1 }}>{"\u25BC"}</span>}
-            </div>
           </div>
         </div>
-      </button>); })}
+      </button>
+      <button onClick={function() { toggleFav(cpt.code); }} aria-label={"Favorite " + cpt.code} aria-pressed={true} style={{ ...S.hitBtn, position: "absolute", top: 0, right: 0, fontSize: 18, color: "var(--accent-star)" }}>{"\u2605"}</button>
+      {canMove && <div style={{ position: "absolute", right: 0, bottom: 0, display: "flex" }}>
+        {idx > 0 && <button onClick={function() { moveFav(cpt.code, -1); }} aria-label={"Move " + cpt.code + " up"} style={{ ...S.hitBtn, fontSize: 14, color: "var(--text-faint)" }}>{"\u25B2"}</button>}
+        {idx < favCodes.length - 1 && <button onClick={function() { moveFav(cpt.code, 1); }} aria-label={"Move " + cpt.code + " down"} style={{ ...S.hitBtn, fontSize: 14, color: "var(--text-faint)" }}>{"\u25BC"}</button>}
+      </div>}
+      </div>); })}
       {mostUsed.length > 0 && <>
         <div style={{ padding: "12px 0 6px", display: "flex", justifyContent: "space-between", alignItems: "center", borderTop: favCodes.length > 0 ? "1px solid var(--border-default)" : "none", marginTop: favCodes.length > 0 ? 8 : 0 }}>
           <span style={{ fontSize: 11, fontWeight: 600, color: "var(--accent-sky)", textTransform: "uppercase", letterSpacing: 1 }}>Most Used</span>
@@ -854,7 +865,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         {mostUsed.map(function(cpt) {
           var count = usageCounts[cpt.code] || 0;
           var comp = (cpt.wRVU * data.settings.ratePerRVU);
-          return (<button key={cpt.code} onClick={function() { selectCode(cpt); setShowFavs(false); }} style={{ ...S.resultItem, borderLeft: "3px solid rgba(14,165,233,0.3)" }}>
+          return (<div key={cpt.code} style={{ position: "relative" }}><button onClick={function() { selectCode(cpt); setShowFavs(false); }} style={{ ...S.resultItem, borderLeft: "3px solid rgba(14,165,233,0.3)" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -871,12 +882,14 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
                     <span style={{ ...S.resultRVU, fontSize: 14 }}>{cpt.wRVU}</span>
                     <span style={{ fontSize: 10, color: "var(--text-dim)" }}> wRVU</span>
                   </div>
-                  <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: "var(--text-ghost)", lineHeight: 1 }}>{"\u2606"}</span>
+                  <span aria-hidden="true" style={{ width: 18, flexShrink: 0 }} />
                 </div>
                 <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{"$"}{comp.toFixed(0)}</span>
               </div>
             </div>
-          </button>);
+          </button>
+          <button onClick={function() { toggleFav(cpt.code); }} aria-label={"Favorite " + cpt.code} aria-pressed={false} style={{ ...S.hitBtn, position: "absolute", top: 0, right: 0, fontSize: 18, color: "var(--text-ghost)" }}>{"\u2606"}</button>
+          </div>);
         })}
       </>}
     </div>}
@@ -885,7 +898,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     {!curSel && (!showFavs || curSearch.trim()) && <div style={S.resultsList}>{filtered.slice(0, 20).map(function(cpt) {
       var count = usageCounts[cpt.code] || 0;
       var comp = (cpt.wRVU * data.settings.ratePerRVU);
-      return (<button key={cpt.code} onClick={function() { selectCode(cpt); setShowFavs(false); }} style={S.resultItem}>
+      return (<div key={cpt.code} style={{ position: "relative" }}><button onClick={function() { selectCode(cpt); setShowFavs(false); }} style={S.resultItem}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start" }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
@@ -905,14 +918,16 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
               <span style={{ ...S.resultRVU, fontSize: 14 }}>{cpt.wRVU}</span>
               <span style={{ fontSize: 10, color: "var(--text-dim)" }}> wRVU</span>
             </div>
-            <span onClick={function(ev) { ev.stopPropagation(); toggleFav(cpt.code); }} style={{ fontSize: 18, cursor: "pointer", color: isFav(cpt.code) ? "var(--accent-star)" : "var(--text-ghost)", lineHeight: 1 }}>{isFav(cpt.code) ? "\u2605" : "\u2606"}</span>
+            <span aria-hidden="true" style={{ width: 18, flexShrink: 0 }} />
           </div>
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{"$"}{comp.toFixed(0)}</span>
         </div>
       </div>
-    </button>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}{filtered.length > 20 && <div style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, color: "var(--text-dim)" }}>{"Showing 20 of " + filtered.length + " matches - type more to narrow"}</div>}</div>}
+    </button>
+    <button onClick={function() { toggleFav(cpt.code); }} aria-label={"Favorite " + cpt.code} aria-pressed={isFav(cpt.code)} style={{ ...S.hitBtn, position: "absolute", top: 0, right: 0, fontSize: 18, color: isFav(cpt.code) ? "var(--accent-star)" : "var(--text-ghost)" }}>{isFav(cpt.code) ? "\u2605" : "\u2606"}</button>
+    </div>); })}{filtered.length === 0 && curSearch && <div style={{ padding: 20, textAlign: "center", color: "var(--text-dim)" }}>No matching CPT codes found</div>}{filtered.length > 20 && <div style={{ padding: "8px 4px", textAlign: "center", fontSize: 11, color: "var(--text-dim)" }}>{"Showing 20 of " + filtered.length + " matches - type more to narrow"}</div>}</div>}
 
-    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><span onClick={function() { toggleFav(curSel.code); }} style={{ fontSize: 22, cursor: "pointer", color: isFav(curSel.code) ? "var(--accent-star)" : "var(--text-faint)", lineHeight: 1 }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</span>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} style={S.clearBtn}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>${(creditedRVU(encPreview(calcProcRVU(cur))) * data.settings.ratePerRVU).toFixed(0)}{ncNow && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div></div></div></div>
+    {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><button onClick={function() { toggleFav(curSel.code); }} aria-label={"Favorite " + curSel.code} aria-pressed={isFav(curSel.code)} style={{ ...S.hitBtn, margin: -11, fontSize: 22, color: isFav(curSel.code) ? "var(--accent-star)" : "var(--text-faint)" }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</button>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} aria-label="Remove code" style={{ ...S.hitBtn, margin: "-9px -14px", color: "var(--text-dim)", fontSize: 18 }}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>${(creditedRVU(encPreview(calcProcRVU(cur))) * data.settings.ratePerRVU).toFixed(0)}{ncNow && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div></div></div></div>
     {(function() {
       var alreadyCodes = procs.map(function(p) { return p.code; }).filter(Boolean);
       var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes);
@@ -943,7 +958,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         </div>
       </div>);
     })()}
-    <div style={S.fieldGroup}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}><label style={{ ...S.fieldLabel, marginBottom: 0 }}>Modifiers</label><button onClick={function() { setShowModHelp(!showModHelp); }} style={{ background: "none", border: "1px solid var(--border-default)", borderRadius: 6, color: showModHelp ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 11, cursor: "pointer", padding: "2px 8px", fontFamily: "inherit" }}>{showModHelp ? "Hide Guide" : "? Guide"}</button></div>
+    <div style={S.fieldGroup}><div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}><label style={{ ...S.fieldLabel, marginBottom: 0 }}>Modifiers</label><button onClick={function() { setShowModHelp(!showModHelp); }} aria-expanded={showModHelp} style={{ ...S.hitBtn, margin: "-6px 0" }}><span style={{ border: "1px solid var(--border-default)", borderRadius: 6, color: showModHelp ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 11, padding: "2px 8px" }}>{showModHelp ? "Hide Guide" : "? Guide"}</span></button></div>
     {showModHelp && <div style={{ marginBottom: 10, padding: 12, borderRadius: 10, background: "var(--bg-inset)", border: "1px solid var(--border-default)", animation: "rvuFadeIn 0.2s ease-out" }}>
       <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-bright)", marginBottom: 8 }}>When to Use Each Modifier</div>
       {MODIFIERS.map(function(m) { return <div key={m.code} style={{ padding: "8px 0", borderBottom: "1px solid var(--border-default)" }}>

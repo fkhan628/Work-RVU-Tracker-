@@ -2181,6 +2181,54 @@ const COMP_MONEY_PIN = 8;
     bad.length === 0 && info.fillAA >= 4.5 && info.gradEndAA >= 4.5 && info.saveBtns === 2, JSON.stringify(info));
 }
 
+// 5f-17. Log / History tap targets (CLAUDE.md "Tap targets"): no clickable
+// <span> (stars, x's and arrows are real buttons with an aria-label) and no
+// button inside a button (the result rows and Proc tabs hold their star /
+// arrows / remove x as sibling buttons). S.hitBtn is 44x44 and log.js uses
+// it for exactly the small glyph controls; the bumped controls keep
+// minHeight 44 (Today / Yesterday, Private / Call on Log and in History's
+// edit panel, History's Back x3 and row Delete).
+{
+  const bad = [];
+  const nameOf = el => el.openingElement && el.openingElement.name && el.openingElement.name.name;
+  const hasAttr = (el, a) => el.openingElement.attributes.some(x => x.type === "JSXAttribute" && x.name && x.name.name === a);
+  const srcs = {};
+  ["log.js", "history.js"].forEach(f => {
+    const src = fs.readFileSync(path.join(JS_DIR, f), "utf8"); srcs[f] = src;
+    walk(parser.parse(src, AST_OPTS), n => {
+      if (n.type !== "JSXElement") return;
+      if (nameOf(n) === "span" && hasAttr(n, "onClick")) bad.push(f + ":" + n.loc.start.line + " span onClick");
+      if (nameOf(n) === "button") walk(n.children, c => { if (c.type === "JSXElement" && nameOf(c) === "button") bad.push(f + ":" + c.loc.start.line + " button in button"); });
+      if (nameOf(n) === "button" && !hasAttr(n, "aria-label") && !hasAttr(n, "aria-expanded")) {
+        // A glyph button needs a name: read its text, both branches of a
+        // ternary glyph included, and treat any S.hitBtn button as one.
+        const lits = e => !e ? [] : e.type === "StringLiteral" ? [e.value] : e.type === "ConditionalExpression" ? lits(e.consequent).concat(lits(e.alternate)) : [];
+        const txts = n.children.filter(c => c.type === "JSXText").map(c => c.value.trim()).filter(Boolean)
+          .concat(...n.children.filter(c => c.type === "JSXExpressionContainer").map(c => lits(c.expression)));
+        const style = n.openingElement.attributes.filter(x => x.type === "JSXAttribute" && x.name && x.name.name === "style")[0];
+        const onHit = !!(style && style.value && style.value.expression && style.value.expression.type === "ObjectExpression" &&
+          style.value.expression.properties.some(p => p.type === "SpreadElement" && p.argument.type === "MemberExpression" && p.argument.property.name === "hitBtn"));
+        if (onHit || (txts.length && txts.every(t => /^(x|\u2605|\u2606|\u25B2|\u25BC)$/.test(t)))) bad.push(f + ":" + n.loc.start.line + " glyph button without aria-label");
+      }
+    });
+  });
+  const ss = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8");
+  const hit = (ss.match(/\n  hitBtn: \{[^}]*\}/) || [""])[0];
+  const log = srcs["log.js"], hist = srcs["history.js"];
+  const info = { bad: bad,
+    hitBtn44: /minWidth: 44/.test(hit) && /minHeight: 44/.test(hit) && /position: "relative", zIndex: 1/.test(hit),
+    hitUses: (log.match(/\.\.\.S\.hitBtn/g) || []).length,
+    clearX: log.indexOf('aria-label="Remove code" style={{ ...S.hitBtn,') !== -1,
+    dayChips: log.indexOf('addDaysYMD(todayLocal(), -1)); }} style={{ flex: 1, minHeight: 44, borderRadius: 8,') !== -1,
+    logPrivCall: (log.match(/setIsCall\((false|true)\);[^\n]*style=\{\{ flex: 1, minHeight: 44,/g) || []).length,
+    histPrivCall: (hist.match(/setEditIsCall\((false|true)\);[^\n]*style=\{\{ flex: 1, minHeight: 44,/g) || []).length,
+    histBack: (hist.match(/style=\{\{ \.\.\.S\.backBtn, minHeight: 44 \}\}>Back</g) || []).length,
+    plainBack: (hist.match(/style=\{S\.backBtn\}/g) || []).length,
+    histDelete: /style=\{\{ \.\.\.S\.deleteBtn, minWidth: 44, minHeight: 44,[^}]*\}\}>Delete</.test(hist) };
+  check("5f-17: Log / History tap targets - no clickable span or button-in-button in log.js / history.js, glyph and S.hitBtn buttons labelled; S.hitBtn 44x44 (relative, zIndex 1) on the 10 Log glyph controls; Today/Yesterday, Private/Call (Log + edit panel), History Back x3 and row Delete at 44px",
+    bad.length === 0 && info.hitBtn44 && info.hitUses === 10 && info.clearX && info.dayChips && info.logPrivCall === 2 && info.histPrivCall === 2 && info.histBack === 3 && info.plainBack === 0 && info.histDelete, JSON.stringify(info));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {
