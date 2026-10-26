@@ -560,7 +560,13 @@ the per-file gates below. Run it after EVERY file change.
   defined in both blocks, no accent or caption-grey hex as a style color or
   SVG <text fill>, and no slate dark-surface literal as a style background
   (the hidden scan buttons aside) - syntactic: a hex held in a variable is
-  not seen.
+  not seen. The phone status bar (meta theme-color) matches what is on
+  screen: crypto.js syncThemeColor, its one writer, sets #0f172a while the
+  always-dark PIN screen shows, else the theme's page background (#f1f5f9
+  in light); showPinScreen, unlock and app.js's theme effect call it. Its
+  colours equal index.html's body / body.light-mode / #pin-lock backgrounds
+  and the static meta (check.js 5f-15). manifest.json's theme_color stays
+  dark (launch only).
 - Unsaved forms survive a tab switch through App's MEMORY-ONLY refs (never
   persisted): Log's encounter (logDraft) and Call Pay's shift form
   (callPayDraft, passed as `keep`). CallPay reads keep.current ONCE in a

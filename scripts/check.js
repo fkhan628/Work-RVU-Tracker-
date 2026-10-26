@@ -2095,6 +2095,46 @@ const COMP_MONEY_PIN = 8;
     info.probLine && info.colour && info.prefix && info.probTextCalls === 1 && info.blockReads === 2 && info.blockInLine === 2, JSON.stringify(info));
 }
 
+// 5f-15. Phone status bar (CLAUDE.md "Theme colours"): crypto.js
+// syncThemeColor is the ONE theme-color writer - dark while #pin-lock shows,
+// else the current theme's page background. Its two colours are pinned to
+// index.html's body / body.light-mode / #pin-lock backgrounds and the static
+// meta; it runs when the lock shows (showPinScreen) or hides (unlock) and
+// from app.js's theme effect, after the body class is set.
+{
+  const html = fs.readFileSync(path.join(APP, "index.html"), "utf8");
+  const cr = fs.readFileSync(path.join(JS_DIR, "crypto.js"), "utf8");
+  const appSrc = fs.readFileSync(path.join(JS_DIR, "app.js"), "utf8");
+  const cssBg = sel => { const m = html.match(new RegExp("\\n\\s*" + sel.replace(/[.#]/g, "\\$&") + " \\{[^}]*background: (#[0-9a-f]{6})")); return m ? m[1] : null; };
+  const fnAt = cr.indexOf("function syncThemeColor() {");
+  const fn = fnAt === -1 ? "" : cr.slice(fnAt, cr.indexOf("\n  }", fnAt));
+  const fnBody = name => { const a = cr.indexOf("function " + name + "("); return a === -1 ? "" : cr.slice(a, cr.indexOf("\n  }", a)); };
+  const show = fnBody("showPinScreen"), unl = fnBody("unlock");
+  const effAt = appSrc.indexOf('document.body.className = theme === "light" ? "light-mode" : "";');
+  const eff = effAt === -1 ? "" : appSrc.slice(effAt, appSrc.indexOf("}, [theme]);", effAt));
+  const writers = [];
+  jsFiles.forEach(f => { const s = fs.readFileSync(path.join(JS_DIR, f), "utf8"); if (/theme-color|themeColor|theme_color/i.test(s.replace(/syncThemeColor/g, "")) && f !== "crypto.js") writers.push(f); });
+  const info = {
+    body: cssBg("body"), light: cssBg("body.light-mode"), lock: cssBg("#pin-lock"),
+    meta: (html.match(/<meta name="theme-color" content="(#[0-9a-f]{6})">/) || [])[1] || null,
+    rule: fn.indexOf('meta.setAttribute("content", !locked && light ? "') !== -1 ? (fn.match(/!locked && light \? "(#[0-9a-f]{6})" : "(#[0-9a-f]{6})"/) || []).slice(1).join("/") : "",
+    lockTest: fn.indexOf('var locked = lockEl.style.display !== "none" && lockEl.style.display !== "";') !== -1,
+    lightTest: fn.indexOf('var light = document.body.classList.contains("light-mode");') !== -1,
+    inShow: /lockEl\.style\.display = "flex";\s*rootEl\.style\.display = "none";\s*syncThemeColor\(\);/.test(show),
+    inUnlock: /lockEl\.style\.display = "none";\s*rootEl\.style\.display = "";\s*syncThemeColor\(\);/.test(unl),
+    exposed: /\n\s*syncThemeColor: syncThemeColor,/.test(cr),
+    inEffect: eff.indexOf("if (window.RVU_CRYPTO && window.RVU_CRYPTO.syncThemeColor) window.RVU_CRYPTO.syncThemeColor();") !== -1,
+    metaLookups: (cr.match(/meta\[name="theme-color"\]/g) || []).length,
+    contentWrites: (cr.match(/setAttribute\("content"/g) || []).length,
+    contentAssigns: (cr.match(/\.content\s*=[^=]/g) || []).length,
+    htmlMentions: (html.replace('<meta name="theme-color" content="#0f172a">', "").match(/theme-color|themeColor|theme_color/gi) || []).length,
+    writers: writers
+  };
+  check("5f-15: status bar - crypto.js syncThemeColor is the one theme-color writer (dark under the PIN screen, else the theme's page background, colours = index.html body / body.light-mode / #pin-lock / static meta), called in showPinScreen, unlock and app.js's theme effect",
+    info.body === "#0f172a" && info.lock === info.body && info.meta === info.body && info.light === "#f1f5f9" && info.rule === info.light + "/" + info.body &&
+    info.lockTest && info.lightTest && info.inShow && info.inUnlock && info.exposed && info.inEffect && info.metaLookups === 1 && info.contentWrites === 1 && info.contentAssigns === 0 && info.htmlMentions === 0 && info.writers.length === 0, JSON.stringify(info));
+}
+
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
 // fixtures use \u escapes).
 fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f => {

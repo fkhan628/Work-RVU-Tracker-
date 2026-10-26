@@ -77,6 +77,7 @@ function App() {
 
   useEffect(function() {
     document.body.className = theme === "light" ? "light-mode" : "";
+    if (window.RVU_CRYPTO && window.RVU_CRYPTO.syncThemeColor) window.RVU_CRYPTO.syncThemeColor();
     try { localStorage.setItem("rvu-theme", theme); } catch(e) {}
   }, [theme]);
 

@@ -18,6 +18,18 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
   var _lockTimer = null;
   var _pinUnlocked = false;
 
+  // The phone's status bar (meta theme-color) matches what is on screen: the
+  // PIN screen is always dark, otherwise the page background of the current
+  // theme (index.html body / body.light-mode; check.js 5f-15). Called when the
+  // lock shows or hides and by app.js's theme effect.
+  function syncThemeColor() {
+    var meta = document.querySelector('meta[name="theme-color"]');
+    if (!meta) return;
+    var locked = lockEl.style.display !== "none" && lockEl.style.display !== "";
+    var light = document.body.classList.contains("light-mode");
+    meta.setAttribute("content", !locked && light ? "#f1f5f9" : "#0f172a");
+  }
+
   // --- SHA-256 for PIN verification ---
   function sha256(str) {
     var buf = new TextEncoder().encode(str);
@@ -195,6 +207,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
   function showPinScreen(mode) {
     lockEl.style.display = "flex";
     rootEl.style.display = "none";
+    syncThemeColor();
     var isSetup = (mode === "setup");
     var title = isSetup ? "Create PIN" : "Enter PIN";
     var subtitle = isSetup ? "Set a 4-6 digit PIN to protect your data" : "Enter your PIN to unlock RVU Tracker";
@@ -499,6 +512,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
     setCurrentPin(pin);
     lockEl.style.display = "none";
     rootEl.style.display = "";
+    syncThemeColor();
     resetLockTimer();
   }
 
@@ -513,6 +527,7 @@ if(!window.CMS_RAW) window.CMS_RAW=[];
       clearCurrentPin();
       showPinScreen("locked");
     },
+    syncThemeColor: syncThemeColor,
     biometricsAvailable: biometricsAvailable,
     hasBiometrics: hasBiometrics,
     enableBiometrics: enableBiometrics,
