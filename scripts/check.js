@@ -4883,7 +4883,7 @@ if (sb) {
   {
     const J = o => JSON.stringify(o);
     const PRESET_SPEC = [
-      { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 8 },
+      { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 210, maxHours: 8 },
       { id: "trauma", name: "Trauma Medical Director", shortName: "Trauma", org: "MercyOne Genesis Silvis - Illini", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.25 },
       { id: "wound", name: "Wound Care Program Director", shortName: "Wound", org: "Select Specialty Hospital - Quad Cities", form: "select", printName: "Faraz Khan, MD", rate: 215, maxHours: 8,
         selectHeader: { hospital: "Select Specialty Hospital - Quad Cities", programType: "Wound Care", physicianName: "Faraz Khan, MD", contractingParty: "MercyOne Genesis Health Group",
@@ -5148,11 +5148,11 @@ if (sb) {
 
     // T17 money
     const MON = [[0, "$0.00"], [900, "$900.00"], [1720, "$1,720.00"], [1234567.891, "$1,234,567.89"], [16.005, "$16.01"], [71.666666, "$71.67"], [0.1 + 0.2, "$0.30"], [200, "$200.00"], [53.75, "$53.75"]];
-    // ICU Co-Director: capped at 8 h a month at $200 (owner, 2026-11-02).
+    // ICU Co-Director: capped at 8 h a month at $210 (owner, 2026-11-02).
     const capless = Object.assign({}, ICU, { maxHours: 0 }), rateless = Object.assign({}, ICU, { rate: 0 });
     check("directorships T17: money format (no locale), the mask, the capped amount; a missing cap or rate blocks the form",
       MON.every(t => sb.dirMoney(t[0]) === t[1]) && sb.dirMoneyShown(900, false) === sb.fmtDollar(900, false) && sb.dirMoneyShown(900, true) === "$900.00" &&
-      sb.dirAmount(270, ICU) === 900 && sb.dirAmount(480, ICU) === 1600 && sb.dirAmount(510, ICU) === 1600 && sb.dirAmount(480, WC) === 1720 && sb.dirAmount(510, WC) === 1720 && sb.dirAmount(21, WC) === 75.25 &&
+      sb.dirAmount(270, ICU) === 945 && sb.dirAmount(480, ICU) === 1680 && sb.dirAmount(510, ICU) === 1680 && sb.dirAmount(480, WC) === 1720 && sb.dirAmount(510, WC) === 1720 && sb.dirAmount(21, WC) === 75.25 &&
       sb.dirFormModel(dstore({ directorships: [capless] }), "icu", "2026-10", "2026-11-02").flags.some(f => f.code === "cap" && f.level === "block") &&
       sb.dirFormModel(dstore({ directorships: [rateless] }), "icu", "2026-10", "2026-11-02").flags.some(f => f.code === "rate" && f.level === "block"));
 
@@ -5181,16 +5181,16 @@ if (sb) {
       ent("i4", "icu", "2026-10-20", 135, "g_meeting", "CNO"), ent("i5", "trauma", "2026-10-03", 60, "g_policy"), ent("i6", "icu", "2026-09-30", 60, "g_policy")];
     const S19 = dstore({ dirEntries: icuList }), S19json = J(S19), RowsJson = J(sb.DIR_GENESIS_ROWS) + J(sb.DIR_SELECT_ROWS);
     const m19 = sb.dirFormModel(S19, "icu", "2026-10", "2026-11-02"), pol = m19.rows.filter(r => r.key === "g_policy")[0];
-    check("directorships T19: ICU October model - shared cell dates + summed duration, weekly totals, Total 4:30, $200.00, $900.00, DFEE, 23 rows, Meeting slots, ok",
+    check("directorships T19: ICU October model - shared cell dates + summed duration, weekly totals, Total 4:30, $210.00, $945.00, DFEE, 23 rows, Meeting slots, ok",
       J({ d: pol.cells[0].datesText, u: pol.cells[0].dur }) === J({ d: "10/2, 10/4", u: "1:15" }) && J(m19.weekText) === J(["1:15", "1:00", "2:15", "0:00", "0:00"]) &&
-      m19.totalText === "4:30" && m19.footer.rate === "$200.00" && m19.footer.due === "$900.00" && m19.footer.payCode === "DFEE" && m19.overCap === false &&
+      m19.totalText === "4:30" && m19.footer.rate === "$210.00" && m19.footer.due === "$945.00" && m19.footer.payCode === "DFEE" && m19.overCap === false &&
       m19.generatedText === "11/2/2026" && m19.rows.length === 23 && J(m19.rows.filter(r => r.key === "g_meeting").map(r => r.text)) === J(["Meeting with CNO to discuss", "Meeting with ____ to discuss", "Meeting with ____ to discuss", "Meeting with ____ to discuss"]) &&
       m19.ok === true && m19.header.printName === "Faraz Khan, MD" && m19.header.monthYear === "October 2026" && m19.sig.date === "11/2/2026" &&
       m19.fileName === "Khan - ICU Co-Director Timesheet - 2026-10.pdf" && m19.hash === sb.dirEntriesHash(icuList, "icu", "2026-10"),
       J({ cell: pol.cells[0], weeks: m19.weekText, total: m19.totalText, flags: m19.flags }));
     const m20 = sb.dirFormModel(dstore({ dirEntries: icuList.concat([ent("i7", "icu", "2026-10-27", 240, "g_goals")]) }), "icu", "2026-10", "2026-11-02");
-    check("directorships T20: over the 8:00 cap the form prints 8:30 and Due stays $1,600.00, with the exact amber warning",
-      m20.totalText === "8:30" && m20.footer.due === "$1,600.00" && m20.overCap === true && m20.ok === true &&
+    check("directorships T20: over the 8:00 cap the form prints 8:30 and Due stays $1,680.00, with the exact amber warning",
+      m20.totalText === "8:30" && m20.footer.due === "$1,680.00" && m20.overCap === true && m20.ok === true &&
       m20.flags.some(f => f.level === "warn" && f.code === "overCap" && f.text === "Over the 8:00 monthly cap: the form prints all 8:30; Due counts 8:00."), JSON.stringify(m20.flags));
 
     // T21 Wound model
@@ -5278,8 +5278,8 @@ if (sb) {
     const twoMonths = sb.dirTotalInRange(dstore({ dirEntries: [ent("t1", "icu", "2026-08-03", 300, "g_policy"), ent("t2", "icu", "2026-09-03", 300, "g_policy")] }), "2026-01-01", "2027-01-01", null);
     const fyJul = dstore({ dirEntries: [ent("j1", "icu", "2026-07-03", 180, "g_policy"), ent("j2", "icu", "2026-07-20", 180, "g_policy")] });
     check("directorships T27: YTD pay - capped per directorship-month, placed entries only, upTo cut, whole months by their 1st (mid-month fiscal start)",
-      y1.total === 3920 && y1.entries === 5 && y2.total === 3820 && y2.entries === 4 && twoMonths.total === 2000 &&
-      sb.dirTotalInRange(fyJul, "2026-07-15", "2027-07-15", null).entries === 0 && sb.dirTotalInRange(fyJul, "2025-07-15", "2026-07-15", null).total === 1200,
+      y1.total === 4020 && y1.entries === 5 && y2.total === 3915 && y2.entries === 4 && twoMonths.total === 2100 &&
+      sb.dirTotalInRange(fyJul, "2026-07-15", "2027-07-15", null).entries === 0 && sb.dirTotalInRange(fyJul, "2025-07-15", "2026-07-15", null).total === 1260,
       J({ y1: y1, y2: y2, twoMonths: twoMonths }));
 
     // T28 reminder key
@@ -5498,7 +5498,7 @@ if (sb) {
     const unplaced27 = sb.dirTotalInRange(dstore({ dirEntries: [ent("p1", "icu", "2026-09-10", 120, "g_policy"), ent("p2", "icu", "2026-09-11", 60, "s_policies"), ent("p3", "icu", "2026-09-12", 0, "g_policy"), ent("p4", "icu", "2026-09-13", 1441, "g_policy")] }), "2026-01-01", "2027-01-01", null);
     const c4s = dstore({ directorships: [Object.assign({}, ICU, { form: "select" }), PRESET_SPEC[1], WC], dirEntries: [ent("p5", "icu", "2026-09-10", 120, "g_policy")] });
     check("directorships T27b: YTD leaves out unplaced entries (wrong-form category, 0 or 1441 minutes, a switched form)",
-      unplaced27.total === 400 && unplaced27.entries === 1 && sb.dirTotalInRange(c4s, "2026-01-01", "2027-01-01", null).entries === 0, J(unplaced27));
+      unplaced27.total === 420 && unplaced27.entries === 1 && sb.dirTotalInRange(c4s, "2026-01-01", "2027-01-01", null).entries === 0, J(unplaced27));
 
     // T32: the review fixes in the helpers.
     const capDraft = c => sb.dirFromEditorDraft(PRESET_SPEC, null, Object.assign({}, okDraft, { maxHours: c }));
