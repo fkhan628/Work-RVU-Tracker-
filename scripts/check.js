@@ -4883,7 +4883,7 @@ if (sb) {
   {
     const J = o => JSON.stringify(o);
     const PRESET_SPEC = [
-      { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.5 },
+      { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 8 },
       { id: "trauma", name: "Trauma Medical Director", shortName: "Trauma", org: "MercyOne Genesis Silvis - Illini", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.25 },
       { id: "wound", name: "Wound Care Program Director", shortName: "Wound", org: "Select Specialty Hospital - Quad Cities", form: "select", printName: "Faraz Khan, MD", rate: 215, maxHours: 8,
         selectHeader: { hospital: "Select Specialty Hospital - Quad Cities", programType: "Wound Care", physicianName: "Faraz Khan, MD", contractingParty: "MercyOne Genesis Health Group",
@@ -5148,10 +5148,11 @@ if (sb) {
 
     // T17 money
     const MON = [[0, "$0.00"], [900, "$900.00"], [1720, "$1,720.00"], [1234567.891, "$1,234,567.89"], [16.005, "$16.01"], [71.666666, "$71.67"], [0.1 + 0.2, "$0.30"], [200, "$200.00"], [53.75, "$53.75"]];
+    // ICU Co-Director: capped at 8 h a month at $200 (owner, 2026-11-02).
     const capless = Object.assign({}, ICU, { maxHours: 0 }), rateless = Object.assign({}, ICU, { rate: 0 });
     check("directorships T17: money format (no locale), the mask, the capped amount; a missing cap or rate blocks the form",
       MON.every(t => sb.dirMoney(t[0]) === t[1]) && sb.dirMoneyShown(900, false) === sb.fmtDollar(900, false) && sb.dirMoneyShown(900, true) === "$900.00" &&
-      sb.dirAmount(270, ICU) === 900 && sb.dirAmount(300, ICU) === 900 && sb.dirAmount(480, WC) === 1720 && sb.dirAmount(510, WC) === 1720 && sb.dirAmount(21, WC) === 75.25 &&
+      sb.dirAmount(270, ICU) === 900 && sb.dirAmount(480, ICU) === 1600 && sb.dirAmount(510, ICU) === 1600 && sb.dirAmount(480, WC) === 1720 && sb.dirAmount(510, WC) === 1720 && sb.dirAmount(21, WC) === 75.25 &&
       sb.dirFormModel(dstore({ directorships: [capless] }), "icu", "2026-10", "2026-11-02").flags.some(f => f.code === "cap" && f.level === "block") &&
       sb.dirFormModel(dstore({ directorships: [rateless] }), "icu", "2026-10", "2026-11-02").flags.some(f => f.code === "rate" && f.level === "block"));
 
@@ -5187,10 +5188,10 @@ if (sb) {
       m19.ok === true && m19.header.printName === "Faraz Khan, MD" && m19.header.monthYear === "October 2026" && m19.sig.date === "11/2/2026" &&
       m19.fileName === "Khan - ICU Co-Director Timesheet - 2026-10.pdf" && m19.hash === sb.dirEntriesHash(icuList, "icu", "2026-10"),
       J({ cell: pol.cells[0], weeks: m19.weekText, total: m19.totalText, flags: m19.flags }));
-    const m20 = sb.dirFormModel(dstore({ dirEntries: icuList.concat([ent("i7", "icu", "2026-10-27", 30, "g_goals")]) }), "icu", "2026-10", "2026-11-02");
-    check("directorships T20: over the cap the form prints 5:00 and Due stays $900.00, with the exact amber warning",
-      m20.totalText === "5:00" && m20.footer.due === "$900.00" && m20.overCap === true && m20.ok === true &&
-      m20.flags.some(f => f.level === "warn" && f.code === "overCap" && f.text === "Over the 4:30 monthly cap: the form prints all 5:00; Due counts 4:30."));
+    const m20 = sb.dirFormModel(dstore({ dirEntries: icuList.concat([ent("i7", "icu", "2026-10-27", 240, "g_goals")]) }), "icu", "2026-10", "2026-11-02");
+    check("directorships T20: over the 8:00 cap the form prints 8:30 and Due stays $1,600.00, with the exact amber warning",
+      m20.totalText === "8:30" && m20.footer.due === "$1,600.00" && m20.overCap === true && m20.ok === true &&
+      m20.flags.some(f => f.level === "warn" && f.code === "overCap" && f.text === "Over the 8:00 monthly cap: the form prints all 8:30; Due counts 8:00."), JSON.stringify(m20.flags));
 
     // T21 Wound model
     const wList = [ent("w1", "wound", "2026-10-01", 120, "s_policies"), ent("w2", "wound", "2026-10-09", 90, "s_committees"), ent("w3", "wound", "2026-10-16", 90, "s_travel", "Regional wound care committee"),
@@ -5271,14 +5272,14 @@ if (sb) {
       rFeb.every(d => d.id === undefined && d.dirId === "icu") && J(jan) === janJson);
 
     // T27 YTD
-    const ytd = dstore({ dirEntries: [ent("y1", "icu", "2026-10-05", 300, "g_policy"), ent("y2", "icu", "2026-10-20", 60, "g_policy"), ent("y3", "trauma", "2026-10-06", 60, "g_policy"),
+    const ytd = dstore({ dirEntries: [ent("y1", "icu", "2026-10-05", 450, "g_policy"), ent("y2", "icu", "2026-10-20", 60, "g_policy"), ent("y3", "trauma", "2026-10-06", 60, "g_policy"),
       ent("y4", "wound", "2026-10-07", 510, "s_policies"), ent("y5", "icu", "2026-09-10", 120, "g_policy"), ent("y6", "gone", "2026-10-05", 600, "g_policy"), ent("y7", "icu", "2025-12-31", 60, "g_policy")] });
     const y1 = sb.dirTotalInRange(ytd, "2026-01-01", "2027-01-01", "2026-10-31"), y2 = sb.dirTotalInRange(ytd, "2026-01-01", "2027-01-01", "2026-10-15");
-    const twoMonths = sb.dirTotalInRange(dstore({ dirEntries: [ent("t1", "icu", "2026-08-03", 240, "g_policy"), ent("t2", "icu", "2026-09-03", 240, "g_policy")] }), "2026-01-01", "2027-01-01", null);
+    const twoMonths = sb.dirTotalInRange(dstore({ dirEntries: [ent("t1", "icu", "2026-08-03", 300, "g_policy"), ent("t2", "icu", "2026-09-03", 300, "g_policy")] }), "2026-01-01", "2027-01-01", null);
     const fyJul = dstore({ dirEntries: [ent("j1", "icu", "2026-07-03", 180, "g_policy"), ent("j2", "icu", "2026-07-20", 180, "g_policy")] });
     check("directorships T27: YTD pay - capped per directorship-month, placed entries only, upTo cut, whole months by their 1st (mid-month fiscal start)",
-      y1.total === 3220 && y1.entries === 5 && y2.total === 3220 && y2.entries === 4 && twoMonths.total === 1600 &&
-      sb.dirTotalInRange(fyJul, "2026-07-15", "2027-07-15", null).entries === 0 && sb.dirTotalInRange(fyJul, "2025-07-15", "2026-07-15", null).total === 900,
+      y1.total === 3920 && y1.entries === 5 && y2.total === 3820 && y2.entries === 4 && twoMonths.total === 2000 &&
+      sb.dirTotalInRange(fyJul, "2026-07-15", "2027-07-15", null).entries === 0 && sb.dirTotalInRange(fyJul, "2025-07-15", "2026-07-15", null).total === 1200,
       J({ y1: y1, y2: y2, twoMonths: twoMonths }));
 
     // T28 reminder key

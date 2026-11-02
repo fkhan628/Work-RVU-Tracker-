@@ -778,9 +778,11 @@ function payWillSeed(d) {
 // rates and the monthly hour caps. Loaded silently into a store whose
 // `directorships` field is MISSING (fresh install, pre-feature store,
 // pre-change backup); an EMPTY list means the user removed them and is never
-// re-seeded. After seeding, stored data is the source of truth.
+// re-seeded. After seeding, stored data is the source of truth. ICU's cap is
+// 8 h a month (owner, 2026-11-02); a phone seeded with the older 4.5 keeps
+// it until the cap is edited in Directorships - nothing migrates it.
 var DIRECTORSHIP_PRESET = [
-  { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.5 },
+  { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 8 },
   { id: "trauma", name: "Trauma Medical Director", shortName: "Trauma", org: "MercyOne Genesis Silvis - Illini", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.25 },
   { id: "wound", name: "Wound Care Program Director", shortName: "Wound", org: "Select Specialty Hospital - Quad Cities", form: "select", printName: "Faraz Khan, MD", rate: 215, maxHours: 8,
     selectHeader: { hospital: "Select Specialty Hospital - Quad Cities", programType: "Wound Care", physicianName: "Faraz Khan, MD", contractingParty: "MercyOne Genesis Health Group",
