@@ -587,6 +587,7 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
       })()}
     </div>
 
+    {acuteInUse(data) && <>
     {/* 4. VALUE PER SHIFT - all acute months, deliberately not year-scoped */}
     <div style={S.card}>
       <div style={S.cardLabel}>Value per Shift (Acute)</div>
@@ -630,6 +631,8 @@ function Analytics({ data, db, setView, showComp, toggleComp, openHistory }) {
         </div>)}
       {crossCheck.skipped > 0 && <div style={{ fontSize: 10, color: "var(--text-dim)", marginTop: 6 }}>{crossCheck.skipped} month{crossCheck.skipped === 1 ? "" : "s"} skipped (total-only - work/call split unknown).</div>}
     </div>
+
+    </>}
 
     {/* Monthly Summary Report */}
     <button onClick={function() { setShowSummary(!showSummary); }} style={{ ...S.secondaryBtn, width: "100%", marginBottom: 8, color: "var(--accent-violet)", borderColor: "rgba(139,92,246,0.3)" }}>{showSummary ? "Hide Summary" : "Monthly Summary Report"}</button>

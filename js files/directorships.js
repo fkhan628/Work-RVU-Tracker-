@@ -294,7 +294,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
     </div>
 
     {dirs.length === 0 ? <div style={S.card}>
-      <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>No directorships - add or restore them in More &gt; Directorships.</div>
+      <div style={{ fontSize: 13, color: "var(--text-muted)", lineHeight: 1.5 }}>No directorships - see More &gt; Directorships.</div>
       <button onClick={onBack} style={btn({ width: "100%", marginTop: 10 })}>Back</button>
     </div> : <div>
       <div style={S.card}>
@@ -992,12 +992,12 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
   var thisMonth = entries.filter(function(e) { return e && typeof e.date === "string" && e.date.slice(0, 7) === ym; }).length;
   return (<div style={S.card}>
     <div style={S.cardLabel}>Directorships</div>
-    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Monthly signed time sheets, saved to Google Drive. Separate from wRVUs and Comp.</div>
-    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{dirs.length + " " + (dirs.length === 1 ? "directorship" : "directorships") + " - " + thisMonth + " " + (thisMonth === 1 ? "entry" : "entries") + " in " + dirMonthLabel(ym).split(" ")[0]}</div>
-    <button onClick={function() { if (openDirectorships) openDirectorships("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Directorships</button>
+    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{dirs.length > 0 ? "Monthly signed time sheets, saved to Google Drive. Separate from wRVUs and Comp." : "Optional: signed monthly time sheets for medical director roles."}</div>
+    {dirs.length > 0 && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{dirs.length + " " + (dirs.length === 1 ? "directorship" : "directorships") + " - " + thisMonth + " " + (thisMonth === 1 ? "entry" : "entries") + " in " + dirMonthLabel(ym).split(" ")[0]}</div>}
+    {dirs.length > 0 && <button onClick={function() { if (openDirectorships) openDirectorships("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Directorships</button>}
     {dirs.length === 0 && <div style={{ marginTop: 10 }}>
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>No directorships.</div>
-      <button onClick={function() { upd(function(prev) { return dirRestoreBuiltIns(prev); }); }} style={btn({ width: "100%", marginTop: 6, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>Restore built-in directorships</button>
+      <button onClick={function() { upd(function(prev) { return dirRestoreBuiltIns(prev); }); }} style={btn({ width: "100%", marginTop: 6, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>Load built-in directorships (Faraz Khan)</button>
     </div>}
     {dirs.map(function(x) {
       if (edit && edit.origId === x.id) return <div key={x.id}>{renderEditor()}</div>;
@@ -1018,8 +1018,9 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       <button onClick={function() { if (confirm("Delete " + orphans + " time " + (orphans === 1 ? "entry" : "entries") + " of removed directorships? This can't be undone.")) upd(function(prev) { return dirDropOrphans(prev); }); }} style={btn({ color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)", minHeight: 36, marginLeft: 4 })}>Delete them</button>
     </div>}
     {edit && edit.origId === null && renderEditor()}
-    {!edit && <button onClick={function() { openEdit(null); }} style={btn({ width: "100%", marginTop: 10 })}>+ Add directorship</button>}
+    {!edit && dirs.length > 0 && <button onClick={function() { openEdit(null); }} style={btn({ width: "100%", marginTop: 10 })}>+ Add directorship</button>}
 
+    {(dirs.length > 0 || hasSig) && <>
     <div style={{ ...S.fieldLabel, marginTop: 14 }}>Signature</div>
     {(!hasSig || padOpen) ? <DirSignaturePad upd={upd} onSaved={function() { setPadOpen(false); setSigTick(function(t) { return t + 1; }); }} onCancel={hasSig ? function() { setPadOpen(false); } : null} /> : <div>
       <div style={{ fontSize: 12, color: "var(--text-muted)" }}>Saved, encrypted with your PIN.</div>
@@ -1032,6 +1033,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
         <button onClick={function() { if (confirm("Remove your saved signature? Forms can't be created until you draw it again.")) dirSignatureRemove(upd); }} style={btn({ flex: 1, color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>
       </div>
     </div>}
+    </>}
   </div>);
 }
 

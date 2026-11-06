@@ -98,12 +98,14 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
   var addSite = function() {
     var n = newSite.trim();
     if (!n || nameTaken(n, null)) return;
-    updSites(function(l) { return l.concat([{ id: "site-" + Date.now().toString(36), name: n, weekendDays: [0, 6], casesEarnRVU: true, rates: [] }]); });
+    updSites(function(l) { return l.concat([{ id: "own-" + Date.now().toString(36), name: n, weekendDays: [0, 6], casesEarnRVU: true, rates: [] }]); });
     setNewSite("");
   };
   // Built-in sites (utils.js DEFAULT_PAY_SITES) with no standing site at all
   // (payMissingBuiltIns: id, same name or "<name> ..." alias) - e.g. after
-  // deleting one. A standing site that lacks rates gets the Built-in rates
+  // deleting one; offered only beside a site that stands for a built-in (at
+  // zero sites the one-tap load replaces it, and another user's own sites never
+  // see it). A standing site that lacks rates gets the Built-in rates
   // card instead (payBuiltInOffers); one whose built-in now pays by shift
   // type gets the "Use new ... rates" card (payTypedOffers).
   var missingDefaults = payMissingBuiltIns(sites);
@@ -1103,7 +1105,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
       {sites.length === 0
         ? <div>
             <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Add a site and its rates below to get started.</div>
-            {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
+            <button onClick={function() { upd(function(prev) { return payLoadBuiltIns(prev); }); }} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>Load Davenport / Silvis general surgery rates</button>
           </div>
         : <div>
             <button onClick={openNew} style={btn({ ...primary, width: "100%", marginTop: 10, minHeight: 50, fontSize: 15 })}>+ New shift</button>
@@ -1260,7 +1262,7 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
         <button onClick={addSite} disabled={!newSite.trim() || nameTaken(newSite, null)} style={btn({ ...primary, opacity: newSite.trim() && !nameTaken(newSite, null) ? 1 : 0.4 })}>Add site</button>
       </div>
       {newSite.trim() && nameTaken(newSite, null) && <div style={{ fontSize: 11, color: amber, marginTop: 6 }}>A site with that name already exists.</div>}
-      {missingDefaults.length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
+      {missingDefaults.length > 0 && Object.keys(builtInDefOf).length > 0 && <button onClick={addDefaults} style={btn({ width: "100%", marginTop: 10, color: "var(--accent-sky)", border: "1px solid rgba(14,165,233,0.3)" })}>{"Add built-in site" + (missingDefaults.length === 1 ? "" : "s") + ": " + missingDefaults.map(function(ds) { return ds.name; }).join(", ")}</button>}
     </div>
   </div>);
 }

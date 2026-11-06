@@ -80,6 +80,7 @@ js files/
 - **Fields:** CPT, description, work RVU, category, global period (CMS "GLOB DAYS")
 - **Enhanced descriptions:** ~301 commonly used surgical codes have cleaned-up descriptions and keyword supplements (e.g., code 47562 matches "lap chole", "cholecystectomy", "gallbladder")
 - **Storage:** `localStorage` on the device is the only persistence layer. A "last known good" snapshot is kept beside the live data, and backups are PIN-encrypted codes or files the user saves.
+- **Fresh install:** starts empty, with a blank rate and goals. The built-in call-pay sites and directorships load only when you tap their Load button; the acute-care cards appear when you turn them on or have acute data.
 
 ### Data versioning
 

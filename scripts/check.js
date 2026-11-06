@@ -2300,7 +2300,8 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
     else if (n.type === "ClassDeclaration" && n.id) out.push(n.id.name);
     return out;
   }, []) : [];
-  // G2: directorships passes through RAW (missing = seed, [] = removed).
+  // G2: directorships reaches repairData RAW: missing becomes [] silently, a
+  // malformed value becomes [] with a banner (a `|| []` here would hide that).
   const fr = findDeclared(settingsAst, "finishRestore");
   const frSrc = fr ? settingsSrc.slice(fr.start, fr.end) : "";
   check("directorships G2: loadData and finishRestore pass `directorships` raw (no || []), and finishRestore repairs before it writes",
@@ -2461,6 +2462,128 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
     dirCode.indexOf("var dText = dirDetailText(dirAsciiPunct(f.detail)), dKey = dirDetailKey(dText);") !== -1 && dirCode.indexOf("category: row.key, detail: dText,") !== -1 &&
     (padSrc.match(/e\.pointerId !== activeId\.current/g) || []).length === 2 && (padSrc.match(/dirSigStillValid\(pinRef\.current\)/g) || []).length === 2,
     JSON.stringify({ pad: padSrc.length }));
+}
+
+// 5h. Neutral fresh install (CLAUDE.md: more than one user). Syntactic
+// tripwires. The value tests U0-U6b in section 7e are the proof for utils.js;
+// nothing here renders a view, so only the live pass proves what a view shows.
+// These cannot see a preset rebuilt from pieces ("Dav" + "enport"), an alias
+// (var f = x; f()) inside an allowed function, or a write a pinned component
+// makes during render.
+{
+  const OWNER_WORDS = /Faraz|Khan\b|Davenport|Silvis|MercyOne|Illini|Quad Cities|Rusholme|150-6700/;
+  const LOAD_LABELS = { "callpay.js": "Load Davenport / Silvis general surgery rates", "directorships.js": "Load built-in directorships (Faraz Khan)" };
+  const PRESET_DECLS = ["DEFAULT_PAY_SITES", "DIRECTORSHIP_PRESET"];
+  const srcOf = f => fs.readFileSync(path.join(JS_DIR, f), "utf8");
+  const scanFiles = jsFiles.filter(f => f !== "cpt-data.js");
+  const topName = t => !t ? "" : t.type === "FunctionDeclaration" && t.id ? t.id.name : t.type === "VariableDeclaration" ? t.declarations.map(d => d.id && d.id.name).join() : "";
+  // U7: the built-in constants and their copy helpers appear only at pinned
+  // places (file -> name -> the top-level declarations allowed to use it).
+  const BUILTIN_PIN = {
+    "utils.js": { DEFAULT_PAY_SITES: ["defaultPaySites", "payBuiltInFor", "payMissingBuiltIns", "payBuiltInOffers", "payTypedOffers", "payCreditOffers"],
+      DIRECTORSHIP_PRESET: ["defaultDirectorships", "repairData", "dirMissingBuiltIns"], defaultPaySites: ["payLoadBuiltIns"], defaultDirectorships: ["dirMissingBuiltIns", "dirRestoreBuiltIns"] },
+    "callpay.js": { DEFAULT_PAY_SITES: ["CallPay"], defaultPaySites: ["CallPay"], payLoadBuiltIns: ["CallPay"] },
+    "directorships.js": { DIRECTORSHIP_PRESET: ["DirectorshipsCard"], dirRestoreBuiltIns: ["DirectorshipsCard"], dirRestoreBuiltIn: ["DirectorshipsCard"] },
+  };
+  const BUILTIN_NAMES = ["DEFAULT_PAY_SITES", "DIRECTORSHIP_PRESET", "defaultPaySites", "defaultDirectorships", "payLoadBuiltIns", "dirRestoreBuiltIns", "dirRestoreBuiltIn"];
+  const LOADERS = ["DEFAULT_PAY_SITES", "DIRECTORSHIP_PRESET", "payLoadBuiltIns", "dirRestoreBuiltIns", "dirRestoreBuiltIn", "defaultPaySites", "defaultDirectorships"];
+  const inReactRun = stack => stack.some(x => x.type === "CallExpression" && x.callee && x.callee.type === "Identifier" && /^use(Effect|LayoutEffect|Memo|State)$/.test(x.callee.name));
+  const builtInUses = (src, file) => {
+    const out = [], pin = BUILTIN_PIN[file] || {};
+    walkStack(src, (n, stack) => {
+      if (n.type !== "Identifier" || BUILTIN_NAMES.indexOf(n.name) === -1) return;
+      const p = stack[stack.length - 1];
+      if (file === "utils.js" && stack.length <= 3 && ((p.type === "FunctionDeclaration" && p.id === n) || (p.type === "VariableDeclarator" && p.id === n))) return;
+      if ((pin[n.name] || []).indexOf(topName(stack[1])) === -1) out.push(n.name + "@" + topName(stack[1]) + ":" + n.loc.start.line);
+      else if (LOADERS.indexOf(n.name) !== -1 && inReactRun(stack)) out.push(n.name + " in an effect:" + n.loc.start.line);
+    });
+    return out;
+  };
+  const useSelf = [
+    ["const defState = () => ({ paySites: defaultPaySites() });", "utils.js", true],
+    ["function repairData(d) { d.paySites = defaultPaySites(); }", "utils.js", true],
+    ["function repairData(d) { d.directorships = defaultDirectorships(); }", "utils.js", true],
+    ["function dirList(d) { return defaultDirectorships(); }", "utils.js", true],
+    ["function loadData() { return payLoadBuiltIns({}); }", "utils.js", true],
+    ["var x = DEFAULT_PAY_SITES.length;", "settings.js", true],
+    ["function DashboardView() { return DIRECTORSHIP_PRESET.length; }", "dashboard.js", true],
+    ["function CallPay() { useEffect(function() { upd(payLoadBuiltIns); }, []); }", "callpay.js", true],
+    ["function CallPay() { useEffect(function() { upd(function(p) { return { ...p, paySites: DEFAULT_PAY_SITES }; }); }, []); }", "callpay.js", true],
+    ["function DirectorshipsCard() { const [x] = useState(DIRECTORSHIP_PRESET); }", "directorships.js", true],
+    ["function defaultPaySites() { return JSON.parse(JSON.stringify(DEFAULT_PAY_SITES)); }", "utils.js", false],
+    ["function repairData(d) { DIRECTORSHIP_PRESET.forEach(function(p) { b[p.id] = true; }); }", "utils.js", false],
+    ["function CallPay() { DEFAULT_PAY_SITES.forEach(f); return function() { upd(function(p) { return payLoadBuiltIns(p); }); }; }", "callpay.js", false],
+  ];
+  const badUseSelf = useSelf.filter(t => (builtInUses(t[0], t[1]).length > 0) !== t[2]);
+  check("U7 built-in use gate self-test (" + useSelf.length + " snippets)", badUseSelf.length === 0, badUseSelf.map(t => t[0]).join(" | "));
+  const useBad = [];
+  scanFiles.forEach(f => { try { builtInUses(srcOf(f), f).forEach(x => useBad.push(f + " " + x)); } catch (e) { /* parse failure is reported in step 1 */ } });
+  check("U7: the presets, their copy helpers and the load writers appear only at the pinned places - never in defState, loadData, a new caller, or a React effect, memo or state initialiser (a write made while a pinned component renders is not seen)", useBad.length === 0, useBad.join(", "));
+  // U8: owner words in anything that runs (string, template, JSX text; comments
+  // are not scanned): only inside the two preset declarations and the two
+  // named load labels.
+  const ownerStrings = (src, file) => {
+    const out = [];
+    walkStack(src, (n, stack) => {
+      let v = null;
+      if (n.type === "StringLiteral") v = n.value; else if (n.type === "TemplateElement") v = n.value.cooked; else if (n.type === "JSXText") v = n.value.trim();
+      if (v === null || !OWNER_WORDS.test(v)) return;
+      if (file === "utils.js" && PRESET_DECLS.indexOf(topName(stack[1])) !== -1) return;
+      if (LOAD_LABELS[file] === v) return;
+      out.push(n.loc.start.line + ": " + v.slice(0, 60));
+    });
+    return out;
+  };
+  const ownSelf = [
+    ["var a = \"Faraz Khan, MD\";", "log.js", 1], ["var a = <b>Davenport</b>;", "log.js", 1], ["var a = `x Silvis ${y}`;", "log.js", 1],
+    ["var a = \"Khan\";", "utils.js", 1], ["var DIRECTORSHIP_PRESET = [{ printName: \"Faraz Khan, MD\" }];", "utils.js", 0], ["var OTHER = [{ printName: \"Faraz Khan, MD\" }];", "utils.js", 1],
+    ["// Faraz Khan\nvar a = 1;", "log.js", 0], ["var a = <b>Load built-in directorships (Faraz Khan)</b>;", "directorships.js", 0], ["var a = \"Load built-in directorships (Faraz Khan)\";", "log.js", 1], ["var a = \"Khanna\";", "log.js", 0],
+  ];
+  const badOwnSelf = ownSelf.filter(t => ownerStrings(t[0], t[1]).length !== t[2]);
+  check("U8 owner-words gate self-test (" + ownSelf.length + " snippets)", badOwnSelf.length === 0, badOwnSelf.map(t => t[0]).join(" | "));
+  const ownBad = [];
+  scanFiles.forEach(f => { try { ownerStrings(srcOf(f), f).forEach(x => ownBad.push(f + ":" + x)); } catch (e) { /* parse failure is reported in step 1 */ } });
+  if (OWNER_WORDS.test(html)) ownBad.push("index.html");
+  if (OWNER_WORDS.test(fs.readFileSync(path.join(APP, "manifest.json"), "utf8"))) ownBad.push("manifest.json");
+  check("U8: no owner name or institution in any running string outside the two preset blocks and the two named load labels (comments are not scanned)", ownBad.length === 0, ownBad.join(" | "));
+  // U8b: the preset's distinctive amounts are typed nowhere else in running code.
+  const OWNER_AMOUNTS = [2773.6, 3189.65, 291.23, 291.13, 242.69], amountBad = [];
+  scanFiles.forEach(f => { try { walkStack(srcOf(f), (n, stack) => { if (n.type === "NumericLiteral" && OWNER_AMOUNTS.indexOf(n.value) !== -1 && !(f === "utils.js" && PRESET_DECLS.indexOf(topName(stack[1])) !== -1)) amountBad.push(f + ":" + n.loc.start.line); }); } catch (e) { /* parse failure is reported in step 1 */ } });
+  check("U8b: the preset's distinctive amounts appear only in the preset (rounded or computed amounts are not seen)", amountBad.length === 0, amountBad.join(", "));
+  // U9: each named load label exists exactly once, in its one file, and the old
+  // directorship label (which promised "restore" to someone who never had them) is gone.
+  const labelBad = Object.keys(LOAD_LABELS).filter(f => srcOf(f).split(LOAD_LABELS[f]).length !== 2);
+  const retired = scanFiles.filter(f => /Restore built-in directorships/.test(srcOf(f)));
+  check("U9: each named load label appears once in its file; the old 'Restore built-in directorships' wording is gone", labelBad.length === 0 && retired.length === 0, labelBad.join() + " / " + retired.join());
+  // U10: a site typed in the app is marked as such, so it never matches a built-in by name.
+  const cpSrc = srcOf("callpay.js");
+  check("U10: Call Pay's Add site writes the 'own-' id prefix, and writes no other site id", /id: "own-" \+ Date\.now\(\)\.toString\(36\), name: n,/.test(cpSrc) && !/"site-" \+/.test(cpSrc));
+  // U11: defState's two lists are literal empties (the value test is U1).
+  const defProp = k => defObj ? defObj.properties.filter(p => p.type === "ObjectProperty" && (p.key.name || p.key.value) === k)[0] : null;
+  const emptyArr = p => !!p && p.value.type === "ArrayExpression" && p.value.elements.length === 0;
+  check("U11: defState's paySites and directorships are literal empty lists", emptyArr(defProp("paySites")) && emptyArr(defProp("directorships")));
+  // U12: no dialog or banner from a React effect, memo or state initialiser -
+  // a prompt runs only in a tap (none exists today in any js file).
+  const dialogRuns = src => { const out = []; walkStack(src, (n, stack) => { if (n.type === "CallExpression" && n.callee.type === "Identifier" && ["confirm", "prompt", "alert", "showDataAlert"].indexOf(n.callee.name) !== -1 && inReactRun(stack)) out.push(n.callee.name + ":" + n.loc.start.line); }); return out; };
+  const dialogSelf = [["useEffect(function() { if (x) confirm(\"y\"); }, []);", 1], ["var a = useMemo(function() { alert(1); return 1; }, []);", 1], ["var f = function() { confirm(\"y\"); };", 0], ["<button onClick={function() { if (confirm(\"y\")) upd(g); }} />;", 0]];
+  const dialogBadSelf = dialogSelf.filter(t => dialogRuns(t[0]).length !== t[1]);
+  const dialogBad = [];
+  scanFiles.forEach(f => { try { dialogRuns(srcOf(f)).forEach(x => dialogBad.push(f + ":" + x)); } catch (e) { /* parse failure is reported in step 1 */ } });
+  check("U12: no confirm/prompt/alert/showDataAlert inside a React effect, memo or state initialiser; self-test (" + dialogSelf.length + " snippets)", dialogBadSelf.length === 0 && dialogBad.length === 0, dialogBadSelf.map(t => t[0]).join(" | ") + " " + dialogBad.join(", "));
+  // U13: the wiring. Each owner-specific or group surface sits under its test.
+  const inOrder = (s, list) => { let at = -1; return list.every(x => { const i = s.indexOf(x, at + 1); if (i === -1) return false; at = i; return true; }); };
+  const aSrc = srcOf("analytics.js"), hSrc = srcOf("dashboard.js"), sSrc = srcOf("settings.js"), dSrc = srcOf("directorships.js");
+  check("U13: Trends' acute cards sit under acuteInUse(data); Home's Reconciliation card under reconInUse(data)",
+    inOrder(aSrc, ["{acuteInUse(data) && <>", "Value per Shift (Acute)", "Acute Cross-Check", "</>}", "Monthly Summary Report"]) && aSrc.split("acuteInUse(").length === 2 &&
+    inOrder(hSrc, ["{reconInUse(data) && <div", ">Reconciliation</div>", "</div>}"]) && hSrc.split("reconInUse(").length === 2);
+  check("U13b: Settings' acute cards sit under showAcute (acuteInUse or this visit's reveal) with the one reveal button as the other branch; the Reconciliation goal under reconInUse(data), kept for the visit once shown so retyping never removes it; the Share App card prints no address",
+    /var showAcute = acuteInUse\(data\) \|\| acuteReveal;/.test(sSrc) && inOrder(sSrc, ["{showAcute ? <>", ">Monthly Acute Care<", ">Acute Care Group<", "</> : <div style={S.card}>", "setAcuteReveal(true)", ">Track a group acute-care pool<", "</div>}"]) &&
+    sSrc.split("Track a group acute-care pool").length === 2 && /const reconSeen = useRef\(false\);\s*if \(reconInUse\(data\)\) reconSeen\.current = true;/.test(sSrc) && /\{reconSeen\.current && <div style=\{S\.fieldGroup\}><label style=\{S\.fieldLabel\}>Reconciliation goal/.test(sSrc) &&
+    sSrc.split("fkhan628.github.io").length === 2 && /var url = "https:\/\/fkhan628\.github\.io\//.test(sSrc));
+  check("U13c: on an empty list the Directorships card has the neutral line and the Load button only - no count, Open, + Add or signature pad (a saved signature still shows); Call Pay's Load shows only at zero sites and 'Add built-in site' only beside a site that stands for a built-in",
+    /\{dirs\.length > 0 \? "Monthly signed time sheets/.test(dSrc) && /\{dirs\.length > 0 && <div style=\{\{ fontSize: 12, color: "var\(--text-muted\)", marginTop: 2 \}\}>\{dirs\.length \+ " "/.test(dSrc) &&
+    /\{dirs\.length > 0 && <button onClick=\{function\(\) \{ if \(openDirectorships\) openDirectorships\("settings"\); \}\}/.test(dSrc) && /\{!edit && dirs\.length > 0 && <button onClick=\{function\(\) \{ openEdit\(null\); \}\}/.test(dSrc) && /\{\(dirs\.length > 0 \|\| hasSig\) && <>/.test(dSrc) &&
+    inOrder(cpSrc, ["{sites.length === 0", LOAD_LABELS["callpay.js"], "+ New shift"]) && /\{missingDefaults\.length > 0 && Object\.keys\(builtInDefOf\)\.length > 0 && <button onClick=\{addDefaults\}/.test(cpSrc) && cpSrc.split("onClick={addDefaults}").length === 2);
 }
 
 // 6. CPT database integrity
@@ -2961,25 +3084,26 @@ if (sb) {
   const badWorked = WORKED.filter(w => w[0] !== w[1]);
   check("built-in sites reproduce the owner's worked examples (8)", badWorked.length === 0, badWorked.map(w => w[0] + " want " + w[1]).join("; "));
   check("built-in sites: none in force before Oct 1 2026", sb.rateInForce(SIL, "2026-09-30") === null && sb.rateInForce(DAV, "2026-09-30") === null);
-  // Directorships: a store saved by this build always carries the field
-  // (the preset passes repairData unchanged), so fixtures carry it too.
+  // Directorships: a store saved by this build always carries the field, so
+  // fixtures carry it too.
   const seedStore = (o) => Object.assign({ entries: [], settings: { ratePerRVU: 55, annualGoal: 0, reconGoal: 0 }, paySites: [], payShifts: [], directorships: sb.defaultDirectorships() }, o || {});
   const sEmpty = seedStore(); sb.repairData(sEmpty);
   const sHasSite = seedStore({ paySites: [S1] }); sb.repairData(sHasSite);
   const sHasShift = seedStore({ payShifts: [kept.shift] }); sb.repairData(sHasShift);
   const sMarked = seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true } }); sb.repairData(sMarked);
-  check("seeding: empty store gets the built-in sites once; existing sites/shifts/marker untouched",
-    sEmpty.paySites.map(s => s.name).join(",") === "Silvis,Davenport" && sEmpty.settings.paySitesSeeded === true &&
+  check("no seeding: repairData leaves an empty call-pay store empty but still writes the marker (it stops an older build seeding); existing sites/shifts/marker untouched",
+    sEmpty.paySites.length === 0 && sEmpty.settings.paySitesSeeded === true &&
     sHasSite.paySites.length === 1 && sHasSite.settings.paySitesSeeded === true &&
     sHasShift.paySites.length === 0 && sMarked.paySites.length === 0);
-  const sBad = seedStore({ paySites: { a: { name: "Mine" } } }); sb.repairData(sBad);
-  check("seeding: a malformed (non-list) sites value is reset with a notice, not silently replaced",
+  const sBad = seedStore({ paySites: { a: { name: "Mine" } } }), sBadFixed = sb.repairData(sBad);
+  check("no seeding: a malformed (non-list) sites value is reset with a notice, not silently replaced; the seeding helpers are gone",
     Array.isArray(sBad.paySites) && sBad.paySites.length === 0 && sBad.settings.paySitesSeeded === true &&
-    sb.payWillSeed(seedStore()) === true && sb.payWillSeed(seedStore({ paySites: { x: 1 } })) === false &&
-    sb.payWillSeed(seedStore({ settings: { paySitesSeeded: true } })) === false && sb.payWillSeed({ paySites: [] }) === false);
-  const seededJson = JSON.stringify(sEmpty.paySites);
-  const fixed2 = sb.repairData(sEmpty);
-  check("built-in sites pass repairData unchanged (no rewrite on later loads)", JSON.stringify(sEmpty.paySites) === seededJson && fixed2.length === 0, fixed2.join(","));
+    /Call pay sites were unreadable/.test(String(sBadFixed.loss)) && typeof sb.payWillSeed === "undefined" && typeof sb.dirWillSeed === "undefined",
+    String(sBadFixed.loss));
+  const sLoaded = sb.payLoadBuiltIns(seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true } }));
+  const seededJson = JSON.stringify(sLoaded.paySites);
+  const fixed2 = sb.repairData(sLoaded);
+  check("built-in sites pass repairData unchanged (no rewrite on later loads)", sLoaded.paySites.map(s => s.name).join(",") === "Silvis,Davenport" && JSON.stringify(sLoaded.paySites) === seededJson && fixed2.length === 0, fixed2.join(","));
   // ---- Day/Night reader (commit A): the typed shapes (plan b1/b3) pass
   // through this build untouched, unpriced and never re-priced, so a rollback
   // to it keeps the data. Made-up amounts.
@@ -3305,7 +3429,7 @@ if (sb) {
     octM.total === 3125 && octM.callIns === 4 && splitOf(octM) === splitOf(octR) && octM.sites.every(st => st.shifts > 0) && !!sepM && sepM.split.length === 0 && sepM.needsType === 0 && sepM.shifts === 1,
     JSON.stringify({ y: splitOf(mtS), oct: octM && splitOf(octM), sites: octM && octM.sites }));
   const ds = vm.runInContext("defState()", sb), ds2 = vm.runInContext("defState()", sb);
-  check("new installs start with the built-in sites + marker (fresh copies)", ds.paySites.length === 2 && ds.settings.paySitesSeeded === true && ds.paySites[0] !== ds2.paySites[0]);
+  check("new installs start with no sites, the marker (so an older build never seeds them) and fresh copies", ds.paySites.length === 0 && ds.settings.paySitesSeeded === true && ds.paySites !== ds2.paySites);
   // "Use built-in rates" (R1): a phone whose own same-named sites lack paying
   // rates gets the preset version on a confirmed tap. Names come from the
   // preset at run time; other rates are the made-up RA (paying) / RZ ($0).
@@ -4899,21 +5023,20 @@ if (sb) {
 
     // T1 preset
     const dd1 = sb.defaultDirectorships(), dd2 = sb.defaultDirectorships(), ds1 = vm.runInContext("defState", sb)(), ds2 = vm.runInContext("defState", sb)();
-    check("directorships T1: DIRECTORSHIP_PRESET equals the spec literal, ASCII, ids icu/trauma/wound; copies and defState are fresh",
+    check("directorships T1: DIRECTORSHIP_PRESET equals the spec literal, ASCII, ids icu/trauma/wound; copies are fresh; defState holds none of it",
       J(sb.DIRECTORSHIP_PRESET) === J(PRESET_SPEC) && !/[^\x20-\x7e]/.test(J(sb.DIRECTORSHIP_PRESET)) &&
       sb.DIRECTORSHIP_PRESET.map(d => d.id).join() === "icu,trauma,wound" && dd1 !== dd2 && dd1[2].selectHeader !== dd2[2].selectHeader &&
-      J(dd1) === J(PRESET_SPEC) && ds1.directorships !== ds2.directorships && J(ds1.directorships) === J(PRESET_SPEC) &&
+      J(dd1) === J(PRESET_SPEC) && ds1.directorships !== ds2.directorships && J(ds1.directorships) === "[]" &&
       J(ds1.dirEntries) === "[]" && J(ds1.dirHandoff) === "{}" && ds1.dirSignatureEnc === null && fixedPt(ds1));
 
-    // T2 seeding
+    // T2 no seeding
     const t2a = { entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true } }, q2a = quiet(() => sb.repairData(t2a));
     const t2b = dstore({ directorships: [] }), q2b = quiet(() => sb.repairData(t2b));
-    const badSeed = [null, {}, "x"].map(v => { const s = dstore({ directorships: v }), q = quiet(() => sb.repairData(s)); return J(s.directorships) === "[]" && q.seen.length === 1 && !/[^\x20-\x7e]/.test(q.seen[0]) && /Restore built-in directorships/.test(q.seen[0]); });
+    const badSeed = [null, {}, "x"].map(v => { const s = dstore({ directorships: v }), q = quiet(() => sb.repairData(s)); return J(s.directorships) === "[]" && q.seen.length === 1 && !/[^\x20-\x7e]/.test(q.seen[0]) && /see Settings > Directorships/.test(q.seen[0]); });
     const again = JSON.parse(J(t2a)), q2c = quiet(() => sb.repairData(again));
-    check("directorships T2: missing = seeded silently (tagged), [] stays [], malformed -> [] with one ASCII banner; dirWillSeed agrees; seeded store is a fixed point",
-      J(t2a.directorships) === J(PRESET_SPEC) && q2a.r.indexOf("directorships-seeded") !== -1 && q2a.seen.length === 0 && !q2a.r.loss &&
+    check("directorships T2: missing = an empty list, silently (tagged), never the preset; [] stays []; malformed -> [] with one ASCII banner; a fixed point afterwards",
+      J(t2a.directorships) === "[]" && q2a.r.indexOf("directorships-empty") !== -1 && q2a.seen.length === 0 && !q2a.r.loss &&
       J(t2b.directorships) === "[]" && q2b.r.length === 0 && q2b.seen.length === 0 && badSeed.every(Boolean) &&
-      sb.dirWillSeed({}) === true && sb.dirWillSeed({ directorships: [] }) === false && sb.dirWillSeed({ directorships: null }) === false &&
       q2c.r.length === 0 && q2c.seen.length === 0 && J(again) === J(t2a));
 
     // T3 loadData (in-memory storage)
@@ -4929,17 +5052,17 @@ if (sb) {
         mem[SKD] = J({ entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [], payShifts: [] });
         const l1 = sb.loadData(), w1 = writes.length, b1 = banners.length;
         const l2 = sb.loadData(), w2 = writes.length - w1;
-        okA = J(l1.directorships) === J(PRESET_SPEC) && w1 === 1 && b1 === 0 && w2 === 0 && J(l2.directorships) === J(PRESET_SPEC);
+        okA = J(l1.directorships) === "[]" && w1 === 1 && b1 === 0 && w2 === 0 && J(l2.directorships) === "[]";
         mem[SKD] = J({ entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true }, paySites: [], payShifts: [], directorships: [] });
         const w3 = writes.length, l3 = sb.loadData(), l4 = sb.loadData();
         okB = J(l3.directorships) === "[]" && J(l4.directorships) === "[]" && writes.length === w3;
-        // A pre-feature last-good snapshot behind an unreadable primary: seeded, and the banner never mentions it.
+        // A pre-feature last-good snapshot behind an unreadable primary: an empty list, and the banner never mentions it.
         mem[SKD] = "{not json"; mem[sb.LAST_GOOD_KEY] = J({ entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true } }); mem[sb.LAST_GOOD_TIME_KEY] = "T0";
         const bStart = banners.length, l5 = sb.loadData(), last = banners[banners.length - 1] || "";
-        okC = J(l5.directorships) === J(PRESET_SPEC) && banners.length === bStart + 1 && /DATA RECOVERY/.test(last) && !/irectorship/.test(last);
+        okC = J(l5.directorships) === "[]" && banners.length === bStart + 1 && /DATA RECOVERY/.test(last) && !/irectorship/.test(last);
         info = { w1: w1, b1: b1, w2: w2, last: last.slice(0, 80) };
       } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realA; }
-      check("directorships T3: loadData seeds a pre-feature store once (no banner, no rewrite after); [] stays [] with no write; a pre-feature last-good snapshot is seeded silently",
+      check("directorships T3: loadData gives a pre-feature store an empty list once (no banner, no rewrite after), never the preset; [] stays [] with no write; a pre-feature last-good snapshot gets an empty list silently",
         okA && okB && okC, J(Object.assign({ okA: okA, okB: okB, okC: okC }, info)));
     }
 
@@ -4954,20 +5077,20 @@ if (sb) {
       Object.assign({}, WC, { id: "w3", name: "Remit string", shortName: 7, selectHeader: Object.assign({}, WC.selectHeader, { remitAddress: "1 Main St", glNo: 42 }) }),
       Object.assign({}, WC, { id: "w4", name: "Remit long", selectHeader: Object.assign({}, WC.selectHeader, { remitAddress: ["A", "B", "C"] }) }),
       Object.assign({}, ICU, { id: "c:1", name: "Colon id", extra: { keep: 1 } }),           // ":" in id: kept (keys split at the LAST ":"); unknown key kept
-      { id: "trauma", name: "Trauma Medical Director", form: "pdf" },                        // a dropped BUILT-IN: the banner points to Restore
+      { id: "trauma", name: "Trauma Medical Director", form: "pdf" },                        // a dropped BUILT-IN: the banner points to Restore or Load
       { id: "icu", name: "ICU again", form: "pdf" }                                          // dropped, but ICU still holds its id: hours stay there
     ] });
     const q4 = quiet(() => sb.repairData(t4)), D4 = t4.directorships, banner4 = q4.seen[0] || "";
     const ids4 = D4.map(d => d.id);
     const pass2 = JSON.parse(J(t4)), q4b = quiet(() => sb.repairData(pass2));
-    check("directorships T4: repair table - coercion silent, duplicate ids renewed, colon ids kept, bad items dropped LOUD (a built-in points to Restore, a custom one says it can't be reattached), unreadable numbers -> 0 LOUD, header rules; second pass clean",
+    check("directorships T4: repair table - coercion silent, duplicate ids renewed, colon ids kept, bad items dropped LOUD (a built-in points to Restore or Load, a custom one says it can't be reattached), unreadable numbers -> 0 LOUD, header rules; second pass clean",
       D4.length === 6 && D4[0].rate === 250 && D4[0].maxHours === 5 && D4[1].rate === 0 && ids4[1] !== "icu" && new Set(ids4).size === 6 && ids4[5] === "c:1" &&
       D4[2].selectHeader === undefined && D4[3].shortName === "7" && J(D4[3].selectHeader.remitAddress) === J(["1 Main St", ""]) && D4[3].selectHeader.glNo === "42" &&
       J(D4[4].selectHeader.remitAddress) === J(["A", "B, C"]) && J(D4[5].extra) === J({ keep: 1 }) &&
-      q4.seen.length === 1 && banner4.indexOf("Directorships #3, No form, #5 were unreadable and removed. Their logged hours are kept but can't be reattached - add them again in Settings and re-log those hours.") !== -1 &&
-      banner4.indexOf("Directorship Trauma Medical Director was unreadable and removed - tap Restore in Settings > Directorships to bring it back with its logged hours. Don't add it again by hand.") !== -1 &&
+      q4.seen.length === 1 && banner4.indexOf("Directorships #3, No form, #5 were unreadable and removed. Their logged hours are kept but can't be reattached - see Settings > Directorships, then re-log those hours.") !== -1 &&
+      banner4.indexOf("Directorship Trauma Medical Director was unreadable and removed - see Settings > Directorships. If Restore or Load is offered there, use it rather than adding it by hand: that brings back its logged hours.") !== -1 &&
       banner4.indexOf("Directorship ICU again was unreadable and removed. It shared an id with a directorship you still have, so its logged hours stay on that one - check them in Directorships and don't re-log them.") !== -1 &&
-      !/ICU again[^.]*(tap Restore|re-log those)/.test(banner4) &&
+      !/ICU again[^.]*(Restore or Load|re-log those)/.test(banner4) &&
       /Dup id rate/.test(banner4) && /Header junk/.test(banner4) && !/[^\x20-\x7e]/.test(banner4) &&
       q4b.r.length === 0 && q4b.seen.length === 0 && J(pass2) === J(t4),
       J({ n: D4.length, ids: ids4, banner: banner4.slice(0, 600) }));
@@ -5029,6 +5152,7 @@ if (sb) {
       ["dirEntryFromDraft", dstore({ dirEntries: [eB.entry] })], ["repeat confirm", dstore({ dirEntries: rep7 })],
       ["dirHandoffMark", dstore({ dirHandoff: hm })], ["dirHandoffClear", dstore({ dirHandoff: hc })],
       ["dirRestoreBuiltIns", sb.dirRestoreBuiltIns(dstore({ directorships: [] }))], ["dirRestoreBuiltIn", sb.dirRestoreBuiltIn(dstore({ directorships: [ICU] }), "wound")],
+      ["payLoadBuiltIns", sb.payLoadBuiltIns(dstore({ directorships: [] }))],
       ["dirDropOrphans", sb.dirDropOrphans(dstore({ directorships: [ICU], dirEntries: [eB.entry, ent("o1", "gone", "2026-10-05", 30, "g_policy")], dirHandoff: { "gone:2026-10": { date: "2026-11-01", entriesHash: "h" } } }))],
       ["dirRemove", rm.next], ["dirRemoveUndo", rmU], ["undo save", undoSave], ["undo edit", undoEdit], ["undo delete", undoDel], ["signature stored", sigStore],
       ["signature removed", Object.assign({}, sigStore, { dirSignatureEnc: null })]
@@ -5099,15 +5223,18 @@ if (sb) {
       J({ ex1: ex1, still: still }));
 
     // T12 restore note
+    const CUSTOM12 = { id: "dir-u", name: "Made-up Lead", shortName: "ML", org: "Org", form: "genesis", printName: "Pat Doe, MD", emplNo: "", costCtr: "", rate: 100, maxHours: 2 };
     const phone12 = dstore({ dirEntries: [ent("p1", "icu", "2026-10-02", 60, "g_policy")], dirSignatureEnc: { ct: "a", salt: "b", iv: "c" } });
     const preBackup = { entries: [], settings: { ratePerRVU: 55 } };
     const n12a = sb.dirRestoreNote(preBackup, phone12), n12b = sb.dirRestoreNote(preBackup, dstore({})), n12c = sb.dirRestoreNote(preBackup, dstore({ directorships: [ICU] }));
     const n12d = sb.dirRestoreNote(Object.assign({}, preBackup, { directorships: [], dirEntries: [ent("q", "icu", "2026-10-01", 5, "g_policy")] }), phone12);
-    check("directorships T12: dirRestoreNote - hours and signature parts for a pre-change backup over a preset phone, '' for a clean phone, 'predates' only when the phone's list differs",
-      n12a === " WARNING: this backup has no directorship hours - the 1 time entry on this phone will be removed; your saved signature will be removed (draw it again after restoring)." &&
-      n12b === "" && n12c === " WARNING: this backup predates directorships - the built-in directorships will replace the ones on this phone." &&
-      n12d === " WARNING: your saved signature will be removed (draw it again after restoring).",
-      J([n12a, n12b, n12c, n12d]));
+    const n12e = sb.dirRestoreNote(Object.assign({}, preBackup, { directorships: [CUSTOM12] }), dstore({})), n12f = sb.dirRestoreNote(preBackup, dstore({ directorships: [] }));
+    check("directorships T12: dirRestoreNote - hours, list and signature parts for a backup with none over a phone with some; a backup with its own list, or a phone with none, says nothing about the list; nothing is promised back",
+      n12a === " WARNING: this backup has no directorship hours - the 1 time entry on this phone will be removed; this backup has no directorships - the 3 on this phone will be removed; your saved signature will be removed (draw it again before your next form)." &&
+      n12b === " WARNING: this backup has no directorships - the 3 on this phone will be removed." && n12c === " WARNING: this backup has no directorships - the 1 on this phone will be removed." &&
+      n12d === " WARNING: this backup has no directorships - the 3 on this phone will be removed; your saved signature will be removed (draw it again before your next form)." &&
+      n12e === "" && n12f === "",
+      J([n12a, n12b, n12c, n12d, n12e, n12f]));
 
     // T13 editor
     const okDraft = { name: "Made-up Lead", shortName: "ML", org: "Org", printName: "Pat Doe, MD", form: "genesis", emplNo: "", costCtr: "", rate: "100", maxHours: "2" };
@@ -5524,6 +5651,103 @@ if (sb) {
       /Two directorships are named/.test(sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "trauma  medical director" }), "2026-10", P18)) &&
       sb.dirFileNameNote(ICU, Object.assign({}, ICU, { name: "ICU \u2013 Trauma" }), "2026-10", P18) === "The monthly email task finds these PDFs by this exact file name: Khan - ICU - Trauma Timesheet - 2026-10.pdf (was Khan - ICU Co-Director Timesheet - 2026-10.pdf).",
       J({ cap433: capDraft("4.33").errors, colon: colonQ.r, tinyFlags: tiny.flags.map(f => f.code) }));
+
+    // ---- 7e. Neutral fresh install (CLAUDE.md: more than one user). The
+    // literal stores below are made up apart from the presets. ----
+    const OWNER_RE = /Faraz|Khan\b|Davenport|Silvis|MercyOne|Illini|Quad Cities|Rusholme|150-6700/;
+    const defFn = vm.runInContext("defState", sb), defSet = vm.runInContext("defSettings", sb), dvU = vm.runInContext("DATA_VERSION", sb), SKU = vm.runInContext("SK", sb);
+    const fr1 = defFn(), fr2 = defFn();
+    check("U0: the owner-words pattern matches both presets (the gates below can never silently become no-ops)",
+      BI.every(d => OWNER_RE.test(d.name)) && sb.DIRECTORSHIP_PRESET.every(d => OWNER_RE.test(J(d))) && !OWNER_RE.test("Pat Doe, MD"));
+    check("U1: defState holds nothing of the owner's - fresh empty lists, blank rate and goal, no owner word in its JSON, the marker kept so a rollback cannot seed it, a repairData fixed point; defSettings still fills a key an old store lacks with 55 / 6000",
+      J(fr1.paySites) === "[]" && J(fr1.directorships) === "[]" && fr1.paySites !== fr2.paySites && fr1.directorships !== fr2.directorships && !OWNER_RE.test(J(fr1)) &&
+      fr1.settings.ratePerRVU === 0 && fr1.settings.annualGoal === 0 && fr1.settings.paySitesSeeded === true && sb.validateData(fr1) === true && fixedPt(JSON.parse(J(fr1))) &&
+      defSet().ratePerRVU === 55 && defSet().annualGoal === 6000 && J(Object.keys(defSet())) === J(["ratePerRVU", "annualGoal", "reconGoal", "yearStart"]), J(fr1).slice(0, 300));
+    // The real boot (app.js): loadData, then saveData of what it returned.
+    const bootU = raw => {
+      const realLS = sb.localStorage, realConsole = sb.console, realA = sb.showDataAlert, had = ["alert", "confirm", "prompt"].map(k => sb[k]);
+      const mem = {}, writes = [], banners = [], warns = [], dialogs = [];
+      try {
+        if (raw !== null) mem[SKU] = raw;
+        sb.localStorage = { getItem: k => (Object.prototype.hasOwnProperty.call(mem, k) ? mem[k] : null), setItem: (k, v) => { writes.push(k); mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+        sb.console = { log: () => {}, warn: m => warns.push(String(m)), error: m => warns.push(String(m)) };
+        sb.showDataAlert = m => banners.push(String(m));
+        ["alert", "confirm", "prompt"].forEach(k => { sb[k] = m => { dialogs.push(k + ":" + m); return null; }; });
+        const out = sb.loadData(), onLoad = writes.filter(k => k === SKU).length, json = J(out);
+        sb.saveData(out);
+        return { out: out, json: json, onLoad: onLoad, stored: mem[SKU], banners: banners, warns: warns, dialogs: dialogs };
+      } finally { sb.localStorage = realLS; sb.console = realConsole; sb.showDataAlert = realA; ["alert", "confirm", "prompt"].forEach((k, i) => { sb[k] = had[i]; }); }
+    };
+    const emptyBoot = bootU(null), emptyBoot2 = bootU(emptyBoot.stored);
+    check("U2: an empty phone boots neutral - no write on load, no banner, no dialog, no owner word in what is stored; the second boot is byte-identical",
+      emptyBoot.onLoad === 0 && emptyBoot.banners.length === 0 && emptyBoot.dialogs.length === 0 && !OWNER_RE.test(emptyBoot.stored) && J(emptyBoot.out.paySites) === "[]" && J(emptyBoot.out.directorships) === "[]" &&
+      emptyBoot2.onLoad === 0 && emptyBoot2.stored === emptyBoot.stored && emptyBoot2.banners.length === 0 && emptyBoot2.dialogs.length === 0, emptyBoot.stored && emptyBoot.stored.slice(0, 200));
+    // Sweep: repairData never ADDS a site, a rate version or a directorship.
+    const CUSTOM = { id: "dir-u", name: "Made-up Lead", shortName: "ML", org: "Org", form: "genesis", printName: "Pat Doe, MD", emplNo: "", costCtr: "", rate: 100, maxHours: 2 };
+    const sweepBad = []; let sweepN = 0;
+    [{ ratePerRVU: 55 }, { ratePerRVU: 55, paySitesSeeded: true }, { ratePerRVU: 55, paySitesSeeded: false }, { ratePerRVU: 55, paySitesSeeded: "x" }].forEach(st => {
+      [undefined, [], [hand("h1", "Mine", [RA])], [hand("h2", BI[1].name)], [hand("h3", BI[0].name), hand("h4", BI[1].name)], [Object.assign(hand(BI[1].id, BI[1].name), { casesEarnRVU: false })]].forEach(ps => {
+        [undefined, [], [kept.shift]].forEach(sh => {
+          [undefined, [], [CUSTOM], [ICU]].forEach(dl => {
+            const s = { entries: [], settings: Object.assign({}, st) };
+            if (ps !== undefined) s.paySites = JSON.parse(J(ps)); if (sh !== undefined) s.payShifts = JSON.parse(J(sh)); if (dl !== undefined) s.directorships = JSON.parse(J(dl));
+            const beforeS = J(s.paySites), beforeD = dl === undefined ? "[]" : J(s.directorships), ownerB = OWNER_RE.test(J([s.paySites, s.directorships]));
+            const q = quiet(() => sb.repairData(s));
+            sweepN++;
+            if (J(s.paySites) !== beforeS || J(s.directorships) !== beforeD || OWNER_RE.test(J([s.paySites, s.directorships])) !== ownerB || q.r.some(t => /seed/i.test(t)) || q.seen.length) sweepBad.push(J(st) + " " + beforeS + " " + beforeD + " -> " + J(s.paySites) + " " + J(s.directorships));
+          });
+        });
+      });
+    });
+    check("U3: repairData never adds a site, a rate or a directorship and never adds an owner word (" + sweepN + " store shapes: marker absent/true/false/junk, lists missing/empty/hand-made/built-in); a missing directorships field becomes []",
+      sweepN === 288 && sweepBad.length === 0, sweepBad.slice(0, 3).join(" | "));
+    // Fixed point: stores this app could already hold, in the key order saveData
+    // writes (no old code kept: input === output is its own proof). A new
+    // defSettings key or store field fails this by design: extend the fixture.
+    const canonU = o => Object.assign({ entries: [], settings: { ratePerRVU: 61, annualGoal: 7000, reconGoal: 8000, yearStart: "2026-07-01", paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: [], payShifts: [], directorships: sb.defaultDirectorships(), dirEntries: [], dirHandoff: {}, dirSignatureEnc: null, dataVersion: dvU }, o || {});
+    const usedE = id => ({ id: id, date: "2026-10-05", cptCode: "47562", baseRVU: 10.47, adjustedRVU: 10.47, modifiers: [], description: "x", category: "Surgery", isCall: true, encounterId: "AB", notes: "AB", siteId: BI[1].id, siteName: BI[1].name, noCredit: true });
+    const oldIds = () => [hand("site-" + (1780000000000).toString(36), BI[0].name), hand("site-" + (1780000000001).toString(36), BI[1].name + " East", [JSON.parse(J(Object.assign({}, RA, { id: "hm-v", effective: "2026-07-01" })))])];
+    const EXIST = [
+      ["built-in sites, used, every field filled", canonU({ entries: [usedE("e1")], rvuOverrides: { "47562": 11 }, favorites: ["47562"], institutionData: [{ month: "2026-09", workRVU: 500, splitRVU: 20, cases: 40 }], acuteRoster: ["Made Up", "Other Person"], acuteMe: "Made Up", acuteMonths: { "2026-09": { pool: 1000, shifts: { "Made Up": 2, "Other Person": 3 } } }, templates: [{ id: "t1", name: "Chole", codes: ["47562"] }], paySites: sb.defaultPaySites(), payShifts: JSON.parse(J(bothDN.shifts)), dirEntries: [ent("d1", "icu", "2026-10-02", 60, "g_policy")], dirHandoff: { "icu:2026-09": { date: "2026-10-01", entriesHash: "h1" } }, dirSignatureEnc: { ct: "Y3Q=", salt: "c2E=", iv: "aXY=" } })],
+      ["older hand-made same-named sites, every offer pending", canonU({ paySites: oldIds() })],
+      ["old-preset site by id, typed offer pending", canonU({ paySites: [JSON.parse(J(SIL)), JSON.parse(J(oldDav))], payShifts: JSON.parse(J([octLeg])) })],
+      ["user removed everything", canonU({ directorships: [] })],
+      ["one directorship removed, one added, orphan hours", canonU({ directorships: [ICU, CUSTOM], dirEntries: [ent("o1", "trauma", "2026-10-02", 30, "g_policy")] })],
+      ["sites typed since the change", canonU({ paySites: [hand("own-1", "Mine", [JSON.parse(J(RA))])] })],
+    ];
+    const existBad = EXIST.filter(t => { const raw = J(t[1]), b = bootU(raw); return !(b.onLoad === 0 && b.json === raw && b.stored === raw && b.banners.length === 0 && b.warns.length === 0 && b.dialogs.length === 0); }).map(t => t[0]);
+    const pend = EXIST[1][1].paySites;
+    check("U4: an existing store is a fixed point - loadData + the first save leave it byte-identical with no write on load, no banner, no warning and no dialog (" + EXIST.length + " stores); its offers by name are untouched",
+      existBad.length === 0 && sb.payBuiltInOffers(pend).length > 0 && sb.payTypedOffers(pend, []).length > 0 && sb.payCreditOffers(pend).length > 0, existBad.join(" | "));
+    // A store older than the marker or the feature (a very old backup): the
+    // marker and an empty list arrive once, nothing else, then it is stable.
+    const oldRaw = J({ entries: [], settings: { ratePerRVU: 61, annualGoal: 7000, reconGoal: 0, yearStart: "2026-01-01" }, paySites: [], payShifts: [] }), oldB = bootU(oldRaw), oldB2 = bootU(oldB.stored);
+    check("U4b: a store older than the marker and the directorships field gets the marker and an empty list once - no site, no directorship, no banner - then stays byte-identical",
+      oldB.out.settings.paySitesSeeded === true && oldB.out.settings.ratePerRVU === 61 && J(oldB.out.paySites) === "[]" && J(oldB.out.directorships) === "[]" && oldB.banners.length === 0 && oldB.dialogs.length === 0 &&
+      oldB2.onLoad === 0 && oldB2.stored === oldB.stored && oldB2.banners.length === 0, oldB.stored && oldB.stored.slice(0, 200));
+    // The load buttons.
+    const noField = { entries: [], settings: { ratePerRVU: 55, paySitesSeeded: true } };
+    const dl1 = sb.dirRestoreBuiltIns(noField), dl2 = sb.dirRestoreBuiltIns(dl1), dl0 = sb.dirRestoreBuiltIns(dstore({ directorships: [] }));
+    const pl1 = sb.payLoadBuiltIns(dstore({ directorships: [] })), pl2 = sb.payLoadBuiltIns(pl1), plOwn = dstore({ paySites: [hand("own-x", BI[1].name)] }), plKeep = sb.payLoadBuiltIns(plOwn);
+    check("U5: the load buttons - directorships load from a missing field or [] to the exact preset, sites load the exact preset; a second tap is a no-op; own sites block the site load; fresh copies; the output is a repairData fixed point",
+      noField.directorships === undefined && J(dl1.directorships) === J(sb.DIRECTORSHIP_PRESET) && dl2 === dl1 && J(dl0.directorships) === J(sb.DIRECTORSHIP_PRESET) && dl1.directorships[0] !== sb.DIRECTORSHIP_PRESET[0] &&
+      J(pl1.paySites) === J(BI) && pl2 === pl1 && pl1.paySites[0] !== BI[0] && plKeep === plOwn && plOwn.paySites.length === 1 &&
+      fixedPt(JSON.parse(J(pl1))) && fixedPt(JSON.parse(J(dl1))));
+    // What a neutral store reads.
+    const neutral = o => Object.assign(defFn(), o || {});
+    const ownS = [hand("own-1", BI[0].name), hand("own-2", BI[1].name, [JSON.parse(J(Object.assign({}, RA, { id: "own-v", effective: "2026-07-01" })))])], ownAlias = [hand("own-3", BI[1].name + " East")];
+    const blankPrint = sb.dirFromEditorDraft([], null, { name: "A", shortName: "", org: "", printName: "", form: "genesis", rate: "1", maxHours: "1" }).errors;
+    check("U6: a neutral store shows nothing of the owner's - no reminder, no default-month pull, no Restore links beside his own list (unless that built-in's hours or hand-offs are stored), no offer or hint for a site typed in the app whatever its name; older ids and a loaded built-in still match; the Print Name error names nobody",
+      sb.dirReminderLine(neutral(), "2026-10-25", "") === null && sb.dirDefaultMonth(neutral(), "2026-11-03") === "2026-11" && sb.dirMissingBuiltIns(neutral()).length === 0 && sb.dirRestoreNote({ entries: [] }, neutral()) === "" &&
+      sb.dirMissingBuiltIns(neutral({ directorships: [CUSTOM] })).length === 0 && sb.dirMissingBuiltIns(neutral({ directorships: [ICU] })).length === 2 &&
+      J(sb.dirMissingBuiltIns(neutral({ directorships: [CUSTOM], dirEntries: [ent("h1", "trauma", "2026-10-02", 30, "g_policy")] })).map(d => d.id)) === J(["trauma"]) &&
+      J(sb.dirMissingBuiltIns(neutral({ directorships: [CUSTOM], dirHandoff: { "wound:2026-10": { date: "2026-11-01", entriesHash: "h" } } })).map(d => d.id)) === J(["wound"]) &&
+      BI.every(d => sb.payBuiltInFor(ownS, d) === null && sb.payBuiltInFor(ownAlias, d) === null) && sb.payBuiltInOffers(ownS).length === 0 && sb.payTypedOffers(ownS, []).length === 0 && sb.payCreditOffers(ownS).length === 0 && sb.payCreditOffers(ownAlias).length === 0 &&
+      sb.payBuiltInFor(oldIds(), BI[1]).by === "alias" && sb.payBuiltInFor(sb.defaultPaySites(), BI[1]).by === "id" && sb.payBuiltInFor([hand("legacy", BI[0].name)], BI[0]).by === "name" &&
+      blankPrint.some(e => e.field === "printName") && blankPrint.every(e => !OWNER_RE.test(e.text)), J(blankPrint));
+    check("U6b: acuteInUse and reconInUse - false on a neutral store; a partner, a month or a 'me' turns acute on; a Compare month or a Reconciliation goal turns Reconciliation on; junk stays off",
+      sb.acuteInUse(neutral()) === false && sb.acuteInUse(neutral({ acuteRoster: ["P"] })) === true && sb.acuteInUse(neutral({ acuteMonths: { "2026-09": { pool: 1, shifts: {} } } })) === true && sb.acuteInUse(neutral({ acuteMe: "P" })) === true && sb.acuteInUse(null) === false &&
+      sb.reconInUse(neutral()) === false && sb.reconInUse(neutral({ institutionData: [{ month: "2026-09", workRVU: 1, splitRVU: 0, cases: 1 }] })) === true && sb.reconInUse(neutral({ settings: { reconGoal: 5 } })) === true && sb.reconInUse(neutral({ settings: { reconGoal: "x" } })) === false && sb.reconInUse(null) === false);
   }
 }
 

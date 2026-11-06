@@ -1,6 +1,6 @@
 # CLAUDE.md — RVU Tracker
 
-Mobile-first PWA for a surgical group tracking wRVUs, CPT codes, and
+Mobile-first PWA for surgeons tracking wRVUs, CPT codes, and
 compensation. No build step: React 18.3.1 + Babel standalone via CDN,
 static files served from GitHub Pages. This file is the constraint map for
 AI-assisted sessions — keep it current in the SAME commit as any change it
@@ -87,19 +87,44 @@ the per-file gates below. Run it after EVERY file change.
   night; no stipend) and the check.js tests that price through the preset:
   the owner's worked examples, the spec's Day/Night figures and preview
   strings, and figures computed from the preset (edge cases, previews, the
-  2027 re-price test). Any other site or rate stays runtime user data;
-  made-up test rates stay literal.
+  2027 re-price test), and Call Pay's load label "Load Davenport / Silvis
+  general surgery rates". Any other site or rate stays runtime user data;
+  made-up test rates stay literal. Public does not mean default: it is
+  opt-in on a fresh install ("More than one user" below).
 - A second exception, chosen by the owner on 2026-10-15, is limited to
   the built-in DIRECTORSHIP_PRESET in utils.js and check.js's copy and
   worked-example tests of it. It allows exactly: the owner's own name,
-  the organization names, the clinic remit address, the GL number, and
-  the hourly rates and monthly hour caps. Everything else stays forbidden
+  the organization names, the clinic remit address, the GL number, the
+  hourly rates and monthly hour caps, and the Settings load label "Load
+  built-in directorships (Faraz Khan)". It is opt-in on a fresh install
+  too ("More than one user" below). Everything else stays forbidden
   as before: no colleagues' names, no email addresses, no partner names,
   no PHI. No tracked file may contain an email address at all (check.js
   G6; its self-test builds its sample at runtime).
 
 ## Hard constraints (enforced by check.js where possible)
 
+- More than one user: the app can have users other than Faraz, so anything
+  specific to Faraz or his group (presets, rates, names, institutions) must
+  be opt-in on a fresh install and is never seeded automatically. Being
+  public does not make something a default. defState holds none of it: empty
+  lists, rate and goal 0 (the zeros live in defState; defSettings keeps 55 /
+  6000 because it also fills a key an old store lacks). repairData and
+  loadData never add a site, a rate version or a directorship. It reaches a
+  store only through a named one-tap load (payLoadBuiltIns, Call Pay, at zero
+  sites; dirRestoreBuiltIns, the Settings card, on an empty list) or a tap
+  beside what was already loaded ("Add built-in site", "Restore <name>").
+  There is no "new phone" flag: each surface keys off what the store holds,
+  so a store that already holds data stays byte-identical on load, with no
+  banner or prompt. Group features with nothing in them stay hidden
+  (acuteInUse: Settings' acute cards and Trends' acute cards, with one "Track
+  a group acute-care pool" button showing Settings' cards for that visit;
+  reconInUse: Home's Reconciliation card and Settings' goal box, which stays
+  for the visit once shown so retyping a goal never removes it). A site typed
+  in the app has an id starting "own-" and never matches a built-in by name
+  (payBuiltInFor), so another user's own "Davenport" gets no card or hint;
+  older ids still match, because the owner's hand-made sites rely on it.
+  check.js U0-U13c pin this.
 - NO optional chaining (`?.`) and NO `export` — Babel standalone script
   mode. Use `x && x.y` or ternaries.
 - ASCII-only source in all js files. Unicode via escapes (`\u2014` for an
@@ -173,7 +198,11 @@ the per-file gates below. Run it after EVERY file change.
   payBuiltInPlan/payApplyBuiltIn/payBuiltInOffers, and the call-case credit
   rule payCaseNoCredit/paySiteCreditNote with the site credit switch
   paySiteWithCredit/payCreditOffers/payApplyNoCredit/payCreditConfirm);
-  callpay.js only holds state and passes "now" in. Built-in rates reach an
+  callpay.js only holds state and passes "now" in. The built-in sites reach a
+  store ONLY through a tap in Call Pay: the one-tap load at zero sites
+  (payLoadBuiltIns, a no-op once any site exists) or the confirmed "Add
+  built-in site" (payMissingBuiltIns, offered only beside a site that stands
+  for a built-in). Built-in rates reach an
   existing site ONLY through two confirmed taps, each re-planned inside the
   updater: "Use built-in rates" (payBuiltInOffers/payApplyBuiltIn - the
   preset's first DATED version, payBuiltInVersion/payBuiltInFrom, never
@@ -181,7 +210,7 @@ the per-file gates below. Run it after EVERY file change.
   payApplyTyped: adds the built-in's typed version and re-dates the site's
   start-date legacy version to null, the Original; it never re-prices -
   recorded shifts keep their pay and the later ones are flagged instead);
-  repairData never adds rates, amounts the
+  repairData never adds sites or rates, amounts the
   user typed are never changed, and casesEarnRVU is never touched by it.
   casesEarnRVU (false = call cases logged at the site from
   CALL_NO_CREDIT_FROM earn no wRVU credit) changes ONLY through
@@ -657,9 +686,15 @@ the per-file gates below. Run it after EVERY file change.
   rule is in utils.js - the `// --- Directorships ---` block):
   - Store fields `directorships`, `dirEntries`, `dirHandoff`,
     `dirSignatureEnc`. `directorships` passes RAW through loadData and
-    finishRestore: MISSING = seed DIRECTORSHIP_PRESET silently (fresh
-    install, pre-feature store, pre-change backup); `[]` = the user removed
-    them, never re-seeded. Babel files read the fields only through
+    finishRestore to repairData: MISSING (a backup older than the feature)
+    becomes `[]` silently, a malformed value `[]` with a banner; neither is
+    ever seeded. An empty list's Settings card shows a neutral line and the
+    one button "Load built-in directorships (Faraz Khan)"
+    (dirRestoreBuiltIns), with no count, Open, + Add or signature pad (a saved
+    signature still shows). "Restore <name>" links (dirMissingBuiltIns) show
+    only beside a preset in the list, or for a preset whose hours or hand-offs
+    are still stored, so Remove's "come back if you restore it" stays true.
+    Babel files read the fields only through
     dirList / dirEntriesOf / dirHandoffOf / dirHasSignature and the
     signature only through dirSignatureLoad(data); the sole member reads
     are finishRestore's rebuild and the JSON export's `delete
@@ -668,7 +703,9 @@ the per-file gates below. Run it after EVERY file change.
     repair block, and never back the feature out by reverting its commit -
     an older build drops all four fields on its first save (logged hours
     and the signature gone). Back out by shipping a build that keeps the
-    fields and hides the UI.
+    fields and hides the UI. A build older than ASSET_V 63 seeds a MISSING
+    field but never `[]`, and seeds sites unless paySitesSeeded is set, so
+    defState saves `[]` and keeps that marker, and repairData still writes it.
   - One implementation: the row keys (STORED data, pinned by check.js
     G8 - never rename one), weeks, slots, money (dirMoney, no locale), the
     file-name contract ("<Surname> - <name> Timesheet - YYYY-MM.pdf",

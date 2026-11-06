@@ -271,16 +271,13 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     var cnt = function(v) { return Array.isArray(v) ? v.length : 0; };
     var plural = function(n, w) { return n + " " + w + (n === 1 ? "" : "s"); };
     var bShifts = cnt(restored.payShifts), bSites = cnt(restored.paySites);
-    // An older backup with no call-pay data gets the built-in sites on
-    // restore (same rule as loading) - count them so the warning is true.
-    if (payWillSeed(restored)) bSites = DEFAULT_PAY_SITES.length;
     var pShifts = cnt(data.payShifts), pSites = cnt(data.paySites);
     // Directorship hours count too (on both sides, when either has any).
     var bDir = cnt(restored.dirEntries), pDir = dirEntriesOf(data).length, showDir = bDir > 0 || pDir > 0;
     var dirN = function(n) { return n + " directorship " + (n === 1 ? "entry" : "entries"); };
     var msg = (label ? "From " + label + ": " : "") + "Restore " + restored.entries.length + " procedures and " + plural(bShifts, "call-pay shift") + (showDir ? " and " + dirN(bDir) : "") + "? This will replace your current data (" + data.entries.length + " procedures, " + plural(pShifts, "call-pay shift") + (showDir ? ", " + dirN(pDir) : "") + ").";
-    if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed.";
-    // Computed on the raw backup, before repairData seeds anything.
+    if (bShifts === 0 && bSites === 0 && (pShifts > 0 || pSites > 0)) msg += " WARNING: this backup has no call-pay data - the " + plural(pSites, "site") + " and " + plural(pShifts, "shift") + " on this phone will be removed. Add your sites again in Call Pay before logging call cases.";
+    // Computed on the raw backup, before repairData runs.
     msg += dirRestoreNote(restored, data);
     if (confirm(msg)) {
       // A restore replaces everything: a pending Undo (e.g. from Delete All)
@@ -317,6 +314,14 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
   };
 
   const set = (k, v) => upd(prev => ({ ...prev, settings: { ...prev.settings, [k]: v } }));
+  // Acute-care cards: hidden on a store with no acute data; this button shows
+  // them for the visit, and a partner or month then keeps them on.
+  const [acuteReveal, setAcuteReveal] = useState(false);
+  var showAcute = acuteInUse(data) || acuteReveal;
+  // The Reconciliation goal box stays for the visit once shown, so clearing it
+  // to retype a goal never removes it under the keystroke.
+  const reconSeen = useRef(false);
+  if (reconInUse(data)) reconSeen.current = true;
 
   // Single key-clearing path, reused by the Settings card's Remove button and the
   // stranded-key affordance shown when scanning is disabled. Do not duplicate.
@@ -870,9 +875,10 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={S.card}><div style={S.cardLabel}>Compensation Rate</div><div style={S.fieldGroup}><label style={S.fieldLabel}>$ per wRVU</label><input type="text" inputMode="decimal" value={rateText} onChange={e => onNumericChange(e.target.value, setRateText, "ratePerRVU")} onBlur={function() { setRateText(settings.ratePerRVU === 0 ? "" : String(settings.ratePerRVU)); }} placeholder="0" style={S.numberInput} /></div></div>
     <div style={S.card}><div style={S.cardLabel}>Yearly Goals</div>
       <div style={S.fieldGroup}><label style={S.fieldLabel}>OR / Tracked goal (logged cases)</label><input type="text" inputMode="decimal" value={goalText} onChange={e => onNumericChange(e.target.value, setGoalText, "annualGoal")} onBlur={function() { setGoalText(settings.annualGoal === 0 ? "" : String(settings.annualGoal)); }} placeholder="0" style={S.numberInput} /></div>
-      <div style={S.fieldGroup}><label style={S.fieldLabel}>Reconciliation goal (total incl. call + clinic)</label><input type="text" inputMode="decimal" value={reconGoalText} onChange={e => onNumericChange(e.target.value, setReconGoalText, "reconGoal")} onBlur={function() { setReconGoalText(!settings.reconGoal ? "" : String(settings.reconGoal)); }} placeholder="0" style={S.numberInput} /></div>
+      {reconSeen.current && <div style={S.fieldGroup}><label style={S.fieldLabel}>Reconciliation goal (total incl. call + clinic)</label><input type="text" inputMode="decimal" value={reconGoalText} onChange={e => onNumericChange(e.target.value, setReconGoalText, "reconGoal")} onBlur={function() { setReconGoalText(!settings.reconGoal ? "" : String(settings.reconGoal)); }} placeholder="0" style={S.numberInput} /></div>}
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Year Start Date</label><input type="date" value={settings.yearStart} onChange={e => set("yearStart", e.target.value)} style={S.dateInput} /><div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>{"Repeats every year. Current year: " + fmt(curYS) + " to " + (curFY ? fmt(curFY.end) : "") + "."}</div></div></div>
 
+    {showAcute ? <>
     {/* Monthly Acute Care - the group pool + per-partner shifts, per month.
         Institution monthly totals are read-only here; they live in Compare.
         The expanded panel is a labeled-fields stack - future per-month fields
@@ -995,6 +1001,8 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         {acuteImportStatus && <div style={{ marginTop: 6, fontSize: 11, color: acuteImportStatus.indexOf("failed") !== -1 ? "var(--accent-red)" : "var(--accent-green-soft)" }}>{acuteImportStatus}</div>}
       </div>
     </div>
+
+    </> : <div style={S.card}><button onClick={function() { setAcuteReveal(true); }} style={{ minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Track a group acute-care pool</button></div>}
 
     {/* Call Pay - dollar-only call-shift pay (callpay.js). Site names and
         rates are USER-ENTERED data; never hardcode them in source, except
@@ -1167,7 +1175,6 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
     <div style={{ ...S.card, border: "1px solid rgba(139,92,246,0.3)" }}>
       <div style={S.cardLabel}>Share App</div>
       <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Send RVU Tracker to a colleague. Opens your device share sheet, or copies the link if unavailable.</div>
-      <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6, fontFamily: "JetBrains Mono", wordBreak: "break-all" }}>https://fkhan628.github.io/Work-RVU-Tracker-/</div>
       <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
         <button onClick={doShare} style={{ ...S.secondaryBtn, flex: 1, color: "var(--accent-violet-deep)", borderColor: "rgba(139,92,246,0.3)" }}>{"\uD83D\uDD17"} Share App Link</button>
       </div>

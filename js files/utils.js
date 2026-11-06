@@ -740,9 +740,10 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 //   a shift's rate copy changes only when its site/date is edited, the
 //   user taps "Use current rates" in the editor, or a confirmed re-price.
 // Built-in call-pay sites - the owner's two call sites and rates, made public
-// by the owner's choice (2026-10-11; see CLAUDE.md). Loaded ONCE into an empty
-// call-pay store (repairData, marker settings.paySitesSeeded); after that they
-// are ordinary user data - rates change by adding dated versions in Call Pay.
+// by the owner's choice (2026-10-11; see CLAUDE.md). OPT-IN: they reach a store
+// only through Call Pay's one-tap load (payLoadBuiltIns), never defState or
+// repairData (CLAUDE.md: more than one user); after that they are ordinary
+// user data - rates change by adding dated versions in Call Pay.
 // Key order matches what repairData/cleanPayRate/cleanPayTyped produce, so
 // they load without a repair rewrite (check.js asserts this and the worked
 // examples). Davenport (owner, 2026-10-18): its earlier "Proposal" rates are
@@ -764,24 +765,19 @@ var DEFAULT_PAY_SITES = [
   ] }
 ];
 function defaultPaySites() { return JSON.parse(JSON.stringify(DEFAULT_PAY_SITES)); }
-// Would repairData load the built-in sites into d? Only a store never
-// seeded whose call-pay fields are MISSING or EMPTY lists - a malformed
-// (non-list) value goes through the normal reset-with-notice repair instead.
-// Shared by repairData and the restore warning so they always agree.
-function payWillSeed(d) {
-  var empty = function(v) { return v === undefined || (Array.isArray(v) && v.length === 0); };
-  return !!d && !!d.settings && typeof d.settings === "object" && d.settings.paySitesSeeded !== true && empty(d.paySites) && empty(d.payShifts);
-}
+// The one-tap load: only while there are no sites at all, so nothing is ever
+// overwritten and a second tap changes nothing.
+function payLoadBuiltIns(prev) { return prev && Array.isArray(prev.paySites) && prev.paySites.length > 0 ? prev : { ...prev, paySites: defaultPaySites() }; }
 // Built-in directorships - the owner's three medical directorships, made
 // public by the owner's choice (2026-10-15; see CLAUDE.md): his name, the
 // organization names, the clinic remit address, the GL number, the hourly
-// rates and the monthly hour caps. Loaded silently into a store whose
-// `directorships` field is MISSING (fresh install, pre-feature store,
-// pre-change backup); an EMPTY list means the user removed them and is never
-// re-seeded. After seeding, stored data is the source of truth. ICU is
-// $210/h, capped at 8 h a month (owner, 2026-11-02); a phone seeded with the
-// older $200 / 4.5 h keeps them until edited in Directorships - nothing
-// migrates them.
+// rates and the monthly hour caps. OPT-IN: they reach a store only through
+// the Settings button (dirRestoreBuiltIns) or a "Restore <name>" link, never
+// defState or repairData (CLAUDE.md: more than one user). A MISSING field and
+// an EMPTY list both read as no directorships. After loading, stored data is
+// the source of truth. ICU is $210/h, capped at 8 h a month (owner,
+// 2026-11-02); a phone seeded with the older $200 / 4.5 h keeps them until
+// edited in Directorships - nothing migrates them.
 var DIRECTORSHIP_PRESET = [
   { id: "icu", name: "ICU Co-Director", shortName: "ICU", org: "MercyOne Genesis Davenport", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 210, maxHours: 8 },
   { id: "trauma", name: "Trauma Medical Director", shortName: "Trauma", org: "MercyOne Genesis Silvis - Illini", form: "genesis", printName: "Faraz Khan, MD", emplNo: "", costCtr: "", rate: 200, maxHours: 4.25 },
@@ -790,8 +786,11 @@ var DIRECTORSHIP_PRESET = [
       remitAddress: ["1228 E Rusholme St. Suite 3020", "Davenport, IA 52803"], glNo: "150-6700-64931", hospitalNo: "" } }
 ];
 function defaultDirectorships() { return JSON.parse(JSON.stringify(DIRECTORSHIP_PRESET)); }
-// Missing = never seeded (repairData seeds it); [] = the user removed them.
-function dirWillSeed(d) { return !!d && typeof d === "object" && d.directorships === undefined; }
+// Group features with nothing in them are hidden on an empty store (CLAUDE.md:
+// more than one user): the acute-care pool cards until there is a partner, a
+// month or a "me"; Reconciliation until there is a Compare month or a goal.
+function acuteInUse(d) { return !!d && ((Array.isArray(d.acuteRoster) && d.acuteRoster.length > 0) || (!!d.acuteMonths && Object.keys(d.acuteMonths).length > 0) || (typeof d.acuteMe === "string" && d.acuteMe !== "")); }
+function reconInUse(d) { return !!d && ((Array.isArray(d.institutionData) && d.institutionData.length > 0) || (!!d.settings && d.settings.reconGoal > 0)); }
 // "Use built-in rates": a phone whose own same-named sites lack paying
 // rates (e.g. sites typed in before the preset existed) gets the preset's
 // version on ONE confirmed tap in Call Pay. These helpers are pure; callpay.js
@@ -800,14 +799,17 @@ function dirWillSeed(d) { return !!d && typeof d === "object" && d.directorships
 // payBuiltInFor: the site that stands for a built-in def - its id, else the
 // ONE site with the same name (case/space-insensitive), else the ONE site
 // named "<def name> <more>" (e.g. "Davenport East"). The name tiers skip
-// sites carrying a built-in id; two candidates in a tier = ambiguous.
+// sites carrying a built-in id and sites typed in the app since the opt-in
+// change (id "own-...", callpay.js addSite): only a site from before it can
+// stand for a built-in by name, so another user's own "Davenport" gets no
+// card or hint. Two candidates in a tier = ambiguous.
 function payBuiltInFor(sites, def) {
   if (!Array.isArray(sites) || !def || typeof def.name !== "string") return null;
   var list = sites.filter(function(s) { return !!s && typeof s === "object" && typeof s.name === "string"; });
   var byId = list.filter(function(s) { return s.id === def.id; });
   if (byId.length) return { site: byId[0], by: "id" };
   var builtInIds = DEFAULT_PAY_SITES.map(function(x) { return x.id; });
-  var pool = list.filter(function(s) { return builtInIds.indexOf(s.id) === -1; });
+  var pool = list.filter(function(s) { return builtInIds.indexOf(s.id) === -1 && !(typeof s.id === "string" && s.id.indexOf("own-") === 0); });
   var key = def.name.toLowerCase();
   var norm = function(s) { return s.name.trim().replace(/\s+/g, " ").toLowerCase(); };
   var tiers = [["name", function(s) { return norm(s) === key; }], ["alias", function(s) { return norm(s).indexOf(key + " ") === 0; }]];
@@ -818,7 +820,8 @@ function payBuiltInFor(sites, def) {
   }
   return null;
 }
-// Built-in defs with no standing site at all (the "Add built-in sites" list).
+// Built-in defs with no standing site at all (the "Add built-in site" list,
+// shown only beside a site that stands for a built-in; callpay.js).
 // A site of ANY id already using the def's name also counts as present, so
 // adding never creates a second site with the same name.
 function payMissingBuiltIns(sites) {
@@ -988,7 +991,7 @@ function paySiteWithCredit(site, earns) { return { ...site, casesEarnRVU: earns 
 // Built-in credit rule offers: a standing site that payBuiltInFor maps to a
 // no-credit built-in def by ONE same name or ONE "<name> ..." alias (never an
 // ambiguous match) and that still credits its cases. A site holding the
-// built-in id is never offered: seeding gives it no credit, so crediting
+// built-in id is never offered: the preset gives it no credit, so crediting
 // there is the user's own choice. A HINT only - nothing changes until the
 // user confirms; repairData and name matching never change the flag.
 function payCreditOffers(sites) {
@@ -1021,7 +1024,11 @@ function paySiteCreditNote(site, ymd) {
   if (!isYMD(ymd)) return "no wRVU credit from " + fmt(CALL_NO_CREDIT_FROM);
   return callNoCreditDate(ymd) ? "no wRVU credit" : "credited before " + fmt(CALL_NO_CREDIT_FROM);
 }
-const defState = () => ({ entries: [], settings: { ...defSettings(), paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: defaultPaySites(), payShifts: [], directorships: defaultDirectorships(), dirEntries: [], dirHandoff: {}, dirSignatureEnc: null, dataVersion: DATA_VERSION });
+// A fresh store holds nothing of the owner's (CLAUDE.md: more than one user).
+// The zeros live here, not in defSettings, which also fills keys an existing
+// store lacks. paySitesSeeded stops an OLDER build seeding this store after a
+// rollback; nothing in this build reads it.
+const defState = () => ({ entries: [], settings: { ...defSettings(), ratePerRVU: 0, annualGoal: 0, paySitesSeeded: true }, rvuOverrides: {}, favorites: [], institutionData: [], acuteRoster: [], acuteMe: "", acuteMonths: {}, templates: [], paySites: [], payShifts: [], directorships: [], dirEntries: [], dirHandoff: {}, dirSignatureEnc: null, dataVersion: DATA_VERSION });
 const SK = "rvu-tracker-data";
 
 // One-time cleanup: remove the legacy PLAINTEXT auto-backup blob (an unencrypted
@@ -1262,7 +1269,7 @@ function repairData(d) {
       if (typeof d.settings[k] === "string") {
         var v = parseFloat(d.settings[k]);
         if (!isNaN(v)) { d.settings[k] = v; fixed.push(k); }
-        else if (k === "reconGoal") { d.settings[k] = 0; fixed.push(k); } // reverting to unset is visible in Settings
+        else if (k === "reconGoal") { d.settings[k] = 0; fixed.push(k); } // back to unset: an empty box in Settings, where that box shows
       }
     });
   }
@@ -1376,13 +1383,12 @@ function repairData(d) {
       d.templates = cleanT;
     }
   }
-  // ONE-TIME: load the built-in call-pay sites into an empty call-pay store
-  // (no sites, no shifts). The marker is set either way, so sites the user
-  // deletes later never come back and existing sites are never touched.
+  // Repair never adds a site, a rate version or a directorship (CLAUDE.md: more
+  // than one user). This marker only stops an OLDER build seeding the built-in
+  // sites into this store after a rollback.
   if (d && d.settings && typeof d.settings === "object" && d.settings.paySitesSeeded !== true) {
-    if (payWillSeed(d)) d.paySites = defaultPaySites();
     d.settings.paySitesSeeded = true;
-    fixed.push("paySites-seeded");
+    fixed.push("paySites-marker");
   }
   // Call pay sites. A malformed list resets loudly; a site with no usable
   // name is dropped whole; an unreadable rate version is dropped with a
@@ -1493,9 +1499,9 @@ function repairData(d) {
       d.payShifts = cleanP;
     }
   }
-  // Directorships. MISSING directorships = never seeded -> the preset,
-  // silently (fresh install, pre-feature store, pre-change backup); an EMPTY
-  // list means the user removed them and is never re-seeded. Repair never
+  // Directorships. MISSING directorships (a backup older than the feature)
+  // becomes an empty list, silently; it is never seeded, and neither is an
+  // EMPTY list. The Settings button loads the preset. Repair never
   // drops an entry over its range or its category (hours must never fall
   // off a pay form; the form blocks until it is edited) - only an entry
   // whose directorship, date or minutes are unreadable, and LOUDLY.
@@ -1503,10 +1509,10 @@ function repairData(d) {
   var dirLbl = function(s) { s = String(s); return s.length > 40 ? s.slice(0, 39) + "." : s; };
   var dirNames = {};
   if (d && typeof d === "object") {
-    if (d.directorships === undefined) { d.directorships = defaultDirectorships(); fixed.push("directorships-seeded"); }
+    if (d.directorships === undefined) { d.directorships = []; fixed.push("directorships-empty"); }
     else if (!Array.isArray(d.directorships)) {
       d.directorships = []; fixed.push("directorships");
-      lossMsgs.push("Directorships were unreadable and have been reset - tap Restore built-in directorships in Settings. Logged hours are kept.");
+      lossMsgs.push("Directorships were unreadable and have been reset - see Settings > Directorships. Logged hours are kept.");
     } else {
       var dDrop = [], dDropIds = [], dNums = [], dHdr = [], dSeen = {}, cleanD = [];
       d.directorships.forEach(function(x, xi) {
@@ -1548,16 +1554,19 @@ function repairData(d) {
       });
       if (dDrop.length) {
         // Three cases: the id is still held by a kept directorship (its hours
-        // stay there); a dropped BUILT-IN comes back with its hours through
-        // Restore; any other cannot be reattached (re-adding makes a new id).
+        // stay there); a dropped BUILT-IN comes back with its hours through a
+        // Restore link or the Load button (the card offers whichever applies;
+        // beside a list of only the user's own, neither when it has no hours or
+        // hand-offs to bring back); any other cannot be reattached (re-adding
+        // makes a new id).
         fixed.push("directorships-dropped");
         var biIds = {}, dropDup = [], dropBI = [], dropOther = [];
         DIRECTORSHIP_PRESET.forEach(function(p) { biIds[p.id] = true; });
         dDrop.forEach(function(l, i) { var id = dDropIds[i]; (id && dSeen[id] === true ? dropDup : id && biIds[id] === true ? dropBI : dropOther).push(l); });
         var one = function(list, a, b) { return list.length === 1 ? a : b; };
         if (dropDup.length) lossMsgs.push("Directorship" + one(dropDup, " ", "s ") + dirJoin(dropDup) + " " + one(dropDup, "was", "were") + " unreadable and removed. " + one(dropDup, "It", "They") + " shared an id with a directorship you still have, so " + one(dropDup, "its", "their") + " logged hours stay on that one - check them in Directorships and don't re-log them.");
-        if (dropBI.length) lossMsgs.push("Directorship" + one(dropBI, " ", "s ") + dirJoin(dropBI) + " " + one(dropBI, "was", "were") + " unreadable and removed - tap Restore in Settings > Directorships to bring " + one(dropBI, "it", "them") + " back with " + one(dropBI, "its", "their") + " logged hours. Don't add " + one(dropBI, "it", "them") + " again by hand.");
-        if (dropOther.length) lossMsgs.push("Directorship" + one(dropOther, " ", "s ") + dirJoin(dropOther) + " " + one(dropOther, "was", "were") + " unreadable and removed. " + one(dropOther, "Its", "Their") + " logged hours are kept but can't be reattached - add " + one(dropOther, "it", "them") + " again in Settings and re-log those hours.");
+        if (dropBI.length) lossMsgs.push("Directorship" + one(dropBI, " ", "s ") + dirJoin(dropBI) + " " + one(dropBI, "was", "were") + " unreadable and removed - see Settings > Directorships. If Restore or Load is offered there, use it rather than adding " + one(dropBI, "it", "them") + " by hand: that brings back " + one(dropBI, "its", "their") + " logged hours.");
+        if (dropOther.length) lossMsgs.push("Directorship" + one(dropOther, " ", "s ") + dirJoin(dropOther) + " " + one(dropOther, "was", "were") + " unreadable and removed. " + one(dropOther, "Its", "Their") + " logged hours are kept but can't be reattached - see Settings > Directorships, then re-log those hours.");
       }
       if (dNums.length) lossMsgs.push("Directorship numbers were unreadable and cleared - re-enter them in Settings > Directorships: " + dirJoin(dNums) + ".");
       if (dHdr.length) lossMsgs.push("The Select form details for " + dirJoin(dHdr) + " were unreadable and removed - re-enter them in Settings > Directorships.");
@@ -1607,7 +1616,7 @@ function repairData(d) {
       var se = d.dirSignatureEnc;
       if (!(dirPlainObj(se) && typeof se.ct === "string" && se.ct && typeof se.salt === "string" && se.salt && typeof se.iv === "string" && se.iv)) {
         d.dirSignatureEnc = null; fixed.push("dirSignatureEnc");
-        lossMsgs.push("Your saved signature was unreadable and was removed - draw it again in Settings > Directorships.");
+        lossMsgs.push("Your saved signature was unreadable and was removed - draw it again before your next form.");
       }
     }
   }
@@ -1665,8 +1674,8 @@ function loadData() {
     if (!raw) { clearCorruptCopy(); return defState(); }
     var s = JSON.parse(raw);
     var d = { entries: s.entries || [], settings: { ...defSettings(), ...s.settings }, rvuOverrides: s.rvuOverrides || {}, favorites: s.favorites || [], institutionData: s.institutionData || [], acuteRoster: s.acuteRoster || [], acuteMe: s.acuteMe || "", acuteMonths: s.acuteMonths || {}, templates: s.templates || [], paySites: s.paySites || [], payShifts: s.payShifts || [], directorships: s.directorships, dirEntries: s.dirEntries || [], dirHandoff: s.dirHandoff || {}, dirSignatureEnc: s.dirSignatureEnc || null, dataVersion: s.dataVersion || DATA_VERSION };
-    // directorships passes through RAW: missing = never seeded (repairData
-    // seeds the preset), [] = the user removed them (never re-seeded).
+    // directorships passes through RAW: repairData turns missing into [], and
+    // a malformed value into [] with a banner. Neither is ever seeded.
     // Legacy field: carried through so repairData can run the one-time
     // reconMonths -> institutionData migration, after which it is deleted.
     if (s.reconMonths !== undefined) d.reconMonths = s.reconMonths;
@@ -3135,7 +3144,7 @@ function dirAscii(s) {
 function dirDetailKey(s) { return String(typeof s === "string" ? s : "").trim().replace(/\s+/g, " ").toLowerCase(); }
 function dirDetailText(s) { return String(typeof s === "string" ? s : "").trim().replace(/\s+/g, " "); }
 function dirNameKey(s) { return String(typeof s === "string" ? s : "").trim().replace(/\s+/g, " ").toLowerCase(); }
-// Surname = last word of printName before its first comma ("Faraz Khan, MD" -> "Khan").
+// Surname = last word of printName before its first comma ("Pat Doe, MD" -> "Doe").
 function dirSurname(printName) {
   var w = String(typeof printName === "string" ? printName : "").split(",")[0].trim().split(/\s+/);
   return w[w.length - 1] || "";
@@ -3377,7 +3386,7 @@ function dirFromEditorDraft(dirs, orig, draft) {
   if (!name) errors.push({ field: "name", text: "Give it a name." });
   else if (DIR_FILE_BAD.test(name) || /[^\x20-\x7e]/.test(name)) errors.push({ field: "name", text: "The name goes into the file name: use plain letters and no \\ / : * ? \" < > |." });
   else if ((Array.isArray(dirs) ? dirs : []).some(function(o) { return o && (!src || o.id !== src.id) && dirNameKey(o.name) === dirNameKey(name); })) errors.push({ field: "name", text: "Another directorship already has this name - the files would collide." });
-  if (!dirSurname(printName)) errors.push({ field: "printName", text: "Add a Print Name with a surname (e.g. \"Faraz Khan, MD\")." });
+  if (!dirSurname(printName)) errors.push({ field: "printName", text: "Add a Print Name with a surname (e.g. \"Pat Doe, MD\")." });
   else if (DIR_FILE_BAD.test(printName) || /[^\x20-\x7e]/.test(printName)) errors.push({ field: "printName", text: "The Print Name's surname goes into the file name: use plain letters and no \\ / : * ? \" < > |." });
   var rate = dirNumFromText(draft ? draft.rate : ""), maxHours = dirNumFromText(draft ? draft.maxHours : "");
   if (rate === null) errors.push({ field: "rate", text: "Type the hourly rate (a number above 0)." });
@@ -3418,10 +3427,18 @@ function dirEntryFromDraft(draft, dir, id) {
 function dirHandoffMark(h, dirId, ym, date, hash) { var o = { ...(dirPlainObj(h) ? h : {}) }; o[dirId + ":" + ym] = { date: date, entriesHash: hash }; return o; }
 function dirHandoffClear(h, dirId, ym) { var o = { ...(dirPlainObj(h) ? h : {}) }; delete o[dirId + ":" + ym]; return o; }
 function dirRestoreBuiltIns(prev) { return dirList(prev).length > 0 ? prev : { ...prev, directorships: defaultDirectorships() }; }
+// The "Restore <name>" links. A list of only the user's own directorships gets
+// none (CLAUDE.md: more than one user), unless that built-in's hours or
+// hand-offs are still stored: Remove promises they come back if restored.
 function dirMissingBuiltIns(data) {
   var l = dirList(data);
   if (l.length === 0) return [];
-  return defaultDirectorships().filter(function(p) { return !l.some(function(x) { return x && x.id === p.id; }); });
+  var anyPreset = l.some(function(x) { return !!x && DIRECTORSHIP_PRESET.some(function(p) { return p.id === x.id; }); });
+  var hasRecords = function(id) {
+    return dirEntriesOf(data).some(function(e) { return !!e && e.dirId === id; }) ||
+      Object.keys(dirHandoffOf(data)).some(function(k) { return k.slice(0, k.lastIndexOf(":")) === id; });
+  };
+  return defaultDirectorships().filter(function(p) { return !l.some(function(x) { return x && x.id === p.id; }) && (anyPreset || hasRecords(p.id)); });
 }
 function dirNameTaken(data, name) { var k = dirNameKey(name); return dirList(data).some(function(x) { return !!x && dirNameKey(x.name) === k; }); }
 // Never makes a twin: refused while another directorship has the name.
@@ -3509,8 +3526,8 @@ function dirTotalInRange(data, from, to, upTo) {
 function dirRestoreNote(restored, data) {
   var parts = [], bN = restored && Array.isArray(restored.dirEntries) ? restored.dirEntries.length : 0, pN = dirEntriesOf(data).length;
   if (bN === 0 && pN > 0) parts.push("this backup has no directorship hours - the " + pN + " time " + (pN === 1 ? "entry" : "entries") + " on this phone will be removed");
-  if (dirWillSeed(restored) && JSON.stringify(dirList(data)) !== JSON.stringify(DIRECTORSHIP_PRESET)) parts.push("this backup predates directorships - the built-in directorships will replace the ones on this phone");
-  if (dirHasSignature(data) && !(restored && dirPlainObj(restored.dirSignatureEnc))) parts.push("your saved signature will be removed (draw it again after restoring)");
+  if (dirList(restored).length === 0 && dirList(data).length > 0) parts.push("this backup has no directorships - the " + dirList(data).length + " on this phone will be removed");
+  if (dirHasSignature(data) && !(restored && dirPlainObj(restored.dirSignatureEnc))) parts.push("your saved signature will be removed (draw it again before your next form)");
   return parts.length ? " WARNING: " + parts.join("; ") + "." : "";
 }
 

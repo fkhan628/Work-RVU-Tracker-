@@ -257,7 +257,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
           {isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: settings.annualGoal > 0 ? (orPace >= settings.annualGoal ? "var(--accent-green-soft)" : "var(--accent-amber-soft)") : "var(--text-dim)" }}>pace {orPace.toFixed(0)}/yr</span>}
         </div>
       </div>
-      <div style={{ ...S.card, flex: "1 1 150px", marginBottom: 0 }}>
+      {reconInUse(data) && <div style={{ ...S.card, flex: "1 1 150px", marginBottom: 0 }}>
         <div style={{ fontSize: 10, color: "var(--accent-green-soft)", textTransform: "uppercase", letterSpacing: 0.8, fontWeight: 700 }}>Reconciliation</div>
         <div style={{ fontSize: 26, fontFamily: "JetBrains Mono", fontWeight: 700, color: "var(--text-bright)", marginTop: 6 }}>{reconYTD.toFixed(1)}</div>
         <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 2 }}>{reconGoal > 0 ? "of " + reconGoal.toLocaleString() + " goal" : "no goal set"}</div>
@@ -266,7 +266,7 @@ function Dashboard({ data, db, setView, showComp, toggleComp, openAcute, openCal
           <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: "var(--text-dim)" }}>{reconGoal > 0 && reconCount > 0 ? reconPct.toFixed(0) + "%" : ""}</span>
           {reconCount > 0 ? (isCurrent && <span style={{ fontSize: 10, fontFamily: "JetBrains Mono", color: reconGoal > 0 ? (reconPace >= reconGoal ? "var(--accent-green-soft)" : "var(--accent-amber-soft)") : "var(--text-dim)" }}>pace {reconPace.toFixed(0)}/yr</span>) : <span onClick={function() { setView("compare"); }} style={{ fontSize: 10, color: "var(--text-faint)", cursor: "pointer" }}>{"add months in Compare \u203A"}</span>}
         </div>
-      </div>
+      </div>}
     </div>
     {/* Quiet derived lines - no goals, no cards */}
     {(yeNC.length > 0 || reconCount > 0 || myAcuteCount > 0 || callPay.shifts > 0 || callPay.needsType > 0 || (dirList(data).length > 0 && dirPay.entries > 0)) && <div style={{ padding: "0 4px", marginTop: -6, marginBottom: 12 }}>
