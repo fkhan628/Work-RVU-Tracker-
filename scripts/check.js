@@ -2580,9 +2580,9 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
     /var showAcute = acuteInUse\(data\) \|\| acuteReveal;/.test(sSrc) && inOrder(sSrc, ["{showAcute ? <>", ">Monthly Acute Care<", ">Acute Care Group<", "</> : <div style={S.card}>", "setAcuteReveal(true)", ">Track a group acute-care pool<", "</div>}"]) &&
     sSrc.split("Track a group acute-care pool").length === 2 && /const reconSeen = useRef\(false\);\s*if \(reconInUse\(data\)\) reconSeen\.current = true;/.test(sSrc) && /\{reconSeen\.current && <div style=\{S\.fieldGroup\}><label style=\{S\.fieldLabel\}>Reconciliation goal/.test(sSrc) &&
     sSrc.split("fkhan628.github.io").length === 2 && /var url = "https:\/\/fkhan628\.github\.io\//.test(sSrc));
-  check("U13c: on an empty list the Directorships card has the neutral line and the Load button only - no count, Open, + Add or signature pad (a saved signature still shows); Call Pay's Load shows only at zero sites and 'Add built-in site' only beside a site that stands for a built-in",
+  check("U13c: on an empty list the Directorships card has the neutral line, the Load button and + Add for a user's own post - no count, Open or signature pad (a saved signature still shows); Call Pay's Load shows only at zero sites and 'Add built-in site' only beside a site that stands for a built-in",
     /\{dirs\.length > 0 \? "Monthly signed time sheets/.test(dSrc) && /\{dirs\.length > 0 && <div style=\{\{ fontSize: 12, color: "var\(--text-muted\)", marginTop: 2 \}\}>\{dirs\.length \+ " "/.test(dSrc) &&
-    /\{dirs\.length > 0 && <button onClick=\{function\(\) \{ if \(openDirectorships\) openDirectorships\("settings"\); \}\}/.test(dSrc) && /\{!edit && dirs\.length > 0 && <button onClick=\{function\(\) \{ openEdit\(null\); \}\}/.test(dSrc) && /\{\(dirs\.length > 0 \|\| hasSig\) && <>/.test(dSrc) &&
+    /\{dirs\.length > 0 && <button onClick=\{function\(\) \{ if \(openDirectorships\) openDirectorships\("settings"\); \}\}/.test(dSrc) && /\{!edit && <button onClick=\{function\(\) \{ openEdit\(null\); \}\} style=\{btn\(\{ width: "100%", marginTop: 10 \}\)\}>\+ Add directorship<\/button>\}/.test(dSrc) && /printName: dirs\.length \? dirs\[0\]\.printName : ""/.test(dSrc) && /\{edit && edit\.origId === null && renderEditor\(\)\}/.test(dSrc) && /\{dirs\.length === 0 && <div style=\{\{ marginTop: 10 \}\}>/.test(dSrc) && /\{\(dirs\.length > 0 \|\| hasSig\) && <>/.test(dSrc) &&
     inOrder(cpSrc, ["{sites.length === 0", LOAD_LABELS["callpay.js"], "+ New shift"]) && /\{missingDefaults\.length > 0 && Object\.keys\(builtInDefOf\)\.length > 0 && <button onClick=\{addDefaults\}/.test(cpSrc) && cpSrc.split("onClick={addDefaults}").length === 2);
 }
 
@@ -3486,6 +3486,8 @@ if (sb) {
   check("payBuiltInPlan: " + PLAN_SHAPES.length + " phone shapes (paying amounts never touched; $0 versions from the start removed)", planBad.length === 0, planBad.join(" | "));
   check("payApplyBuiltIn: repairData fixed point, second apply a no-op, no duplicate dates, paying versions + casesEarnRVU kept, preset in force from the start",
     applyBad.length === 0, applyBad.join(" | "));
+  const ncSite = Object.assign(hand("nc1", B1.name), { casesEarnRVU: false }), ncOut = sb.payApplyBuiltIn(ncSite, B1, sb.payBuiltInPlan(ncSite, B1));
+  check("payApplyBuiltIn: a stored no-credit site stays no credit (the preset's own flag is never copied)", !!ncOut && ncOut.rates.length > 0 && ncOut.casesEarnRVU === false, JSON.stringify(ncOut && { flag: ncOut.casesEarnRVU, rates: ncOut.rates.length }));
   const idFree = hand(B0.id, B0.name, [Object.assign({}, RZ, { id: B0V.id, effective: "2026-11-01" })], B0.weekendDays.slice());
   const idFreeOut = sb.payApplyBuiltIn(idFree, B0, sb.payBuiltInPlan(idFree, B0));
   const idTaken = hand("s8", B0.name, [ver(RA, B0V.id, "2027-01-01")]);
@@ -3559,20 +3561,21 @@ if (sb) {
     sb.payTypePreview(Object.assign({}, DAY, { stipend: 500, stipendLabel: "Trauma" })) === "Day: $2,773.60 + $500.00 Trauma" &&
     sb.payTypePreview(Object.assign({}, DAY, { flat: "" })) === "Day: fill in the amounts");
   // The offer on a phone seeded from the OLD preset (Proposal dated Oct 1):
-  // one tap gives exactly the new preset Davenport; a hand-made Jul 1 version
+  // one tap gives exactly the new preset Davenport's rates and keeps the site's
+  // own credit flag (the old preset was no credit); a hand-made Jul 1 version
   // (the baseline phone) keeps its date; the seeded site gets no R1 offer.
-  const oldDav = { id: DAVT.id, name: DAVT.name, weekendDays: DAVT.weekendDays.slice(), casesEarnRVU: DAVT.casesEarnRVU, rates: [Object.assign({}, DAVT.rates[0], { effective: "2026-10-01" })] };
+  const oldDav = { id: DAVT.id, name: DAVT.name, weekendDays: DAVT.weekendDays.slice(), casesEarnRVU: false, rates: [Object.assign({}, DAVT.rates[0], { effective: "2026-10-01" })] };
   const octLeg = mkShift("ol1", oldDav, "2026-10-10"), octLeg2 = mkShift("ol2", oldDav, "2026-10-17"), sepLeg = mkShift("sl", Object.assign({}, oldDav, { rates: [Object.assign({}, oldDav.rates[0], { id: "jul", effective: "2026-07-01" })] }), "2026-09-19");
   const offs2 = sb.payTypedOffers([SIL, oldDav], [octLeg, octLeg2, sepLeg]);
   const tapped = offs2.length === 1 ? sb.payApplyTyped(oldDav, offs2[0].def, offs2[0].plan) : null;
   const julDav = Object.assign({}, oldDav, { rates: [Object.assign({}, oldDav.rates[0], { id: "jul", effective: "2026-07-01", label: "Made-up Jul", stipend: 3000 }), oldDav.rates[0]] });
   const julOff = sb.payTypedOffers([julDav], []), julTap = julOff.length === 1 ? sb.payApplyTyped(julDav, julOff[0].def, julOff[0].plan) : null;
-  check("Use new Davenport rates: the old-preset Davenport is offered once (by id; original = Proposal; 2 shifts need a type) and the tap yields EXACTLY the new preset Davenport; no second offer; the seeded Davenport gets no R1 offer; a hand-made Jul 1 version keeps its date and still prices September",
-    offs2.length === 1 && offs2[0].by === "id" && offs2[0].plan.original === DAVT.rates[0].id && offs2[0].plan.needType === 2 && !!tapped && JSON.stringify(tapped) === JSON.stringify(DAVT) &&
+  check("Use new Davenport rates: the old-preset Davenport is offered once (by id; original = Proposal; 2 shifts need a type) and the tap yields EXACTLY the new preset Davenport's rates while the site keeps its own no-credit flag; no second offer; the seeded Davenport gets no R1 offer; a hand-made Jul 1 version keeps its date and still prices September",
+    offs2.length === 1 && offs2[0].by === "id" && offs2[0].plan.original === DAVT.rates[0].id && offs2[0].plan.needType === 2 && !!tapped && tapped.casesEarnRVU === false && JSON.stringify(sb.paySiteWithCredit(tapped, DAVT.casesEarnRVU)) === JSON.stringify(DAVT) &&
     sb.payTypedOffers([SIL, tapped], []).length === 0 && sb.payBuiltInOffers([SIL, tapped]).length === 0 && sb.payBuiltInOffers(sb.defaultPaySites()).length === 0 && sb.payTypedOffers(sb.defaultPaySites(), []).length === 0 &&
     !!julTap && julTap.rates.map(r => r.id).join() === "jul," + DAVT.rates[0].id + "," + DNV.id && julTap.rates[1].effective === null && sb.rateInForce(julTap, "2026-09-30").id === "jul" && sb.rateInForce(julTap, "2026-10-01").id === DNV.id &&
     sb.payNeedsTypeCount([octLeg, octLeg2, sepLeg], [tapped]) === 2 && sb.payNeedsTypeCount([octLeg, octLeg2, sepLeg], [oldDav]) === 0,
-    JSON.stringify({ offs: offs2.map(o => o.plan), tappedEq: !!tapped && JSON.stringify(tapped) === JSON.stringify(DAVT), jul: julTap && julTap.rates.map(r => r.id + ":" + r.effective) }));
+    JSON.stringify({ offs: offs2.map(o => o.plan), tappedFlag: !!tapped && tapped.casesEarnRVU, tappedEq: !!tapped && JSON.stringify(sb.paySiteWithCredit(tapped, DAVT.casesEarnRVU)) === JSON.stringify(DAVT), jul: julTap && julTap.rates.map(r => r.id + ":" + r.effective) }));
   const handDav = Object.assign({}, oldDav, { id: "h1" }), handDav2 = Object.assign({}, oldDav, { id: "h2", name: oldDav.name.toLowerCase() });
   check("Use new Davenport rates: one same-named hand-made site is offered by name; two same-named sites (ambiguous) get no offer",
     sb.payTypedOffers([SIL, handDav], []).length === 1 && sb.payTypedOffers([SIL, handDav], [])[0].by === "name" && sb.payTypedOffers([SIL, handDav, handDav2], []).length === 0);
@@ -4260,7 +4263,7 @@ if (sb) {
   const C7 = { id: "st-c", name: "South", weekendDays: [0, 6], casesEarnRVU: true, rates: [] };
   const S7 = [N7, C7];
   const lit7 = d => ({ id: "w-" + d, date: d, cptCode: "47562", description: "x", category: "General", baseRVU: 10.21, modifiers: ["-22"], adjustedRVU: 12.7625, notes: "AB", encounterId: "AB", isCall: true, imported: false });
-  const BNC = BI.filter(d => d.casesEarnRVU === false)[0], BCR = BI.filter(d => d.casesEarnRVU !== false)[0];
+  const BNC = BI.filter(d => d.id === sb.PAY_CREDIT_RULE_ID)[0], BCR = BI.filter(d => d.id !== sb.PAY_CREDIT_RULE_ID)[0];
   const hasK7 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
   const ascii7 = s => typeof s === "string" && !/[^\x00-\x7f]/.test(s);
   // repairData fixed point for a store, with the loss banner captured.
@@ -4271,8 +4274,8 @@ if (sb) {
   };
   const entStore7 = ents => seedStore({ settings: { ratePerRVU: 55, paySitesSeeded: true }, entries: ents, paySites: [N7, C7] });
 
-  check("7b constants: CALL_NO_CREDIT_FROM is the no-credit built-in's first rate date; CALL_SITE_OTHER is no built-in id",
-    sb.CALL_NO_CREDIT_FROM === "2026-10-01" && sb.isYMD(sb.CALL_NO_CREDIT_FROM) && !!BNC && !!BCR && sb.payBuiltInFrom(BNC) === sb.CALL_NO_CREDIT_FROM &&
+  check("7b constants: CALL_NO_CREDIT_FROM is the first rate date of the built-in that holds the owner's no-credit rule; CALL_SITE_OTHER is no built-in id",
+    sb.CALL_NO_CREDIT_FROM === "2026-10-01" && sb.isYMD(sb.CALL_NO_CREDIT_FROM) && !!BNC && !!BCR && BNC.id === DAVT.id && sb.payBuiltInFrom(BNC) === sb.CALL_NO_CREDIT_FROM &&
     typeof sb.CALL_SITE_OTHER === "string" && sb.CALL_SITE_OTHER.length > 0 && BI.every(d => d.id !== sb.CALL_SITE_OTHER));
 
   const handNC = sb.payApplyNoCredit([hand("h", BNC.name)], ["h"])[0];
@@ -4514,7 +4517,7 @@ if (sb) {
   {
     const off = s => sb.payCreditOffers(s).map(o => o.site.id + ":" + o.by).join(",");
     const seeded = sb.defaultPaySites();
-    const flippedSeed = seeded.map(s => s.id === BNC.id ? sb.paySiteWithCredit(s, true) : s);
+    const flippedSeed = seeded.map(s => s.id === BNC.id ? sb.paySiteWithCredit(s, false) : s);
     const offersOK = off([hand("h2", BNC.name)]) === "h2:name" && off([hand("h3", BNC.name + " East")]) === "h3:alias" &&
       off([hand("h4", BNC.name + " East"), hand("h5", BNC.name + " West")]) === "" && off(seeded) === "" && off(flippedSeed) === "" &&
       off([Object.assign(hand("h6", BNC.name), { casesEarnRVU: false })]) === "" && off([hand("h7", BCR.name)]) === "" &&
@@ -5708,6 +5711,7 @@ if (sb) {
     const usedE = id => ({ id: id, date: "2026-10-05", cptCode: "47562", baseRVU: 10.47, adjustedRVU: 10.47, modifiers: [], description: "x", category: "Surgery", isCall: true, encounterId: "AB", notes: "AB", siteId: BI[1].id, siteName: BI[1].name, noCredit: true });
     const oldIds = () => [hand("site-" + (1780000000000).toString(36), BI[0].name), hand("site-" + (1780000000001).toString(36), BI[1].name + " East", [JSON.parse(J(Object.assign({}, RA, { id: "hm-v", effective: "2026-07-01" })))])];
     const EXIST = [
+      ["seeded before call cases earned credit by default: its Davenport stays no credit", canonU({ paySites: sb.defaultPaySites().map(s => s.id === BNC.id ? sb.paySiteWithCredit(s, false) : s) })],
       ["built-in sites, used, every field filled", canonU({ entries: [usedE("e1")], rvuOverrides: { "47562": 11 }, favorites: ["47562"], institutionData: [{ month: "2026-09", workRVU: 500, splitRVU: 20, cases: 40 }], acuteRoster: ["Made Up", "Other Person"], acuteMe: "Made Up", acuteMonths: { "2026-09": { pool: 1000, shifts: { "Made Up": 2, "Other Person": 3 } } }, templates: [{ id: "t1", name: "Chole", codes: ["47562"] }], paySites: sb.defaultPaySites(), payShifts: JSON.parse(J(bothDN.shifts)), dirEntries: [ent("d1", "icu", "2026-10-02", 60, "g_policy")], dirHandoff: { "icu:2026-09": { date: "2026-10-01", entriesHash: "h1" } }, dirSignatureEnc: { ct: "Y3Q=", salt: "c2E=", iv: "aXY=" } })],
       ["older hand-made same-named sites, every offer pending", canonU({ paySites: oldIds() })],
       ["old-preset site by id, typed offer pending", canonU({ paySites: [JSON.parse(J(SIL)), JSON.parse(J(oldDav))], payShifts: JSON.parse(J([octLeg])) })],
@@ -5716,7 +5720,7 @@ if (sb) {
       ["sites typed since the change", canonU({ paySites: [hand("own-1", "Mine", [JSON.parse(J(RA))])] })],
     ];
     const existBad = EXIST.filter(t => { const raw = J(t[1]), b = bootU(raw); return !(b.onLoad === 0 && b.json === raw && b.stored === raw && b.banners.length === 0 && b.warns.length === 0 && b.dialogs.length === 0); }).map(t => t[0]);
-    const pend = EXIST[1][1].paySites;
+    const pend = EXIST[2][1].paySites;
     check("U4: an existing store is a fixed point - loadData + the first save leave it byte-identical with no write on load, no banner, no warning and no dialog (" + EXIST.length + " stores); its offers by name are untouched",
       existBad.length === 0 && sb.payBuiltInOffers(pend).length > 0 && sb.payTypedOffers(pend, []).length > 0 && sb.payCreditOffers(pend).length > 0, existBad.join(" | "));
     // A store older than the marker or the feature (a very old backup): the
@@ -5733,6 +5737,14 @@ if (sb) {
       noField.directorships === undefined && J(dl1.directorships) === J(sb.DIRECTORSHIP_PRESET) && dl2 === dl1 && J(dl0.directorships) === J(sb.DIRECTORSHIP_PRESET) && dl1.directorships[0] !== sb.DIRECTORSHIP_PRESET[0] &&
       J(pl1.paySites) === J(BI) && pl2 === pl1 && pl1.paySites[0] !== BI[0] && plKeep === plOwn && plOwn.paySites.length === 1 &&
       fixedPt(JSON.parse(J(pl1))) && fixedPt(JSON.parse(J(dl1))));
+    // Call cases earn wRVU credit by default (owner, 2026-11-06): a loaded site
+    // credits; "No wRVU credit" is the user's switch; a stored flag never changes.
+    const loadedDav = pl1.paySites.filter(s => s.id === BNC.id)[0], storedNC = sb.paySiteWithCredit(loadedDav, false), storedStore = dstore({ paySites: [JSON.parse(J(storedNC))] });
+    const qStored = quiet(() => sb.repairData(storedStore));
+    check("U5b: both built-in sites earn wRVU credit by default - a loaded Davenport credits a call case with no note and no credit offer; switched to no credit it stops, a stored no-credit site stays so through repair, and an older same-named site still gets the owner's offer",
+      BI.every(d => d.casesEarnRVU === true) && pl1.paySites.every(s => s.casesEarnRVU === true) && sb.payCaseNoCredit(true, loadedDav, "2026-10-05") === false && sb.paySiteCreditNote(loadedDav, "2026-10-05") === "" && sb.payCreditOffers(pl1.paySites).length === 0 &&
+      sb.payCaseNoCredit(true, storedNC, "2026-10-05") === true && sb.payCaseNoCredit(true, storedNC, "2026-09-30") === false && qStored.r.length === 0 && storedStore.paySites[0].casesEarnRVU === false &&
+      sb.payCreditOffers([hand("site-old", BNC.name)]).length === 1 && sb.payCreditOffers([hand("own-new", BNC.name)]).length === 0, J({ fixed: qStored.r }));
     // What a neutral store reads.
     const neutral = o => Object.assign(defFn(), o || {});
     const ownS = [hand("own-1", BI[0].name), hand("own-2", BI[1].name, [JSON.parse(J(Object.assign({}, RA, { id: "own-v", effective: "2026-07-01" })))])], ownAlias = [hand("own-3", BI[1].name + " East")];
@@ -5745,6 +5757,9 @@ if (sb) {
       BI.every(d => sb.payBuiltInFor(ownS, d) === null && sb.payBuiltInFor(ownAlias, d) === null) && sb.payBuiltInOffers(ownS).length === 0 && sb.payTypedOffers(ownS, []).length === 0 && sb.payCreditOffers(ownS).length === 0 && sb.payCreditOffers(ownAlias).length === 0 &&
       sb.payBuiltInFor(oldIds(), BI[1]).by === "alias" && sb.payBuiltInFor(sb.defaultPaySites(), BI[1]).by === "id" && sb.payBuiltInFor([hand("legacy", BI[0].name)], BI[0]).by === "name" &&
       blankPrint.some(e => e.field === "printName") && blankPrint.every(e => !OWNER_RE.test(e.text)), J(blankPrint));
+    const ownDraft = sb.dirFromEditorDraft([], null, { name: "Made-up Lead", shortName: "ML", org: "Org", printName: "Pat Doe, MD", form: "genesis", emplNo: "", costCtr: "", rate: "100", maxHours: "5" });
+    check("U6c: a user's own directorship saves from an empty list - no error, a repairData fixed point, no owner word, no Restore links beside it",
+      !!ownDraft.dir && ownDraft.errors.length === 0 && !OWNER_RE.test(J(ownDraft.dir)) && fixedPt(JSON.parse(J(dstore({ directorships: [ownDraft.dir] })))) && sb.dirMissingBuiltIns(neutral({ directorships: [ownDraft.dir] })).length === 0, J(ownDraft.errors));
     check("U6b: acuteInUse and reconInUse - false on a neutral store; a partner, a month or a 'me' turns acute on; a Compare month or a Reconciliation goal turns Reconciliation on; junk stays off",
       sb.acuteInUse(neutral()) === false && sb.acuteInUse(neutral({ acuteRoster: ["P"] })) === true && sb.acuteInUse(neutral({ acuteMonths: { "2026-09": { pool: 1, shifts: {} } } })) === true && sb.acuteInUse(neutral({ acuteMe: "P" })) === true && sb.acuteInUse(null) === false &&
       sb.reconInUse(neutral()) === false && sb.reconInUse(neutral({ institutionData: [{ month: "2026-09", workRVU: 1, splitRVU: 0, cases: 1 }] })) === true && sb.reconInUse(neutral({ settings: { reconGoal: 5 } })) === true && sb.reconInUse(neutral({ settings: { reconGoal: "x" } })) === false && sb.reconInUse(null) === false);

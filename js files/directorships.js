@@ -1018,7 +1018,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       <button onClick={function() { if (confirm("Delete " + orphans + " time " + (orphans === 1 ? "entry" : "entries") + " of removed directorships? This can't be undone.")) upd(function(prev) { return dirDropOrphans(prev); }); }} style={btn({ color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)", minHeight: 36, marginLeft: 4 })}>Delete them</button>
     </div>}
     {edit && edit.origId === null && renderEditor()}
-    {!edit && dirs.length > 0 && <button onClick={function() { openEdit(null); }} style={btn({ width: "100%", marginTop: 10 })}>+ Add directorship</button>}
+    {!edit && <button onClick={function() { openEdit(null); }} style={btn({ width: "100%", marginTop: 10 })}>+ Add directorship</button>}
 
     {(dirs.length > 0 || hasSig) && <>
     <div style={{ ...S.fieldLabel, marginTop: 14 }}>Signature</div>

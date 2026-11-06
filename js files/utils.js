@@ -743,7 +743,9 @@ const defSettings = () => ({ ratePerRVU: 55, annualGoal: 6000, reconGoal: 0, yea
 // by the owner's choice (2026-10-11; see CLAUDE.md). OPT-IN: they reach a store
 // only through Call Pay's one-tap load (payLoadBuiltIns), never defState or
 // repairData (CLAUDE.md: more than one user); after that they are ordinary
-// user data - rates change by adding dated versions in Call Pay.
+// user data - rates change by adding dated versions in Call Pay. Call cases at
+// both earn wRVU credit by default (owner, 2026-11-06); "No wRVU credit" is each
+// user's own switch per site, and a stored site keeps whatever it already has.
 // Key order matches what repairData/cleanPayRate/cleanPayTyped produce, so
 // they load without a repair rewrite (check.js asserts this and the worked
 // examples). Davenport (owner, 2026-10-18): its earlier "Proposal" rates are
@@ -756,7 +758,7 @@ var DEFAULT_PAY_SITES = [
   { id: "site-silvis", name: "Silvis", weekendDays: [0, 5, 6], casesEarnRVU: true, rates: [
     { id: "rate-silvis-2026-10", effective: "2026-10-01", stipend: 1500, stipendHours: 24, callInWeekday: 291, callInWeekendHoliday: 582, hourly: 125, hourlyMinHours: 0, hourlyWeekdayDay: true }
   ] },
-  { id: "site-davenport", name: "Davenport", weekendDays: [0, 6], casesEarnRVU: false, rates: [
+  { id: "site-davenport", name: "Davenport", weekendDays: [0, 6], casesEarnRVU: true, rates: [
     { id: "rate-davenport-2026-10", effective: null, label: "Proposal", stipend: 3189.65, stipendHours: 12, callInWeekday: 291.13, callInWeekendHoliday: 291.13, hourly: 242.69, hourlyMinHours: 3, hourlyWeekdayDay: false },
     { id: "rate-davenport-2026-10-dn", effective: "2026-10-01", shiftTypes: [
       { key: "day", label: "Day", hours: 12, flat: 2773.6, stipend: 0, stipendLabel: "", callIn: null },
@@ -988,16 +990,19 @@ function paySiteById(sites, id) {
 // in Call Pay or Log (check.js G9). A new object; the key keeps its place,
 // so the result is a repairData fixed point.
 function paySiteWithCredit(site, earns) { return { ...site, casesEarnRVU: earns === true }; }
-// Built-in credit rule offers: a standing site that payBuiltInFor maps to a
-// no-credit built-in def by ONE same name or ONE "<name> ..." alias (never an
-// ambiguous match) and that still credits its cases. A site holding the
-// built-in id is never offered: the preset gives it no credit, so crediting
-// there is the user's own choice. A HINT only - nothing changes until the
-// user confirms; repairData and name matching never change the flag.
+// Built-in credit rule offers: the owner's own rule (his acute-care pool covers
+// these call cases), which is no longer the preset's default. A standing site
+// that payBuiltInFor maps to this built-in by ONE same name or ONE "<name> ..."
+// alias (never an ambiguous match) and that still credits its cases. Only a
+// site from before the opt-in change can match by name, so nobody else sees
+// this. A site holding the built-in id is never offered: its credit setting is
+// the user's own choice. A HINT only - nothing changes until the user
+// confirms; repairData and name matching never change the flag.
+var PAY_CREDIT_RULE_ID = "site-davenport";
 function payCreditOffers(sites) {
   var out = [];
   DEFAULT_PAY_SITES.forEach(function(def) {
-    if (def.casesEarnRVU !== false) return;
+    if (def.id !== PAY_CREDIT_RULE_ID) return;
     var m = payBuiltInFor(sites, def);
     if (m && m.site && m.by !== "id" && m.site.casesEarnRVU !== false) out.push({ def: def, site: m.site, by: m.by });
   });

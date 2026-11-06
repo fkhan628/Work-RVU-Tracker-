@@ -122,8 +122,9 @@ function CallPay({ data, upd, onBack, showComp, toggleComp, showUndo, focus, kee
   var needsType = payNeedsTypeCount(shifts, sites);
   var builtInDefOf = {}; // site id -> the built-in def it stands for
   DEFAULT_PAY_SITES.forEach(function(def) { var m = payBuiltInFor(sites, def); if (m && m.site) builtInDefOf[m.site.id] = def; });
-  // Built-in credit rule (7b): sites matched to a no-credit built-in by name
-  // that still credit their call cases. Nothing changes without a confirmed tap.
+  // Built-in credit rule (7b): older sites matched by name to the built-in that
+  // holds the owner's no-credit rule (utils.js PAY_CREDIT_RULE_ID) and that still
+  // credit their call cases. Nothing changes without a confirmed tap.
   var creditOffers = payCreditOffers(sites);
   var creditOfferOf = {};
   creditOffers.forEach(function(o) { creditOfferOf[o.site.id] = o; });

@@ -123,7 +123,10 @@ the per-file gates below. Run it after EVERY file change.
   for the visit once shown so retyping a goal never removes it). A site typed
   in the app has an id starting "own-" and never matches a built-in by name
   (payBuiltInFor), so another user's own "Davenport" gets no card or hint;
-  older ids still match, because the owner's hand-made sites rely on it.
+  older ids still match, because the owner's hand-made sites rely on it. Call
+  cases earn wRVU credit by default: both built-in sites load with
+  casesEarnRVU true (owner's choice, 2026-11-06) and "No wRVU credit" is each
+  user's own switch per site; a site already stored keeps its flag.
   check.js U0-U13c pin this.
 - NO optional chaining (`?.`) and NO `export` — Babel standalone script
   mode. Use `x && x.y` or ternaries.
@@ -216,8 +219,9 @@ the per-file gates below. Run it after EVERY file change.
   CALL_NO_CREDIT_FROM earn no wRVU credit) changes ONLY through
   paySiteWithCredit on the user's confirmed tap: the site's "Call cases
   logged here" control, or the "Built-in credit rule" offer
-  (payCreditOffers: one same name or one alias of a no-credit built-in,
-  never by built-in id or an ambiguous match; payApplyNoCredit re-plans
+  (payCreditOffers: one same name or one alias of the built-in that holds
+  the owner's no-credit rule, PAY_CREDIT_RULE_ID, on a site older than the
+  "own-" ids; never by built-in id or an ambiguous match; payApplyNoCredit re-plans
   inside the updater). repairData and name matches never change it;
   check.js G9 refuses any other write (a fresh site's literal true aside).
   Shifts are priced only
@@ -302,8 +306,8 @@ the per-file gates below. Run it after EVERY file change.
   bar (with Clear filters) shows for a date range or the No credit chip.
 - Call cases and credit (7b): a case is no-credit only when it is Call,
   logged at a CURRENT site whose casesEarnRVU === false, and dated on/after
-  CALL_NO_CREDIT_FROM ("2026-10-01", pinned by check.js to the no-credit
-  built-in's first DATED rate, payBuiltInFrom). payCaseNoCredit is that rule. Credit is
+  CALL_NO_CREDIT_FROM ("2026-10-01", pinned by check.js to the first DATED rate
+  of the PAY_CREDIT_RULE_ID built-in, payBuiltInFrom). payCaseNoCredit is that rule. Credit is
   decided when a case is WRITTEN (entryWithCall) and kept as the noCredit
   snapshot: an edit keeps it while Call/Private and site are unchanged and
   the date stays on the same side of the start; a later site change never
@@ -688,10 +692,13 @@ the per-file gates below. Run it after EVERY file change.
     `dirSignatureEnc`. `directorships` passes RAW through loadData and
     finishRestore to repairData: MISSING (a backup older than the feature)
     becomes `[]` silently, a malformed value `[]` with a banner; neither is
-    ever seeded. An empty list's Settings card shows a neutral line and the
-    one button "Load built-in directorships (Faraz Khan)"
-    (dirRestoreBuiltIns), with no count, Open, + Add or signature pad (a saved
-    signature still shows). "Restore <name>" links (dirMissingBuiltIns) show
+    ever seeded. An empty list's Settings card shows a neutral line, the button
+    "Load built-in directorships (Faraz Khan)" (dirRestoreBuiltIns) and "+ Add
+    directorship" for a user's own post (the form-type chips then read Genesis /
+    Select: owner's choice, 2026-11-06, because a colleague holds a directorship),
+    with no count, Open or signature pad (a saved signature still shows). The
+    pre-filled Print Name comes from the list's first entry, so it starts blank
+    on an empty list. "Restore <name>" links (dirMissingBuiltIns) show
     only beside a preset in the list, or for a preset whose hours or hand-offs
     are still stored, so Remove's "come back if you restore it" stays true.
     Babel files read the fields only through
