@@ -678,7 +678,8 @@ the per-file gates below. Run it after EVERY file change.
   after the async encrypt - in settings.js and in directorships.js alike.
   check.js pins all of this.
 - Downloads: every file download (History Export CSV, Settings Export
-  CSV/JSON, the backup file, the directorships PDF) goes through utils.js
+  CSV/JSON, the backup file, the directorships PDF, a Plain directorship's
+  own form) goes through utils.js
   downloadBlob(blob, name) under its exact file name and MIME type: the
   anchor is attached for the click and the object URL is revoked on a
   60 s timer, never in the same tick (WebKit - iOS Safari and the
@@ -695,7 +696,7 @@ the per-file gates below. Run it after EVERY file change.
     ever seeded. An empty list's Settings card shows a neutral line, the button
     "Load built-in directorships (Faraz Khan)" (dirRestoreBuiltIns) and "+ Add
     directorship" for a user's own post (the form-type chips then read Genesis /
-    Select: owner's choice, 2026-11-06, because a colleague holds a directorship),
+    Select / Plain: owner's choice, 2026-11-06),
     with no count, Open or signature pad (a saved signature still shows). The
     pre-filled Print Name comes from the list's first entry, so it starts blank
     on an empty list. "Restore <name>" links (dirMissingBuiltIns) show
@@ -713,6 +714,9 @@ the per-file gates below. Run it after EVERY file change.
     fields and hides the UI. A build older than ASSET_V 63 seeds a MISSING
     field but never `[]`, and seeds sites unless paySitesSeeded is set, so
     defState saves `[]` and keeps that marker, and repairData still writes it.
+    A build older than ASSET_V 65 does not know form "plain": its repairData
+    drops those directorships on load, so back Plain out by hiding its chip,
+    never by reverting.
   - One implementation: the row keys (STORED data, pinned by check.js
     G8 - never rename one), weeks, slots, money (dirMoney, no locale), the
     file-name contract ("<Surname> - <name> Timesheet - YYYY-MM.pdf",
@@ -720,6 +724,40 @@ the per-file gates below. Run it after EVERY file change.
     by that name; never "clean" a name, refuse it), and dirFormModel - the
     ONE source for the Review screen and the PDF, so what is reviewed is
     what prints.
+  - Forms: `form` is STORED data, "genesis", "select" or "plain" (DIR_FORMS,
+    dirFormOk; repairData drops any other). Plain is the neutral time sheet
+    for anyone without a built-in layout (owner's choice, 2026-11-06): no
+    hospital's wording and no certification text. Each entry prints on its own
+    line (model.lines, dirPlainText) and it has no line slots (dirSlotPlan is
+    Genesis only), so nothing combines. It shares the Genesis row keys
+    (dirFormsShareRows), so changing between the two keeps every entry placed
+    and asks nothing. It keeps the file-name contract, and its own screens name
+    no Drive or email task (dirFormName names a form in any message). The sheet
+    runs onto more pages, each later page repeating the directorship, name and
+    month (check.js G9c; jsPDF cannot run there, so re-check the PDF live after
+    editing drawPlain).
+  - A Plain directorship's own form (DirFormFile, shown in the Settings card
+    and on Review): one PDF or photo per directorship, in IndexedDB ("rvu-forms")
+    because a file is too big for the store, which is rewritten whole on every
+    save. Per device and not encrypted: NEVER in the store, a backup or an
+    export, so the user uploads it again after restoring on another phone. The app never reads
+    or fills it in: it stores it, shows a photo and hands it to the share sheet
+    or downloadBlob (there is no in-app PDF viewer). Only the utils.js helpers
+    (dirFormDbOpen, dirFormTx, dirFormFileSave/Load/Remove, dirFormFilesErase)
+    touch the database and
+    every helper's callers are named (check.js G9b, plain P6), so nothing opens
+    it at load. The ways in are DirFormFile, which shows only under a Plain
+    directorship, the tap that removes a Plain directorship, and Reset App, so a
+    phone with no Plain directorship never creates it (deleteDatabase creates
+    nothing). A file is deleted only by a tap: Remove or Replace on the card,
+    removing its Plain directorship (after the confirm, which says so; an Undo
+    brings back the directorship and hours, not the form), or Reset App, which
+    erases the whole database and reloads once that settles. Nothing deletes a
+    file by comparing lists, so a data recovery, a restore or a stale tab can
+    never lose one. A file left behind (by a restore, by removing a directorship
+    no longer Plain, or by a delete that failed) stays hidden, using its space,
+    and returns if that directorship does, as Plain; changing to another form
+    and back keeps it too.
   - Writers: every write of the four fields goes through a utils.js writer
     whose output passes repairData unchanged (check.js T7):
     defaultDirectorships, dirNew, dirFromEditorDraft, dirEntryFromDraft,
@@ -744,14 +782,18 @@ the per-file gates below. Run it after EVERY file change.
     replaces it.
   - Sharing: navigator.share in directorships.js is FILES ONLY (no title,
     text or url - some share targets save text as a second file in Drive),
-    exactly once, inside sharePdf (check.js G9). A resolved share records
+    exactly twice: inside sharePdf and inside DirFormFile's shareForm, which
+    shares the file loaded when the card showed, directly in its tap (check.js
+    G9). A resolved PDF share records
     dirHandoff {date, entriesHash} captured when the PDF was built; an
     AbortError records nothing; no file sharing -> download under the exact
     contract name and the user taps Mark handed off.
   - jsPDF is loaded only by loadPDF; directorships.js uses only the plain
     drawing surface (no .html/addJS/AcroForm/annotations; output("blob")
     only). A form never truncates: text shrinks to a 6.5 pt floor, and what
-    still does not fit blocks Create with a layout flag.
+    still does not fit blocks Create with a layout flag. Plain wraps its lines
+    and runs onto more pages instead, so only a one-line header value can
+    block it.
   - Home's month-end reminder dismissal lives in ONE per-device key,
     DIR_REMIND_KEY ("rvu-dir-reminder"), OUTSIDE the store; only the
     utils.js helpers touch it (check.js G12, the BACKUP_STAMP_KEY rule).

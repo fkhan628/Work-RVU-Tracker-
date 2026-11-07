@@ -329,14 +329,14 @@ const DL_SITES = {
   "settings.js": ['downloadBlob(new Blob([csv], { type: "text/csv" }), "rvu-export-" + todayLocal() + ".csv");',
     'downloadBlob(new Blob([JSON.stringify(clean, null, 2)], { type: "application/json" }), "rvu-export-" + todayLocal() + ".json");',
     'downloadBlob(new Blob([bf.text], { type: "text/plain" }), bf.name);'],
-  "directorships.js": ["downloadBlob(p.blob, p.name);"],
+  "directorships.js": ["downloadBlob(p.blob, p.name);", "downloadBlob(st.rec.blob, st.rec.name);"],
 };
 const dlCalls = jsFiles.filter(f => f !== "utils.js").reduce((o, f) => { const c = (dlRead(f).match(/downloadBlob\(/g) || []).length; if (c) o[f] = c; return o; }, {});
 const dlMissing = Object.keys(DL_SITES).reduce((out, f) => out.concat(DL_SITES[f].filter(s => dlRead(f).split(s).length !== 2).map(s => f + ": " + s.slice(0, 60))), []);
 check("downloads: ONE utils.js downloadBlob (anchor attached, clicked, removed; URL revoked only by a >= 30 s timer, never in the same tick); no other object URL or .download; each site keeps its file name + MIME; the backup share/encrypt taps never download and downloadBlob never shares",
   !!dlBody && (utils.match(/function downloadBlob\(/g) || []).length === 1 && dlOrder.every((v, i) => v !== -1 && (i === 0 || v > dlOrder[i - 1])) &&
   !!dlTimer && Number(dlTimer[1]) >= 30000 && (dlBody.match(/revokeObjectURL\(/g) || []).length === 1 && dlLeak.length === 0 &&
-  JSON.stringify(dlCalls) === JSON.stringify({ "directorships.js": 1, "history.js": 1, "settings.js": 3 }) && dlMissing.length === 0 &&
+  JSON.stringify(dlCalls) === JSON.stringify({ "directorships.js": 2, "history.js": 1, "settings.js": 3 }) && dlMissing.length === 0 &&
   bkShareFn.indexOf("downloadBlob(") === -1 && bkSaveFn.indexOf("downloadBlob(") === -1 && !/navigator|share\w*\s*\(/i.test(dlBody),
   JSON.stringify({ order: dlOrder, ms: dlTimer ? dlTimer[1] : null, leak: dlLeak, calls: dlCalls, missing: dlMissing }));
 // ONE restore path: paste (doRestore) and file (restoreFromFile) both go
@@ -2362,26 +2362,83 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
   const withEmail = tracked.filter(p => EMAIL.test(fs.readFileSync(p, "utf8"))).map(p => path.relative(APP, p));
   check("directorships G6: no email address in any tracked text file (" + tracked.length + " files); self-test matches a built sample and not package@version",
     EMAIL.test(sample) && !EMAIL.test("jspdf@4.2.1/dist") && !EMAIL.test("@babel/parser") && withEmail.length === 0, withEmail.join(", "));
-  // G9: directorships.js names and the share hand-off.
+  // G9: directorships.js names and the two share hand-offs (the PDF, the user's own form).
   const dTop = topNames(dirAst).sort();
-  let shares = [], shareArgOk = false, inShare = false, badApi = [];
+  let shares = [], shareArgOk = true, inShare = false, inShareForm = false, badApi = [];
   if (dirAst) walk(dirAst.program, n => {
     if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && n.callee.object.name === "navigator" && n.callee.property.name === "share") {
       shares.push(n);
       const a = n.arguments[0];
-      shareArgOk = n.arguments.length === 1 && a.type === "ObjectExpression" && a.properties.length === 1 && a.properties[0].key.name === "files";
+      if (!(n.arguments.length === 1 && a.type === "ObjectExpression" && a.properties.length === 1 && a.properties[0].key.name === "files")) shareArgOk = false;
     }
     if (n.type === "VariableDeclarator" && n.id.name === "sharePdf") inShare = n.init;
+    if (n.type === "VariableDeclarator" && n.id.name === "shareForm") inShareForm = n.init;
     if (n.type === "MemberExpression" && !n.computed && ["html", "addJS", "AcroForm", "createAnnotation", "innerHTML"].indexOf(n.property.name) !== -1) badApi.push(n.property.name + ":" + n.loc.start.line);
     if (n.type === "CallExpression" && n.callee.type === "MemberExpression" && n.callee.property.name === "output" && !(n.arguments[0] && n.arguments[0].value === "blob")) badApi.push("output:" + n.loc.start.line);
   });
-  const shareInside = !!inShare && shares.length === 1 && shares[0].start >= inShare.start && shares[0].end <= inShare.end;
+  const shareInside = shares.length === 2 && [inShare, inShareForm].every(fn => !!fn && shares.filter(s => s.start >= fn.start && s.end <= fn.end).length === 1);
   const bodyOf = name => { let b = ""; if (dirAst) walk(dirAst.program, n => { if (n.type === "VariableDeclarator" && n.id.name === name && n.init) b = dirCode.slice(n.init.start, n.init.end); }); return b; };
-  check("directorships G9: four top-level components; one navigator.share({ files }) inside sharePdf; PDF build never shares; no RVU_CRYPTO/localStorage/innerHTML; jsPDF calls stay in the allowed surface; settings.js share count unchanged",
-    dTop.join() === "DirReview,DirSignaturePad,Directorships,DirectorshipsCard" && shareInside && shareArgOk &&
+  const shareFormB = bodyOf("shareForm");
+  check("directorships G9: five top-level components; two navigator.share({ files }) calls, one each inside sharePdf and shareForm; shareForm shares the file already loaded, directly in its tap (nothing async before it); PDF build never shares; no RVU_CRYPTO/localStorage/innerHTML; jsPDF calls stay in the allowed surface; settings.js share count unchanged",
+    dTop.join() === "DirFormFile,DirReview,DirSignaturePad,Directorships,DirectorshipsCard" && shareInside && shareArgOk &&
+    dirCode.split("shareForm").length === 3 && dirCode.indexOf("<button onClick={shareForm} style={btn()}>Save or send</button>") !== -1 && dirCode.split("sharePdf").length === 3 && dirCode.indexOf("<button onClick={sharePdf} ") !== -1 &&
+    shareFormB.indexOf("navigator.share({ files: [r.file] })") !== -1 && shareFormB.indexOf(".then(") > shareFormB.indexOf("navigator.share(") && !/dirFormFile|\bawait\b|\basync\b|setTimeout|setInterval|requestAnimationFrame|queueMicrotask|\bPromise\b/.test(shareFormB) && shareFormB.indexOf("canShareFile(r.file)") !== -1 &&
     !/share/i.test(bodyOf("createPdf").replace(/sharingRef|shareFailed/g, "")) && !/share/i.test(bodyOf("buildPdfFile")) &&
     dirSrc.indexOf("localStorage") === -1 && badApi.length === 0 && (settingsSrc.match(/navigator\.share\(/g) || []).length === 2,
     JSON.stringify({ top: dTop, shares: shares.length, shareInside: shareInside, shareArgOk: shareArgOk, badApi: badApi }));
+  // G9b: a Plain directorship's own form file. It stays out of the store and out
+  // of every backup: only the utils.js helpers touch IndexedDB, and each helper has
+  // named callers, so nothing opens the database at load and nothing deletes a file
+  // by comparing lists. The ways in: DirFormFile under a Plain directorship, the
+  // Remove tap on a Plain directorship, Reset App.
+  const FORM_NAMES = ["indexedDB", "DIR_FORM_DB", "rvu-forms"];
+  const formLeak = jsFiles.filter(f => f !== "utils.js").filter(f => FORM_NAMES.some(t => read(f).indexOf(t) !== -1));
+  const FORM_USES = { indexedDB: ["dirFormDbOpen", "dirFormFilesErase"], DIR_FORM_DB: ["DIR_FORM_DB", "dirFormDbOpen", "dirFormFilesErase"],
+    dirFormDbOpen: ["dirFormDbOpen", "dirFormTx"], dirFormTx: ["dirFormTx", "dirFormFileSave", "dirFormFileLoad", "dirFormFileRemove"], dirFormFileRead: ["dirFormFileRead", "dirFormFileSave"],
+    dirFormFileProblem: ["dirFormFileProblem", "dirFormFileSave"], dirFormFileSave: ["dirFormFileSave"], dirFormFileLoad: ["dirFormFileLoad"], dirFormFileRemove: ["dirFormFileRemove"],
+    dirFormFilesErase: ["dirFormFilesErase"], dirFormPhotoUrl: ["dirFormPhotoUrl"], dirFormFileSize: ["dirFormFileSize"] };
+  const topOfTop = pos => { const t = utilsAst ? utilsAst.program.body.find(b => b.start <= pos && pos < b.end) : null; if (!t) return "?"; if (t.type === "FunctionDeclaration") return t.id.name; if (t.type === "VariableDeclaration") return t.declarations.map(d => d.id.name).join(); return t.type; };
+  const formOut = [];
+  if (utilsAst) walk(utilsAst.program, n => { if (n.type === "Identifier" && Object.prototype.hasOwnProperty.call(FORM_USES, n.name)) { const t = topOfTop(n.start); if (FORM_USES[n.name].indexOf(t) === -1) formOut.push(n.name + " in " + t); } });
+  const INFORM = "directorships.js:DirFormFile";
+  const FORM_FNS = { dirFormFileProblem: [INFORM], dirFormFileSave: [INFORM], dirFormFileLoad: [INFORM], dirFormFileRemove: [INFORM, "directorships.js:DirectorshipsCard"], dirFormPhotoUrl: [INFORM], dirFormFileSize: [INFORM], dirFormFilesErase: ["app.js:ErrorBoundary"], dirFormDbOpen: [], dirFormTx: [], dirFormFileRead: [], DirFormFile: [INFORM, "directorships.js:DirectorshipsCard", "directorships.js:DirReview"] };
+  const formCalls = [];
+  jsFiles.filter(f => f !== "utils.js" && f !== "cpt-data.js").forEach(f => { const a = astOf(f); if (!a) return; a.program.body.forEach(top => walk(top, n => { if ((n.type === "Identifier" || n.type === "JSXIdentifier") && Object.prototype.hasOwnProperty.call(FORM_FNS, n.name)) { const owner = f + ":" + ((top.id && top.id.name) || top.type); if (FORM_FNS[n.name].indexOf(owner) === -1) formCalls.push(owner + " uses " + n.name); } })); });
+  let formFileSrc = "";
+  if (dirAst) dirAst.program.body.forEach(n => { if (n.type === "FunctionDeclaration" && n.id.name === "DirFormFile") formFileSrc = dirCode.slice(n.start, n.end); });
+  const removeAt = dirCode.indexOf('if (orig.form === "plain") dirFormFileRemove(orig.id).catch(function() {});'), confirmAt = dirCode.indexOf("if (!confirm(msg)) return;");
+  const appFormRaw = read("app.js"), appFormAst = astOf("app.js");
+  const appFormSrc = appFormAst ? appFormAst.comments.reduce((s, c) => s.slice(0, c.start) + " ".repeat(c.end - c.start) + s.slice(c.end), appFormRaw) : "";
+  const indexFormSrc = fs.readFileSync(path.join(APP, "index.html"), "utf8");
+  const FORM_PINS = ["changeRef.current++;", 'setSt({ state: "busy", rec: null, text: text });', "if (at === changeRef.current) setPhoto(u);", "run().then(reload).catch(function() { setMsg(failText); reload(); });",
+    'change("Saving...", function() { return dirFormFileSave(dirId, file); }', 'change("Removing...", function() { return dirFormFileRemove(dirId); }', 'if (photo) { changeRef.current++; setPhoto(""); return; }',
+    'setSt({ state: "error", rec: null, text: "" })', '{st.state === "error" && <div>', 'onError={function() { setPhoto("");', "<button onClick={retry}", 'accept="application/pdf,image/*"', "dirFormFileProblem(file)"].filter(t => formFileSrc.indexOf(t) === -1);
+  check("directorships G9b: only utils.js holds indexedDB and the database name, once (index.html included); every helper has its named callers in utils.js (nothing at load), and from the screens only DirFormFile, the Remove tap on a Plain directorship after its confirm, and Reset App reach them; DirFormFile takes only dirId and has no way to write the store; it shows only under a Plain form, in the card and on Review; from a save or remove tap until the reload no button acts on the old file, through change(); a failed load offers a retry; typed RESET erases the forms, says so, and reloads after that settles, or at once if the helper is missing; index.html holds none of these names",
+    formLeak.length === 0 && formOut.length === 0 && formCalls.length === 0 && utils.split('"rvu-forms"').length === 2 && /^function DirFormFile\(\{ dirId \}\)/.test(formFileSrc) && !/\bupd\b|\bsetData\b|\bdata\b|saveData|setItem/.test(formFileSrc) &&
+    dirCode.split("<DirFormFile ").length === 3 && dirCode.split("DirFormFile").length === 4 && dirCode.indexOf('{x.form === "plain" && <DirFormFile dirId={x.id} />}') !== -1 && dirCode.indexOf('{model.form === "plain" && <div style={S.card}><DirFormFile dirId={dirId} /></div>}') !== -1 &&
+    dirCode.split("dirFormFileRemove(").length === 3 && formFileSrc.split("dirFormFileRemove(").length === 2 && formFileSrc.split("dirFormFileSave(").length === 2 && confirmAt !== -1 && removeAt > confirmAt && FORM_PINS.length === 0 &&
+    appFormSrc.split("dirFormFilesErase").length === 2 && /typed\.trim\(\)\.toUpperCase\(\) === "RESET"\) \{\s*try \{ localStorage\.removeItem\(SK\); localStorage\.removeItem\(LAST_GOOD_KEY\); \} catch\(e\) \{\}\s*try \{ dirFormFilesErase\(\)\.then\(function\(\) \{ location\.reload\(\); \}\); \} catch\(e\) \{ location\.reload\(\); \}\s*\}/.test(appFormSrc) && appFormSrc.indexOf("directorship hours, signature and uploaded forms") !== -1 &&
+    FORM_NAMES.every(t => indexFormSrc.indexOf(t) === -1),
+    JSON.stringify({ leak: formLeak, out: formOut, calls: formCalls, pins: FORM_PINS, removeAt, confirmAt }));
+  // G9c: Plain's wiring. jsPDF cannot run here, so the sheet itself is pinned by
+  // source and by the live test: every line drawn, later pages say whose they are.
+  const drawPlainB = bodyOf("drawPlain"), fitPlainB = bodyOf("fitPlain");
+  const PLAIN_PINS = [
+    'mkDoc(model.form === "genesis" ? "landscape" : "portrait")', 'mkDoc(m.form === "genesis" ? "landscape" : "portrait")',
+    'model.form === "plain" ? fitPlain(doc, model)', 'else if (m.form === "plain") drawPlain(doc, L, m, url)',
+    '{model.form !== "plain" && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>{model.form === "genesis" ? DIR_GENESIS_CERT : DIR_SELECT_ATTEST}</div>}',
+    '[["genesis", "Genesis"], ["select", "Select"], ["plain", "Plain"]].map(',
+    'n > 0 && !dirFormsShareRows(orig.form, r.dir.form) && !confirm(', 'n > 0 && !dirFormsShareRows(orig.form, d.form) && <div',
+    'row.slots && dir.form === "genesis" && dKey && month', 'dir.form === "plain" ? dirPlainText(row, dText)',
+    '{model.form === "plain" ? <div style={S.card}>', '{model.form === "plain" ? null : model.form === "genesis" ?', 'model.form === "plain" ? "Signature - " :', '{model.entryCount === 0 && <div',
+    '{model.form === "plain" ? "Save or send PDF" : "Save to Google Drive"}', '{model.form === "plain" ? "Choose where to save or send it."', '(model.form === "plain" ? ". Save or send it, then tap Mark handed off."',
+    '(dir.form === "plain" ? " - save or send the updated form again."', '(d.form === "plain" ? " Forms already made', '(orig.form === "plain" ? " Its uploaded form, if any, is deleted for good."'
+  ].filter(t => dirCode.indexOf(t) === -1);
+  const DRAW_PINS = ["m.lines.forEach(function(l, i) {", "r.t.forEach(function(t, k)", "doc.text(l.dur,", "if (y + r.h > P.bottom) y = tableHead(nextPage());", "if (y + 170 > P.bottom + 40) y = nextPage();", "if (pages > 1) for (var pg = 1; pg <= pages; pg++)", "drawSig(doc, url,", "doc.text(l.dateText,", 'lab("Total time:",', 'lab("Rate:",', 'lab("Amount due:",', 'lab("Name:", m.header.printName, P.x0, 106, 330);', 'lab("Month:", m.header.monthYear, 340, 106, P.x1);', "one(m.sig.printName,", 'one(m.header.directorship, 306, 36,', 'lab("Name:", m.header.printName, P.x0, 54, 330);', 'lab("Month:", m.header.monthYear, 340, 54, P.x1);'].filter(t => drawPlainB.indexOf(t) === -1);
+  const FIT_PINS = ["m.lines.map(function(l)", 'hdrCheck(doc, flags, "The directorship name", m.header.directorship, P.x1 - P.x0,', 'hdrCheck(doc, flags, "The organization", m.header.org, P.x1 - P.x0,', 'hdrCheck(doc, flags, "The Print Name", m.header.printName, 330 - (P.x0 + wN + 4),'].filter(t => fitPlainB.indexOf(t) === -1);
+  check("directorships G9c: Plain's wiring - portrait, its own layout and draw; every line drawn with its wrap and time, later pages repeat who and when, page numbers only on a multi-page sheet, the signature drawn; each one-line header value measured; no hospital's wording on the sheet or on its Review; the third chip offered; no question between forms that share rows; no slot note and its own Prints line in the log form",
+    PLAIN_PINS.length === 0 && DRAW_PINS.length === 0 && FIT_PINS.length === 0 && !/DIR_GENESIS|DIR_SELECT|DIR_PAY_CODE|\bm\.rows\b/.test(drawPlainB),
+    JSON.stringify({ plain: PLAIN_PINS, draw: DRAW_PINS, fit: FIT_PINS }));
   // G10: no Babel file redeclares a plain-script top-level name (CLAUDE.md 3c).
   const plainNames = {};
   ["crypto.js", "utils.js", "styles.js"].forEach(f => topNames(astOf(f)).forEach(n => { plainNames[n] = f; }));
@@ -2414,11 +2471,11 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
   // Create/Share/Download re-check the PIN before acting, share marks the hash
   // the PDF was built from; an entry/month change drops a ready PDF and the
   // finished step, a date change drops only an unsent PDF. All on comment-free code.
-  const drawB = ["drawGenesis", "drawSelect", "buildPdfFile"].map(bodyOf), cpB = bodyOf("createPdf"), shB = bodyOf("sharePdf"), dlB = bodyOf("downloadPdf");
+  const drawB = ["drawGenesis", "drawSelect", "buildPdfFile", "drawPlain"].map(bodyOf), cpB = bodyOf("createPdf"), shB = bodyOf("sharePdf"), dlB = bodyOf("downloadPdf");
   const pinFirst = (b, chk, act) => b.indexOf(chk) !== -1 && b.indexOf(act) !== -1 && b.indexOf(chk) < b.indexOf(act);
   check("directorships G13: PDF draw path never masks money; Create/Share/Download re-check the PIN first (and return); share marks p.hash; entry/month change drops PDF + done, a date change drops only the PDF",
     drawB.every(b => b && !/dirMoneyShown|showComp|fmtDollar/.test(b)) &&
-    drawB[0].indexOf("m.footer.rate") !== -1 && drawB[0].indexOf("m.footer.due") !== -1 && drawB[1].indexOf("m.header.totalDue") !== -1 &&
+    drawB[0].indexOf("m.footer.rate") !== -1 && drawB[0].indexOf("m.footer.due") !== -1 && drawB[1].indexOf("m.header.totalDue") !== -1 && drawB[3].indexOf("m.footer.rate") !== -1 && drawB[3].indexOf("m.footer.due") !== -1 &&
     pinFirst(cpB, 'if (!dirSigStillValid(sig.pin)) { setSig({ state: "locked", url: "", pin: "" }); setPdf(null); return; }', "buildPdfFile(") &&
     pinFirst(shB, "if (!dirSigStillValid(p.pinAt)) { wipe(); return; }", "navigator.share(") && pinFirst(dlB, "if (!dirSigStillValid(p.pinAt)) { wipe(); return; }", "downloadBlob(") &&
     /dirHandoffMark\([^;]*p\.hash\)/.test(shB) && shB.indexOf("model.hash") === -1 &&
@@ -2581,7 +2638,7 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
     sSrc.split("Track a group acute-care pool").length === 2 && /const reconSeen = useRef\(false\);\s*if \(reconInUse\(data\)\) reconSeen\.current = true;/.test(sSrc) && /\{reconSeen\.current && <div style=\{S\.fieldGroup\}><label style=\{S\.fieldLabel\}>Reconciliation goal/.test(sSrc) &&
     sSrc.split("fkhan628.github.io").length === 2 && /var url = "https:\/\/fkhan628\.github\.io\//.test(sSrc));
   check("U13c: on an empty list the Directorships card has the neutral line, the Load button and + Add for a user's own post - no count, Open or signature pad (a saved signature still shows); Call Pay's Load shows only at zero sites and 'Add built-in site' only beside a site that stands for a built-in",
-    /\{dirs\.length > 0 \? "Monthly signed time sheets/.test(dSrc) && /\{dirs\.length > 0 && <div style=\{\{ fontSize: 12, color: "var\(--text-muted\)", marginTop: 2 \}\}>\{dirs\.length \+ " "/.test(dSrc) &&
+    /\{dirs\.length === 0 \? "Optional: signed monthly time sheets for medical director roles\." : dirs\.every\(function\(x\) \{ return x\.form === "plain"; \}\) \? "Monthly signed time sheets\. Separate from wRVUs and Comp\." : "Monthly signed time sheets, saved to Google Drive/.test(dSrc) && /\{dirs\.length > 0 && <div style=\{\{ fontSize: 12, color: "var\(--text-muted\)", marginTop: 2 \}\}>\{dirs\.length \+ " "/.test(dSrc) &&
     /\{dirs\.length > 0 && <button onClick=\{function\(\) \{ if \(openDirectorships\) openDirectorships\("settings"\); \}\}/.test(dSrc) && /\{!edit && <button onClick=\{function\(\) \{ openEdit\(null\); \}\} style=\{btn\(\{ width: "100%", marginTop: 10 \}\)\}>\+ Add directorship<\/button>\}/.test(dSrc) && /printName: dirs\.length \? dirs\[0\]\.printName : ""/.test(dSrc) && /\{edit && edit\.origId === null && renderEditor\(\)\}/.test(dSrc) && /\{dirs\.length === 0 && <div style=\{\{ marginTop: 10 \}\}>/.test(dSrc) && /\{\(dirs\.length > 0 \|\| hasSig\) && <>/.test(dSrc) &&
     inOrder(cpSrc, ["{sites.length === 0", LOAD_LABELS["callpay.js"], "+ New shift"]) && /\{missingDefaults\.length > 0 && Object\.keys\(builtInDefOf\)\.length > 0 && <button onClick=\{addDefaults\}/.test(cpSrc) && cpSrc.split("onClick={addDefaults}").length === 2);
 }
@@ -5135,11 +5192,14 @@ if (sb) {
       J({ keys: Object.keys(t6.dirHandoff), b: q6.seen }));
 
     // T7 writer contract: every writer's output passes repairData unchanged.
-    const nG = sb.dirNew("genesis", "Pat Doe, MD"), nS = sb.dirNew("select", "Pat Doe, MD");
+    const nG = sb.dirNew("genesis", "Pat Doe, MD"), nS = sb.dirNew("select", "Pat Doe, MD"), nP = sb.dirNew("plain", "Pat Doe, MD");
     const edDraft = { name: "ICU Co\u2013Director \u201CA\u201D", shortName: "ICU", org: "Org", printName: "Pat Doe, MD", form: "genesis", emplNo: "12", costCtr: "34", rate: "$1,200.50", maxHours: "4.5" };
     const ed1 = sb.dirFromEditorDraft([ICU], null, Object.assign({}, edDraft, { name: "Made-up Director" }));
     const ed2 = sb.dirFromEditorDraft(PRESET_SPEC, WC, { name: WC.name, shortName: "W", org: WC.org, printName: WC.printName, form: "select", rate: "215", maxHours: "8", hospital: "H", programType: "P", physicianName: "Pat", contractingParty: "C", remit1: "1 A St", remit2: "Town, ST 00000", glNo: "1-2", hospitalNo: "9" });
+    const ed3 = sb.dirFromEditorDraft([ICU], null, Object.assign({}, edDraft, { name: "Made-up Sheet", form: "plain", emplNo: "", costCtr: "" }));
+    const ed4 = sb.dirFromEditorDraft([ICU], ICU, Object.assign({}, edDraft, { name: ICU.name, printName: ICU.printName, form: "plain" }));
     const eB = sb.dirEntryFromDraft({ date: "2026-10-05", minutes: 90, category: "g_meeting", detail: "  CNO   team " }, ICU, sb.dirEntryId(0));
+    const eP = sb.dirEntryFromDraft({ date: "2026-10-05", minutes: 90, category: "g_meeting", detail: "  CNO   team " }, nP, sb.dirEntryId(1));
     const rep7 = sb.dirRepeatDraft([ent("r1", "icu", "2026-09-30", 60, "g_policy")], "icu", "2026-10", "2026-10-31").map((d, i) => sb.dirEntryFromDraft(d, ICU, sb.dirEntryId(i)).entry);
     const hm = sb.dirHandoffMark({}, "icu", "2026-10", "2026-11-02", "h1-1-00000000000001"), hc = sb.dirHandoffClear(hm, "icu", "2026-10");
     const prev7 = dstore({ directorships: sb.defaultDirectorships(), dirEntries: [eB.entry], dirHandoff: hm });
@@ -5152,6 +5212,8 @@ if (sb) {
     const W7 = [
       ["defaultDirectorships", dstore({ directorships: sb.defaultDirectorships() })], ["dirNew genesis", dstore({ directorships: [nG] })], ["dirNew select", dstore({ directorships: [nS] })],
       ["dirFromEditorDraft new", dstore({ directorships: [ICU, ed1.dir] })], ["dirFromEditorDraft select", dstore({ directorships: [ICU, ed2.dir] })],
+      ["dirNew plain", dstore({ directorships: [nP] })], ["dirFromEditorDraft plain", dstore({ directorships: [ICU, ed3.dir] })], ["dirFromEditorDraft genesis to plain", dstore({ directorships: [ed4.dir] })],
+      ["dirEntryFromDraft plain", dstore({ directorships: [nP], dirEntries: [eP.entry] })],
       ["dirEntryFromDraft", dstore({ dirEntries: [eB.entry] })], ["repeat confirm", dstore({ dirEntries: rep7 })],
       ["dirHandoffMark", dstore({ dirHandoff: hm })], ["dirHandoffClear", dstore({ dirHandoff: hc })],
       ["dirRestoreBuiltIns", sb.dirRestoreBuiltIns(dstore({ directorships: [] }))], ["dirRestoreBuiltIn", sb.dirRestoreBuiltIn(dstore({ directorships: [ICU] }), "wound")],
@@ -5162,7 +5224,7 @@ if (sb) {
     ];
     const bad7 = W7.filter(w => !fixedPt(JSON.parse(J(w[1]))));
     check("directorships T7 CONTRACT: every writer's output (and both undo paths) passes repairData unchanged and validates (" + W7.length + " cases)",
-      bad7.length === 0 && ed1.errors.length === 0 && ed2.errors.length === 0 && eB.problems.length === 0 && rep7.length === 1 && rep7.every(Boolean) &&
+      bad7.length === 0 && ed1.errors.length === 0 && ed2.errors.length === 0 && ed3.errors.length === 0 && ed4.errors.length === 0 && nP.form === "plain" && ed3.dir.form === "plain" && ed4.dir.form === "plain" && eB.problems.length === 0 && eP.problems.length === 0 && rep7.length === 1 && rep7.every(Boolean) &&
       J(Object.keys(rep7[0])) === J(["id", "dirId", "date", "minutes", "category", "detail"]) && J(rmU) === J(prev7) && rmU2 === rmU &&
       J(undoEdit.dirEntries) === J([eB.entry]) && J(undoDel.dirEntries) === J([eB.entry]) && J(undoSave.dirEntries) === "[]",
       bad7.map(w => w[0]).join(", "));
@@ -5760,6 +5822,150 @@ if (sb) {
     const ownDraft = sb.dirFromEditorDraft([], null, { name: "Made-up Lead", shortName: "ML", org: "Org", printName: "Pat Doe, MD", form: "genesis", emplNo: "", costCtr: "", rate: "100", maxHours: "5" });
     check("U6c: a user's own directorship saves from an empty list - no error, a repairData fixed point, no owner word, no Restore links beside it",
       !!ownDraft.dir && ownDraft.errors.length === 0 && !OWNER_RE.test(J(ownDraft.dir)) && fixedPt(JSON.parse(J(dstore({ directorships: [ownDraft.dir] })))) && sb.dirMissingBuiltIns(neutral({ directorships: [ownDraft.dir] })).length === 0, J(ownDraft.errors));
+    // Plain: the neutral time sheet for anyone without a built-in layout.
+    const plainDraft = sb.dirFromEditorDraft([], null, { name: "Made-up Lead", shortName: "ML", org: "Org", printName: "Pat Doe, MD", form: "plain", emplNo: "", costCtr: "", rate: "100", maxHours: "5" }), PL = plainDraft.dir;
+    const plStore = o => neutral(Object.assign({ directorships: [PL] }, o || {}));
+    const plRow = k => sb.dirRowByKey("plain", k);
+    check("plain P1: the three form values, their names and rows - Plain shares the Genesis row keys, Select shares with neither; an entry's printed line",
+      sb.dirFormOk("plain") && sb.dirFormOk("genesis") && sb.dirFormOk("select") && !sb.dirFormOk("x") && !sb.dirFormOk(undefined) &&
+      sb.dirFormName("plain") === "Plain" && sb.dirFormName("select") === "Select" && sb.dirFormName("genesis") === "Genesis" &&
+      sb.dirRowsFor("plain") === sb.dirRowsFor("genesis") && sb.dirRowsFor("plain") !== sb.dirRowsFor("select") && sb.dirFormsShareRows("genesis", "plain") && sb.dirFormsShareRows("plain", "genesis") && !sb.dirFormsShareRows("plain", "select") && !sb.dirFormsShareRows("select", "genesis") && !sb.dirFormsShareRows("x", "y") &&
+      sb.dirPlainText(plRow("g_meeting"), " CNO  team ") === "Meeting with CNO team to discuss" && sb.dirPlainText(plRow("g_meeting"), "") === "Meeting with ____ to discuss" && sb.dirPlainText(plRow("g_other"), "Tumor board") === "Other: Tumor board" && sb.dirPlainText(plRow("g_other"), "") === "Other: (details)" && sb.dirPlainText(plRow("g_policy"), "ignored") === "Policy/procedure" && sb.dirPlainText(null, "x") === "");
+    const mPl = sb.dirFormModel(plStore({ dirEntries: [ent("pl3", PL.id, "2026-10-20", 45, "g_other", "Tumor board"), ent("pl1", PL.id, "2026-10-05", 90, "g_policy"), ent("pl2", PL.id, "2026-10-12", 30, "g_meeting", "CNO")] }), PL.id, "2026-10", "2026-11-02");
+    const lineShape = l => [l.date, l.dateText, l.text, l.minutes, l.dur];
+    check("plain P2: the model - one line per entry in date order, its own header and footer, no signature wording of any hospital and nothing of the owner's, the file-name contract kept",
+      !!PL && plainDraft.errors.length === 0 && mPl.form === "plain" && mPl.ok === true &&
+      J(mPl.lines.map(lineShape)) === J([["2026-10-05", "10/5", "Policy/procedure", 90, "1:30"], ["2026-10-12", "10/12", "Meeting with CNO to discuss", 30, "0:30"], ["2026-10-20", "10/20", "Other: Tumor board", 45, "0:45"]]) &&
+      J(mPl.header) === J({ directorship: "Made-up Lead", org: "Org", printName: "Pat Doe, MD", monthYear: "October 2026" }) && J(mPl.footer) === J({ totalHrs: "2:45", totalDec: "2.75", rate: "$100.00", due: "$275.00" }) &&
+      mPl.sig.printName === "Pat Doe, MD" && mPl.fileName === "Doe - Made-up Lead Timesheet - 2026-10.pdf" && !OWNER_RE.test(J(mPl)) && !/CERTIFICATION|attest/i.test(J(mPl)) && mPl.flags.length === 0, J({ lines: mPl.lines, header: mPl.header, footer: mPl.footer, flags: mPl.flags, file: mPl.fileName }));
+    const mPl5 = sb.dirFormModel(plStore({ dirEntries: ["A", "B", "C", "D", "E", "F"].map((x, i) => ent("pf" + i, PL.id, "2026-10-0" + (i + 1), 10, "g_meeting", x + " team")) }), PL.id, "2026-10", "2026-11-02");
+    const mPlSame = sb.dirFormModel(plStore({ dirEntries: [ent("ps1", PL.id, "2026-10-05", 20, "g_policy"), ent("ps2", PL.id, "2026-10-05", 40, "g_policy")] }), PL.id, "2026-10", "2026-11-02");
+    const mPlOver = sb.dirFormModel(plStore({ dirEntries: [ent("po1", PL.id, "2026-10-05", 360, "g_policy")] }), PL.id, "2026-10", "2026-11-02");
+    const mPlEmpty = sb.dirFormModel(plStore(), PL.id, "2026-10", "2026-11-02");
+    const mPlNoDetail = sb.dirFormModel(plStore({ dirEntries: [ent("pn1", PL.id, "2026-10-05", 30, "g_other", "")] }), PL.id, "2026-10", "2026-11-02");
+    const mPlFuture = sb.dirFormModel(plStore({ dirEntries: [ent("pu1", PL.id, "2026-11-20", 30, "g_policy")] }), PL.id, "2026-11", "2026-11-02");
+    const flagCodes = m => m.flags.map(f => f.code).join();
+    const mPlAscii = sb.dirFormModel(plStore({ dirEntries: [ent("pa1", PL.id, "2026-10-05", 30, "g_other", "Caf\u00E9")] }), PL.id, "2026-10", "2026-11-02");
+    const mPlRound = sb.dirFormModel(plStore({ dirEntries: [ent("pq1", PL.id, "2026-10-05", 80, "g_policy")] }), PL.id, "2026-10", "2026-11-02");
+    check("plain P3: nothing combines or is dropped - six meetings print as six lines, two entries on one day as two; over the cap the sheet prints all the time and Due counts the cap, in H:MM; an empty month warns; a missing detail or a future date still blocks; a character the PDF font lacks prints as ? and warns; a total that rounds gets Select's note",
+      mPl5.ok === true && mPl5.lines.length === 6 && flagCodes(mPl5) === "" && mPl5.lines[5].text === "Meeting with F team to discuss" && mPlSame.lines.length === 2 && mPlSame.totalMinutes === 60 &&
+      mPlOver.overCap === true && mPlOver.ok === true && mPlOver.footer.totalHrs === "6:00" && mPlOver.footer.due === "$500.00" && mPlOver.flags.filter(f => f.code === "overCap").map(f => f.text).join() === "Over the 5:00 monthly cap: the form prints all 6:00; Due counts 5:00." &&
+      mPlEmpty.lines.length === 0 && flagCodes(mPlEmpty) === "empty" && mPlEmpty.ok === true && mPlNoDetail.flags.some(f => f.code === "noDetail" && f.level === "block") && mPlNoDetail.lines.length === 0 && mPlFuture.flags.some(f => f.code === "future" && f.level === "block") &&
+      mPlAscii.lines[0].text === "Other: Caf?" && flagCodes(mPlAscii) === "chars" && mPlRound.ok === true && mPlRound.footer.totalDec === "1.33" && mPlRound.footer.due === "$133.33" && flagCodes(mPlRound) === "rounded" && mPlRound.flags[0].level === "note", J([mPl5.flags, mPlOver.flags, mPlEmpty.flags, mPlAscii.lines, mPlAscii.flags, mPlRound.flags]));
+    const genToPlain = Object.assign({}, CUSTOM, { form: "plain" }), plainToSel = Object.assign({}, PL, { form: "select" }), plainToGen = Object.assign({}, PL, { form: "genesis" });
+    const swE = ent("sw1", "dir-u", "2026-10-05", 60, "g_policy"), swP = ent("sw2", PL.id, "2026-10-05", 60, "g_policy");
+    const mG2P = sb.dirFormModel(neutral({ directorships: [genToPlain], dirEntries: [swE] }), "dir-u", "2026-10", "2026-11-02");
+    const mP2S = sb.dirFormModel(neutral({ directorships: [plainToSel], dirEntries: [swP] }), PL.id, "2026-10", "2026-11-02");
+    const mP2G = sb.dirFormModel(neutral({ directorships: [plainToGen], dirEntries: [swP] }), PL.id, "2026-10", "2026-11-02");
+    check("plain P4: Genesis to Plain and back keeps every entry placed; Plain to Select leaves them unplaced and names Select",
+      mG2P.lines.length === 1 && mG2P.totalMinutes === 60 && flagCodes(mG2P).indexOf("unplaced") === -1 && mP2G.totalMinutes === 60 && flagCodes(mP2G).indexOf("unplaced") === -1 && mP2G.lines.length === 0 &&
+      mP2S.totalMinutes === 0 && mP2S.lines.length === 0 && mP2S.flags.filter(f => f.code === "unplaced").map(f => f.text).join() === "1 entry uses a category the Select form does not have - edit it first.", J([mG2P.flags, mP2S.flags]));
+    const repPlain = neutral({ directorships: [PL, Object.assign({}, PL, { id: "dir-junk", name: "Made-up Junk", form: "letterhead" })] });
+    const repQ = quiet(() => sb.repairData(repPlain));
+    const noteOf = dirX => sb.dirFileNameNote(dirX, Object.assign({}, dirX, { name: "Other Lead" }), "2026-10", neutral({ directorships: [dirX] }));
+    const noteTo = (dirX, form) => sb.dirFileNameNote(dirX, Object.assign({}, dirX, { name: "Other Lead", form: form }), "2026-10", neutral({ directorships: [dirX] }));
+    check("plain P5: repairData keeps a Plain directorship (a fixed point) and still drops an unknown form; a rename note leaves out the monthly email task only while the form on screen is Plain",
+      fixedPt(JSON.parse(J(dstore({ directorships: [PL], dirEntries: [ent("pr1", PL.id, "2026-10-05", 30, "g_policy")] })))) && repPlain.directorships.length === 1 && repPlain.directorships[0].form === "plain" && repQ.r.length > 0 &&
+      noteOf(PL).indexOf("The file name will be: Doe - Other Lead Timesheet - 2026-10.pdf") === 0 && noteOf(CUSTOM).indexOf("The monthly email task finds these PDFs by this exact file name: ") === 0 && noteTo(CUSTOM, "plain").indexOf("The file name will be: ") === 0 && noteTo(PL, "genesis").indexOf("The monthly email task") === 0, J([noteOf(PL), noteOf(CUSTOM), noteTo(CUSTOM, "plain"), noteTo(PL, "genesis")]));
+    // The uploaded form's helpers, against a fake IndexedDB (async; child process like T31).
+    {
+      const probeF = String.raw`
+        const vm = require("vm"), fs = require("fs");
+        const noop = () => {}, ls = new Map(); let sets = 0, opens = 0, failOpen = false, failTx = false, failAbort = false, eraseMode = "ok"; const timers = [];
+        const dbs = {};
+        const later = fn => setImmediate(fn);
+        const indexedDB = { open(name, ver) {
+          opens++;
+          const q = { result: null, error: null };
+          later(() => {
+            if (failOpen) { q.error = new Error("denied"); q.onerror(); return; }
+            const isNew = !dbs[name];
+            if (isNew) dbs[name] = { stores: {}, ver: ver };
+            const db = dbs[name];
+            q.result = { close: noop, createObjectStore(n) { db.stores[n] = new Map(); },
+              transaction(n, mode) {
+                const map = db.stores[n], tx = { error: null }, before = new Map(map); let wrote = false;
+                const req = (fn, writes) => { if (writes && mode !== "readwrite") throw new Error("read-only"); const r = { result: undefined }; later(() => { r.result = fn(); if (r.onsuccess) r.onsuccess(); }); return r; };
+                tx.objectStore = () => ({ put: (v, k) => req(() => { wrote = true; map.set(k, v); return k; }, true), get: k => req(() => map.get(k)), delete: k => req(() => { map.delete(k); }, true) });
+                later(() => later(() => later(() => { const undo = () => { map.clear(); before.forEach((v, k) => map.set(k, v)); }; if (failAbort && wrote) { undo(); tx.error = new Error("quota"); tx.onabort(); } else if (failTx && wrote) { undo(); tx.error = new Error("quota"); tx.onerror(); } else tx.oncomplete(); })));
+                return tx;
+              } };
+            if (isNew) q.onupgradeneeded();
+            q.onsuccess();
+          });
+          return q;
+        }, deleteDatabase(name) {
+          if (eraseMode === "throw") throw new Error("no");
+          const q = {};
+          later(() => { if (eraseMode === "hang") return; if (eraseMode === "error") { q.error = new Error("x"); q.onerror(); return; } if (eraseMode === "blocked") { q.onblocked(); return; } delete dbs[name]; q.onsuccess(); });
+          return q;
+        } };
+        class FileReader { readAsArrayBuffer(f) { later(() => { if (f.unreadable) { this.error = new Error("gone"); this.onerror(); return; } this.result = f.bytes; this.onload(); }); } readAsDataURL(b) { later(() => { this.result = "data:" + b.type + ";base64,QQ=="; this.onload(); }); } }
+        class Blob { constructor(parts, o) { this.parts = parts; this.type = o.type; } }
+        class File extends Blob { constructor(parts, name, o) { super(parts, o); this.name = name; } }
+        const ctx = vm.createContext({ console: { log: noop, warn: noop, error: noop }, React: {}, indexedDB, FileReader, Blob, File, setImmediate, setTimeout: (fn, ms) => { timers.push(ms); if (eraseMode === "hang") later(fn); },
+          localStorage: { getItem: k => ls.has(k) ? ls.get(k) : null, setItem: (k, v) => { sets++; ls.set(k, v); }, removeItem: k => ls.delete(k) },
+          document: { createElement: () => ({ style: {}, setAttribute: noop, appendChild: noop }), head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+        vm.runInContext(fs.readFileSync(process.argv[1], "utf8"), ctx);
+        vm.runInContext(fs.readFileSync(process.argv[2], "utf8"), ctx);
+        const c = ctx, mk = (name, type, size, bytes) => ({ name, type, size, bytes: bytes || "BYTES-" + name });
+        (async () => {
+          const out = {};
+          out.problems = [null, {}, mk("a", "application/pdf", 0), mk("a", "application/pdf", 20 * 1024 * 1024 + 1), mk("a", "text/plain", 5), mk("a", "", 5), mk("a", 7, 5), mk("a", "application/pdf", 20 * 1024 * 1024), mk("a", "image/heic", 5)].map(f => c.dirFormFileProblem(f));
+          out.rejectBad = await c.dirFormFileSave("a", mk("a", "text/plain", 5)).then(() => "saved", e => e.message);
+          out.afterBad = [opens, Object.keys(dbs).length];
+          failOpen = true;
+          out.rejectDb = await c.dirFormFileSave("a", mk("a.pdf", "application/pdf", 5)).then(() => "saved", e => e.message);
+          failOpen = false;
+          failAbort = true;
+          out.rejectAbort = await c.dirFormFileSave("ab", mk("ab.pdf", "application/pdf", 5)).then(() => "saved", e => e.message);
+          failAbort = false; out.keptAfterAbort = dbs["rvu-forms"].stores.files.has("ab");
+          out.save = await c.dirFormFileSave("a", mk("a.pdf", "application/pdf", 5));
+          out.dbName = Object.keys(dbs).join(); out.stored = JSON.stringify(dbs["rvu-forms"].stores.files.get("a"));
+          const a1 = await c.dirFormFileLoad("a");
+          out.load = a1 && [a1.name, a1.type, a1.size, a1.blob.parts[0], a1.blob.type, a1.file.name, a1.file.type, a1.file.parts[0] === a1.blob];
+          out.none = await c.dirFormFileLoad("nope");
+          await c.dirFormFileSave("a", mk("b.jpg", "image/jpeg", 9));
+          out.replaced = (await c.dirFormFileLoad("a")).name;
+          failTx = true;
+          out.rejectReplace = await c.dirFormFileSave("a", mk("c.pdf", "application/pdf", 7)).then(() => "saved", e => e.message);
+          failTx = false; out.keptOnFailedReplace = (await c.dirFormFileLoad("a")).name;
+          failAbort = true;
+          out.rejectReplaceAbort = await c.dirFormFileSave("a", mk("d.pdf", "application/pdf", 7)).then(() => "saved", e => e.message);
+          failAbort = false; out.keptOnAbortedReplace = (await c.dirFormFileLoad("a")).name;
+          await c.dirFormFileSave("z", mk("z.pdf", "application/pdf", 3));
+          out.removedOne = [await c.dirFormFileRemove("z"), await c.dirFormFileLoad("z"), (await c.dirFormFileLoad("a")).name];
+          failTx = true;
+          out.rejectTx = await c.dirFormFileSave("q", mk("q.pdf", "application/pdf", 5)).then(() => "saved", e => e.message);
+          failTx = false;
+          out.rejectRead = await c.dirFormFileSave("r", Object.assign(mk("r.pdf", "application/pdf", 5), { unreadable: true })).then(() => "saved", e => e.message);
+          out.keptAfterFail = ["q", "r"].map(k => dbs["rvu-forms"].stores.files.has(k));
+          out.photo = await c.dirFormPhotoUrl(new Blob(["x"], { type: "image/png" }));
+          out.sizes = [500, 1024, 2048, 1048576, 1572864, -1, "x"].map(n => c.dirFormFileSize(n));
+          const opensBefore = opens;
+          await c.dirFormFilesErase();
+          out.dbsAfterErase = Object.keys(dbs).length;
+          await c.dirFormFilesErase();
+          out.dbsAfterSecondErase = Object.keys(dbs).length; out.opensByErase = opens - opensBefore;
+          out.settled = [];
+          for (const m of ["error", "blocked", "hang", "throw"]) { eraseMode = m; await c.dirFormFilesErase(); out.settled.push(m); }
+          eraseMode = "ok"; out.timers = timers.slice(); out.sets = sets; out.lsSize = ls.size;
+          console.log(JSON.stringify(out));
+        })().catch(e => console.log("probe failed: " + e.stack));`;
+      let outF = "";
+      try { outF = require("child_process").execFileSync(process.execPath, ["-e", probeF, path.join(JS_DIR, "cpt-data.js"), path.join(JS_DIR, "utils.js")], { encoding: "utf8" }).trim(); }
+      catch (e) { outF = "error: " + e.message; }
+      let f = {}; try { f = JSON.parse(outF); } catch (e) { f = {}; }
+      check("plain P6: the form-file helpers - what is refused (empty, over 20 MB, not a PDF or photo); a refused file never opens the database; saved under the directorship id, read back ready to share, replaced by a second save; Remove deletes that one form; a denied open, a failed write, a commit reported as abort alone and an unreadable file reject and leave nothing, and a failed Replace keeps the old file; the helpers never write localStorage; Reset App's erase empties the database, creates none and always settles",
+        J(f.problems) === J(["Pick a file.", "Pick a file.", "That file is empty.", "That file is over 20 MB - pick a smaller one.", "Upload a PDF or a photo.", "Upload a PDF or a photo.", "Upload a PDF or a photo.", "", ""]) &&
+        f.rejectBad === "Upload a PDF or a photo." && J(f.afterBad) === J([0, 0]) &&
+        f.rejectDb === "denied" && f.rejectAbort === "quota" && f.keptAfterAbort === false && f.dbName === "rvu-forms" && f.stored === J({ name: "a.pdf", type: "application/pdf", size: 5, bytes: "BYTES-a.pdf" }) &&
+        J(f.load) === J(["a.pdf", "application/pdf", 5, "BYTES-a.pdf", "application/pdf", "a.pdf", "application/pdf", true]) && f.none === null && f.replaced === "b.jpg" &&
+        f.rejectReplace === "quota" && f.keptOnFailedReplace === "b.jpg" && f.rejectReplaceAbort === "quota" && f.keptOnAbortedReplace === "b.jpg" && f.removedOne[1] === null && f.removedOne[2] === "b.jpg" && J(f.keptAfterFail) === J([false, false]) &&
+        f.rejectTx === "quota" && f.rejectRead === "gone" && f.photo === "data:image/png;base64,QQ==" && J(f.sizes) === J(["1 KB", "1 KB", "2 KB", "1 MB", "1.5 MB", "", ""]) &&
+        f.dbsAfterErase === 0 && f.dbsAfterSecondErase === 0 && f.opensByErase === 0 && J(f.settled) === J(["error", "blocked", "hang", "throw"]) && f.timers.length === 6 && f.timers.every(ms => ms === 2000) && f.sets === 0 && f.lsSize === 0,
+        outF);
+    }
     check("U6b: acuteInUse and reconInUse - false on a neutral store; a partner, a month or a 'me' turns acute on; a Compare month or a Reconciliation goal turns Reconciliation on; junk stays off",
       sb.acuteInUse(neutral()) === false && sb.acuteInUse(neutral({ acuteRoster: ["P"] })) === true && sb.acuteInUse(neutral({ acuteMonths: { "2026-09": { pool: 1, shifts: {} } } })) === true && sb.acuteInUse(neutral({ acuteMe: "P" })) === true && sb.acuteInUse(null) === false &&
       sb.reconInUse(neutral()) === false && sb.reconInUse(neutral({ institutionData: [{ month: "2026-09", workRVU: 1, splitRVU: 0, cases: 1 }] })) === true && sb.reconInUse(neutral({ settings: { reconGoal: 5 } })) === true && sb.reconInUse(neutral({ settings: { reconGoal: "x" } })) === false && sb.reconInUse(null) === false);

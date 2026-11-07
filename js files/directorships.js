@@ -8,8 +8,8 @@
 // emails - this app never stores, shows or sends email addresses.
 // Every rule, number and printed string comes from utils.js (dirFormModel is
 // the ONE source for the Review screen and the PDF); this file only holds
-// state and renders. Four top-level names (check.js G9): Directorships,
-// DirReview, DirectorshipsCard, DirSignaturePad.
+// state and renders. Five top-level names (check.js G9): Directorships,
+// DirReview, DirectorshipsCard, DirSignaturePad, DirFormFile.
 
 // Nav-less view opened from More (Settings) or Home's reminder line.
 function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirMonth }) {
@@ -72,7 +72,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
     var used = row && row.detail ? dirRecentDetails(entries, dir.id, row.key) : [];
     var dText = dirDetailText(dirAsciiPunct(f.detail)), dKey = dirDetailKey(dText);   // normalized as Save stores it
     var slotNote = "";
-    if (row && row.slots && dKey && month) {
+    if (row && row.slots && dir.form === "genesis" && dKey && month) {
       // The real plan with this draft in it (lines go by date order, so a
       // backdated topic moves the others down).
       var others = dirMonthEntries(entries, dir.id, month).filter(function(e) { return e.id !== exceptId; });
@@ -83,7 +83,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
       else if (plan.combined && slot === last) slotNote = "Will be combined into " + row.flagName + " line " + row.slots + ": " + plan.fills[last] + " (all " + row.slots + " lines are used this month).";
       else slotNote = row.flagName + " line " + (slot + 1) + " of " + row.slots + (plan.combined ? " - line " + row.slots + " combines " + plan.fills[last] : "");
     }
-    var prints = !row ? "" : row.key === "g_meeting" ? "Meeting with " + (dText || "____") + " to discuss" : row.key === "g_other" ? "Other: " + (dText || "(details)") : row.text + (row.detail && dText ? " " + dText : "");
+    var prints = !row ? "" : dir.form === "plain" ? dirPlainText(row, dText) : row.key === "g_meeting" ? "Meeting with " + (dText || "____") + " to discuss" : row.key === "g_other" ? "Other: " + (dText || "(details)") : row.text + (row.detail && dText ? " " + dText : "");
     var yday = addDaysYMD(today, -1);
     return (<div>
       {allowDir && <div>
@@ -332,7 +332,7 @@ function Directorships({ data, upd, onBack, showComp, toggleComp, showUndo, dirM
             </div>
             <span style={{ fontSize: 10, fontWeight: 700, padding: "3px 8px", borderRadius: 10, border: "1px solid " + pill[1], color: pill[1], whiteSpace: "nowrap" }}>{pill[0]}</span>
           </div>
-          {st.state === "changed" && <div style={{ fontSize: 11, color: amber, marginTop: 6, lineHeight: 1.5 }}>{"Handed off " + fmtShort(st.date) + " - save the updated form to Drive again and delete the older copy."}</div>}
+          {st.state === "changed" && <div style={{ fontSize: 11, color: amber, marginTop: 6, lineHeight: 1.5 }}>{"Handed off " + fmtShort(st.date) + (dir.form === "plain" ? " - save or send the updated form again." : " - save the updated form to Drive again and delete the older copy.")}</div>}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "baseline", marginTop: 8 }}>
             <span style={{ fontSize: 13, fontFamily: "JetBrains Mono", color: model.overCap ? amber : "var(--text-primary)" }}>{dirFmtHM(total) + " (" + dirFmtHours(total) + " h)" + (cap !== null ? " of " + dirFmtHours(cap) + " h max" : "") + (model.overCap ? " - over cap, paid for " + dirFmtHours(cap) + " h" : "")}</span>
             <span style={{ fontSize: 14, fontWeight: 700, fontFamily: "JetBrains Mono", color: "var(--accent-green)" }}>{dirMoneyShown(model.amount, showComp)}</span>
@@ -541,9 +541,24 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
     var tableBottom = S_.top + b.sum + S_.totalH;
     return { rows: rowsOut, tableBottom: tableBottom, off: Math.max(0, tableBottom - 666), flags: flags, keepMin: keepMin };
   };
+  // Plain: lines never shrink or drop - they wrap and the sheet runs onto more
+  // pages; only a one-line header value can block it.
+  var P = { x0: 54, x1: 558, act: 104, time: 508, bottom: 730, lead: 13, size: 10 };
+  var PLAIN_SIZES = [10, 9, 8, 7, 6.5];
+  var fitPlain = function(doc, m) {
+    var flags = [];
+    doc.setFont("helvetica", "normal"); doc.setFontSize(P.size);
+    var rows = m.lines.map(function(l) { var t = doc.splitTextToSize(l.text, P.time - P.act - 8); return { t: t, h: 7 + t.length * P.lead }; });
+    doc.setFont("helvetica", "bold"); doc.setFontSize(P.size);
+    var wN = doc.getTextWidth("Name:");
+    hdrCheck(doc, flags, "The directorship name", m.header.directorship, P.x1 - P.x0, "helvetica", "bold", [12, 11].concat(PLAIN_SIZES));
+    hdrCheck(doc, flags, "The organization", m.header.org, P.x1 - P.x0, "helvetica", "normal", PLAIN_SIZES);
+    hdrCheck(doc, flags, "The Print Name", m.header.printName, 330 - (P.x0 + wN + 4), "helvetica", "normal", PLAIN_SIZES);
+    return { rows: rows, flags: flags };
+  };
   var layout = useMemo(function() {
     if (lib.state !== "ok") return null;
-    try { var doc = mkDoc(model.form === "select" ? "portrait" : "landscape"); return model.form === "select" ? fitSelect(doc, model) : fitGenesis(doc, model); }
+    try { var doc = mkDoc(model.form === "genesis" ? "landscape" : "portrait"); return model.form === "select" ? fitSelect(doc, model) : model.form === "plain" ? fitPlain(doc, model) : fitGenesis(doc, model); }
     catch (e) { return { flags: [{ level: "block", code: "layout", text: "Couldn't lay out the form - try again." }] }; }
   }, [lib.state, model]);
 
@@ -709,9 +724,76 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
     doc.text(m.sig.date, 222, 719 + off); doc.text(m.header.hospitalNo, 537, 719 + off);
     drawSig(doc, url, 32, 692 + off, 203, 721 + off);
   };
+  var drawPlain = function(doc, L, m, url) {
+    var one = function(text, x, y, width, style, sizes, align) {
+      var f = fitText(doc, text, width, "helvetica", style, sizes, 1);
+      doc.setFont("helvetica", style); doc.setFontSize(f.size);
+      doc.text(f.lines[0] || "", x, y, { align: align || "left" });
+    };
+    var lab = function(t, v, x, y, maxX) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(P.size); doc.text(t, x, y);
+      var w = doc.getTextWidth(t);
+      one(v, x + w + 4, y, maxX - (x + w + 4), "normal", PLAIN_SIZES);
+    };
+    var tableHead = function(y0) {
+      doc.setFont("helvetica", "bold"); doc.setFontSize(9);
+      doc.text("Date", P.x0 + 2, y0 + 11); doc.text("Activity", P.act, y0 + 11); doc.text("Time", P.x1 - 2, y0 + 11, { align: "right" });
+      doc.setLineWidth(0.75); doc.line(P.x0, y0, P.x1, y0); doc.line(P.x0, y0 + 16, P.x1, y0 + 16);
+      return y0 + 16;
+    };
+    // A signed page says whose it is: later pages repeat the directorship, name and month.
+    var nextPage = function() {
+      doc.addPage("letter", "portrait");
+      one(m.header.directorship, 306, 36, P.x1 - P.x0, "bold", [12, 11].concat(PLAIN_SIZES), "center");
+      lab("Name:", m.header.printName, P.x0, 54, 330);
+      lab("Month:", m.header.monthYear, 340, 54, P.x1);
+      return 64;
+    };
+    doc.setTextColor(0, 0, 0); doc.setDrawColor(0, 0, 0);
+    doc.setFont("helvetica", "bold"); doc.setFontSize(14); doc.text(DIR_PLAIN_TITLE, 306, 48, { align: "center" });
+    one(m.header.directorship, 306, 67, P.x1 - P.x0, "bold", [12, 11].concat(PLAIN_SIZES), "center");
+    if (m.header.org) one(m.header.org, 306, 82, P.x1 - P.x0, "normal", PLAIN_SIZES, "center");
+    lab("Name:", m.header.printName, P.x0, 106, 330);
+    lab("Month:", m.header.monthYear, 340, 106, P.x1);
+    var y = tableHead(116);
+    m.lines.forEach(function(l, i) {
+      var r = L.rows[i];
+      if (y + r.h > P.bottom) y = tableHead(nextPage());
+      doc.setFont("helvetica", "normal"); doc.setFontSize(P.size);
+      doc.text(l.dateText, P.x0 + 2, y + 11);
+      r.t.forEach(function(t, k) { doc.text(t, P.act, y + 11 + k * P.lead); });
+      doc.text(l.dur, P.x1 - 2, y + 11, { align: "right" });
+      y += r.h;
+      doc.setLineWidth(0.25); doc.line(P.x0, y, P.x1, y);
+    });
+    if (!m.lines.length) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(P.size); doc.text("No time logged.", P.act, y + 12);
+      y += 20;
+      doc.setLineWidth(0.25); doc.line(P.x0, y, P.x1, y);
+    }
+    // The totals and the signature stay together.
+    if (y + 170 > P.bottom + 40) y = nextPage();
+    lab("Total time:", m.footer.totalHrs + " (" + m.footer.totalDec + " h)", P.x0, y + 20, P.x1);
+    lab("Rate:", m.footer.rate + " per hour", P.x0, y + 34, P.x1);
+    lab("Amount due:", m.footer.due, P.x0, y + 48, P.x1);
+    y += 48;
+    if (m.overCap) {
+      doc.setFont("helvetica", "normal"); doc.setFontSize(9);
+      doc.text("Over the " + dirFmtHours(m.capMinutes) + " h monthly cap: the amount counts " + dirFmtHours(m.capMinutes) + " h.", P.x0, y + 14);
+      y += 14;
+    }
+    var sy = y + 58;
+    doc.setLineWidth(0.75); doc.line(P.x0, sy, 320, sy); doc.line(350, sy, P.x1, sy);
+    drawSig(doc, url, P.x0 + 2, sy - 34, 318, sy);
+    doc.setFont("helvetica", "normal"); doc.setFontSize(10); doc.text(m.sig.date, 352, sy - 3);
+    doc.setFontSize(9); doc.text("Signature", P.x0, sy + 12); doc.text("Date", 350, sy + 12);
+    one(m.sig.printName, P.x0, sy + 25, 320 - P.x0, "normal", PLAIN_SIZES);
+    var pages = doc.getNumberOfPages();
+    if (pages > 1) for (var pg = 1; pg <= pages; pg++) { doc.setPage(pg); doc.setFont("helvetica", "normal"); doc.setFontSize(8); doc.text("Page " + pg + " of " + pages, 306, 770, { align: "center" }); }
+  };
   var buildPdfFile = function(m, L, url) {
-    var doc = mkDoc(m.form === "select" ? "portrait" : "landscape");
-    if (m.form === "select") drawSelect(doc, L, m, url); else drawGenesis(doc, L, m, url);
+    var doc = mkDoc(m.form === "genesis" ? "landscape" : "portrait");
+    if (m.form === "select") drawSelect(doc, L, m, url); else if (m.form === "plain") drawPlain(doc, L, m, url); else drawGenesis(doc, L, m, url);
     doc.setProperties({ title: m.fileName.replace(/\.pdf$/, "") });
     var blob = doc.output("blob"), file = null;
     try { file = new File([blob], m.fileName, { type: "application/pdf" }); } catch (e) { file = null; }
@@ -757,7 +839,7 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
     var p = pdf;
     if (!p) return;
     if (!dirSigStillValid(p.pinAt)) { wipe(); return; }
-    try { downloadBlob(p.blob, p.name); setDone("downloaded"); setMsg("Downloaded " + p.name + ". Save it to Google Drive, then tap Mark handed off."); }
+    try { downloadBlob(p.blob, p.name); setDone("downloaded"); setMsg("Downloaded " + p.name + (model.form === "plain" ? ". Save or send it, then tap Mark handed off." : ". Save it to Google Drive, then tap Mark handed off.")); }
     catch (e) { setMsg("Download failed - try again."); }
   };
   var markAfterDownload = function() {
@@ -809,6 +891,19 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
       <h1 style={{ ...S.title, marginBottom: 0, flex: 1, fontSize: 20 }}>{"Review: " + (dir ? dir.name : "")}</h1>
       {eye}
     </div>
+    {model.form === "plain" ? <div style={S.card}>
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-bright)", textAlign: "center", marginBottom: 6 }}>{DIR_PLAIN_TITLE}</div>
+      {line("Directorship:", h.directorship, "d")}{h.org && line("Organization:", h.org, "o")}{line("Name:", h.printName, "n")}{line("Month:", h.monthYear, "m")}
+      <div style={{ ...S.cardLabel, marginTop: 12 }}>Time entries</div>
+      {model.entryCount === 0 && <div style={{ fontSize: 12, color: "var(--text-faint)", marginTop: 6 }}>No time logged.</div>}
+      {model.lines.map(function(l, i) {
+        return (<div key={i} style={{ display: "flex", gap: 8, borderTop: "1px solid rgba(51,65,85,0.4)", padding: "6px 0", marginTop: i ? 0 : 6 }}>
+          <span style={{ fontSize: 12, color: "var(--text-muted)", width: 44, flexShrink: 0 }}>{l.dateText}</span>
+          <span style={{ flex: 1, minWidth: 0, fontSize: 12, lineHeight: 1.4, color: "var(--text-primary)", wordBreak: "break-word" }}>{l.text}</span>
+          <span style={{ fontSize: 12, fontFamily: "JetBrains Mono", color: "var(--text-primary)" }}>{l.dur}</span>
+        </div>);
+      })}
+    </div> : <>
     <div style={S.card}>
       {model.form === "genesis" ? <div>
         <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-bright)", textAlign: "center" }}>{DIR_GENESIS_TITLE}</div>
@@ -847,18 +942,23 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
         </div>
       </div>
     </div>
+    </>}
     <div style={S.card}>
+      {model.form === "plain" && <div>
+        {line("Total time:", f.totalHrs + " (" + f.totalDec + " h)", "tr")}{line("Rate:", dirMoneyShown(model.rate, showComp) + " per hour", "rt")}{line("Amount due:", dirMoneyShown(model.amount, showComp), "du")}
+      </div>}
       {model.form === "genesis" && <div>
         {line("Cost Ctr.:", f.costCtr, "cc")}{line("Pay Code:", f.payCode, "pc")}
         {line("Total Hrs.:", f.totalHrs, "tr")}{line("Rate:", dirMoneyShown(model.rate, showComp), "rt")}{line("Due:", dirMoneyShown(model.amount, showComp), "du")}
       </div>}
       {!showComp && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 4 }}>Tap the eye to check the amount before creating the PDF (the PDF always prints the real amount).</div>}
-      <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>{model.form === "genesis" ? DIR_GENESIS_CERT : DIR_SELECT_ATTEST}</div>
-      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", marginTop: 10 }}>{(model.form === "genesis" ? "Medical Director: " : "Signature of Physician - ") + model.sig.printName}</div>
+      {model.form !== "plain" && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, lineHeight: 1.5 }}>{model.form === "genesis" ? DIR_GENESIS_CERT : DIR_SELECT_ATTEST}</div>}
+      <div style={{ fontSize: 12, fontWeight: 700, color: "var(--text-primary)", marginTop: 10 }}>{(model.form === "genesis" ? "Medical Director: " : model.form === "plain" ? "Signature - " : "Signature of Physician - ") + model.sig.printName}</div>
       <div style={{ marginTop: 6 }}>{sigPanel}</div>
-      {model.form === "genesis" ? <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Department Leader: (blank) - COO or Executive: (blank)</div>
+      {model.form === "plain" ? null : model.form === "genesis" ? <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>Department Leader: (blank) - COO or Executive: (blank)</div>
         : <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 6 }}>{"Signature of Hospital CEO: (blank) - Hospital #: " + (h.hospitalNo || "(blank)")}</div>}
     </div>
+    {model.form === "plain" && <div style={S.card}><DirFormFile dirId={dirId} /></div>}
     <div style={S.card}>
       {allFlags.map(function(fl, i) { return <div key={i} style={{ fontSize: 12, lineHeight: 1.5, marginTop: i ? 4 : 0, color: fl.level === "block" ? "var(--accent-red)" : fl.level === "warn" ? amber : "var(--text-muted)" }}>{(fl.level === "block" ? "x " : fl.level === "warn" ? "! " : "i ") + fl.text}</div>; })}
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: allFlags.length ? 8 : 0, wordBreak: "break-word" }}>{"File: " + (model.fileName || "(none)")}</div>
@@ -872,8 +972,8 @@ function DirReview({ data, upd, dirId, ym, showComp, eye, onClose }) {
       {pdf && <div style={{ marginTop: 12 }}>
         <div style={{ fontSize: 12, color: "var(--text-primary)", wordBreak: "break-word" }}>{"Ready: " + pdf.name + " (" + pdf.kb + " KB)"}</div>
         {canShareFile(pdf.file) && !pdf.shareFailed && <div>
-          <button onClick={sharePdf} style={btn({ ...primary, width: "100%", minHeight: 50, fontSize: 15, marginTop: 8 })}>Save to Google Drive</button>
-          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Choose Drive in the share sheet and keep the file name as is.</div>
+          <button onClick={sharePdf} style={btn({ ...primary, width: "100%", minHeight: 50, fontSize: 15, marginTop: 8 })}>{model.form === "plain" ? "Save or send PDF" : "Save to Google Drive"}</button>
+          <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>{model.form === "plain" ? "Choose where to save or send it." : "Choose Drive in the share sheet and keep the file name as is."}</div>
         </div>}
         {(!canShareFile(pdf.file) || finePointer() || pdf.shareFailed) && done !== "downloaded" && <button onClick={downloadPdf} style={btn({ width: "100%", marginTop: 8 })}>Download PDF</button>}
         {done === "downloaded" && <button onClick={markAfterDownload} style={btn({ ...primary, width: "100%", marginTop: 8 })}>Mark handed off</button>}
@@ -932,7 +1032,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
     var r = dirFromEditorDraft(dirs, orig, edit.d);
     if (!r.dir) { setEdit(function(e) { return { ...e, errors: r.errors }; }); return; }
     var n = orig ? dirFormInUse(entries, orig.id) : 0;
-    if (orig && orig.form !== r.dir.form && n > 0 && !confirm("Change " + orig.name + " to the " + (r.dir.form === "select" ? "Select" : "Genesis") + " form? Its " + n + " " + (n === 1 ? "entry keeps its" : "entries keep their") + " " + (orig.form === "select" ? "Select" : "Genesis") + " " + (n === 1 ? "category" : "categories") + " and must be re-picked before a form can include " + (n === 1 ? "it" : "them") + ".")) return;
+    if (orig && orig.form !== r.dir.form && n > 0 && !dirFormsShareRows(orig.form, r.dir.form) && !confirm("Change " + orig.name + " to the " + dirFormName(r.dir.form) + " form? Its " + n + " " + (n === 1 ? "entry keeps its" : "entries keep their") + " " + dirFormName(orig.form) + " " + (n === 1 ? "category" : "categories") + " and must be re-picked before a form can include " + (n === 1 ? "it" : "them") + ".")) return;
     var d = r.dir;
     upd(function(prev) { var l = dirList(prev); return { ...prev, directorships: orig ? l.map(function(x) { return x.id === orig.id ? d : x; }) : l.concat([d]) }; });
     setEdit(null);
@@ -942,8 +1042,9 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
     if (!orig) return;
     var n = dirFormInUse(entries, orig.id), h = Object.keys(dirHandoffOf(data)).filter(function(k) { return k.slice(0, k.lastIndexOf(":")) === orig.id; }).length;
     var builtIn = DIRECTORSHIP_PRESET.some(function(p) { return p.id === orig.id; });
-    var msg = "Remove " + orig.name + "?" + (n || h ? " Its " + n + " time " + (n === 1 ? "entry" : "entries") + " and " + h + " hand-off " + (h === 1 ? "record are" : "records are") + " kept" + (builtIn ? " and come back if you restore it." : " but can't be reattached - delete them from Settings afterwards.") : "");
+    var msg = "Remove " + orig.name + "?" + (n || h ? " Its " + n + " time " + (n === 1 ? "entry" : "entries") + " and " + h + " hand-off " + (h === 1 ? "record are" : "records are") + " kept" + (builtIn ? " and come back if you restore it." : " but can't be reattached - delete them from Settings afterwards.") : "") + (orig.form === "plain" ? " Its uploaded form, if any, is deleted for good." : "");
     if (!confirm(msg)) return;
+    if (orig.form === "plain") dirFormFileRemove(orig.id).catch(function() {});
     var res = dirRemove({ directorships: dirs }, orig.id);
     upd(function(prev) { return dirRemove(prev, orig.id).next; });
     setEdit(null);
@@ -967,10 +1068,11 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       {field("Name", "name")}{field("Short name", "shortName")}{field("Organization", "org")}{field("Print name", "printName")}
       <div style={{ ...S.fieldLabel, marginTop: 10, marginBottom: 3 }}>Form</div>
       <div style={{ display: "flex", gap: 6 }}>
-        {[["genesis", "Genesis"], ["select", "Select"]].map(function(o) { var on = d.form === o[0]; return <button key={o[0]} onClick={function() { setD("form", o[0]); }} style={btn({ flex: 1, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)" })}>{o[1]}</button>; })}
+        {[["genesis", "Genesis"], ["select", "Select"], ["plain", "Plain"]].map(function(o) { var on = d.form === o[0]; return <button key={o[0]} onClick={function() { setD("form", o[0]); }} style={btn({ flex: 1, border: on ? "1px solid rgba(14,165,233,0.6)" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.15)" : "transparent", color: on ? "var(--accent-sky)" : "var(--text-muted)" })}>{o[1]}</button>; })}
       </div>
       {formErr && <div style={{ fontSize: 11, color: "var(--accent-red)", marginTop: 2 }}>{formErr.text}</div>}
-      {orig && d.form && d.form !== orig.form && n > 0 && <div style={{ fontSize: 11, color: amber, marginTop: 4, lineHeight: 1.5 }}>{n + " " + (n === 1 ? "entry uses" : "entries use") + " " + (orig.form === "select" ? "Select" : "Genesis") + " rows. After the change they show under Needs a category, and forms that include them are blocked until you re-pick each one."}</div>}
+      {d.form === "plain" && <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Prints a plain time sheet with no hospital's wording. After you save, you can upload your own form here.</div>}
+      {orig && d.form && d.form !== orig.form && n > 0 && !dirFormsShareRows(orig.form, d.form) && <div style={{ fontSize: 11, color: amber, marginTop: 4, lineHeight: 1.5 }}>{n + " " + (n === 1 ? "entry uses" : "entries use") + " " + dirFormName(orig.form) + " rows. After the change they show under Needs a category, and forms that include them are blocked until you re-pick each one."}</div>}
       {d.form === "genesis" && <div style={{ display: "flex", gap: 8 }}>{field("Empl #", "emplNo", { flex: 1 })}{field("Cost Ctr.", "costCtr", { flex: 1 })}</div>}
       <div style={{ display: "flex", gap: 8 }}>{field("Rate ($/h)", "rate", { flex: 1 })}{field("Max h/month", "maxHours", { flex: 1 })}</div>
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 4 }}>Rate and max hours apply to every month you generate, including past months.</div>
@@ -980,7 +1082,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
         <div style={{ display: "flex", gap: 8 }}>{field("GL #", "glNo", { flex: 1 })}{field("Hospital #", "hospitalNo", { flex: 1 })}</div>
       </div>}
       <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 8, wordBreak: "break-word" }}>{"File: " + (fname || "(needs a name and a Print Name with a surname)")}</div>
-      {note && <div style={{ fontSize: 11, color: amber, marginTop: 4, lineHeight: 1.5, wordBreak: "break-word" }}>{"! " + note + " Forms already saved to Drive don't change - regenerate a month if needed."}</div>}
+      {note && <div style={{ fontSize: 11, color: amber, marginTop: 4, lineHeight: 1.5, wordBreak: "break-word" }}>{"! " + note + (d.form === "plain" ? " Forms already made don't change - regenerate a month if needed." : " Forms already saved to Drive don't change - regenerate a month if needed.")}</div>}
       <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
         <button onClick={save} style={btn({ flex: 1, border: "none", background: "#0369a1", color: "#fff" })}>Save</button>
         <button onClick={function() { setEdit(null); }} style={btn({ flex: 1 })}>Cancel</button>
@@ -992,7 +1094,7 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
   var thisMonth = entries.filter(function(e) { return e && typeof e.date === "string" && e.date.slice(0, 7) === ym; }).length;
   return (<div style={S.card}>
     <div style={S.cardLabel}>Directorships</div>
-    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{dirs.length > 0 ? "Monthly signed time sheets, saved to Google Drive. Separate from wRVUs and Comp." : "Optional: signed monthly time sheets for medical director roles."}</div>
+    <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>{dirs.length === 0 ? "Optional: signed monthly time sheets for medical director roles." : dirs.every(function(x) { return x.form === "plain"; }) ? "Monthly signed time sheets. Separate from wRVUs and Comp." : "Monthly signed time sheets, saved to Google Drive. Separate from wRVUs and Comp."}</div>
     {dirs.length > 0 && <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 2 }}>{dirs.length + " " + (dirs.length === 1 ? "directorship" : "directorships") + " - " + thisMonth + " " + (thisMonth === 1 ? "entry" : "entries") + " in " + dirMonthLabel(ym).split(" ")[0]}</div>}
     {dirs.length > 0 && <button onClick={function() { if (openDirectorships) openDirectorships("settings"); }} style={{ marginTop: 8, minHeight: 44, width: "100%", borderRadius: 8, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Open Directorships</button>}
     {dirs.length === 0 && <div style={{ marginTop: 10 }}>
@@ -1001,12 +1103,15 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
     </div>}
     {dirs.map(function(x) {
       if (edit && edit.origId === x.id) return <div key={x.id}>{renderEditor()}</div>;
-      return (<div key={x.id} style={{ display: "flex", alignItems: "center", gap: 8, borderTop: "1px solid rgba(51,65,85,0.4)", marginTop: 8, paddingTop: 8 }}>
+      return (<div key={x.id} style={{ borderTop: "1px solid rgba(51,65,85,0.4)", marginTop: 8, paddingTop: 8 }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
         <div style={{ flex: 1, minWidth: 0 }}>
           <div style={{ fontSize: 13, fontWeight: 600, color: "var(--text-primary)" }}>{x.name}</div>
-          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{(x.form === "select" ? "Select" : "Genesis") + " form - max " + (x.maxHours ? dirFmtHours(Math.round(x.maxHours * 60)) : "?") + " h/month"}</div>
+          <div style={{ fontSize: 11, color: "var(--text-muted)" }}>{dirFormName(x.form) + " form - max " + (x.maxHours ? dirFmtHours(Math.round(x.maxHours * 60)) : "?") + " h/month"}</div>
         </div>
         <button onClick={function() { openEdit(x); }} disabled={!!edit} style={btn({ opacity: edit ? 0.4 : 1 })}>Edit</button>
+        </div>
+        {x.form === "plain" && <DirFormFile dirId={x.id} />}
       </div>);
     })}
     {missing.map(function(p) {
@@ -1034,6 +1139,89 @@ function DirectorshipsCard({ data, upd, openDirectorships, showUndo }) {
       </div>
     </div>}
     </>}
+  </div>);
+}
+
+// A Plain directorship's own form: one PDF or photo kept only on this phone
+// (utils.js dirFormFile*; never in the store or a backup). It is loaded when
+// this shows, so the share sheet opens directly from its tap (the iOS gesture
+// rule). The app never reads the form or fills it in.
+function DirFormFile({ dirId }) {
+  const [st, setSt] = useState({ state: "busy", rec: null, text: "Checking for your form..." });
+  const [tick, setTick] = useState(0);
+  const [msg, setMsg] = useState("");
+  const [photo, setPhoto] = useState("");
+  const [shareFailed, setShareFailed] = useState(false);
+  const inputRef = useRef(null), sharingRef = useRef(false), changeRef = useRef(0);
+  useEffect(function() {
+    var live = true;
+    dirFormFileLoad(dirId).then(function(r) { if (live) setSt({ state: "ok", rec: r, text: "" }); }).catch(function() { if (live) setSt({ state: "error", rec: null, text: "" }); });
+    return function() { live = false; };
+  }, [dirId, tick]);
+  var btn = function(extra) { return { minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 13, fontWeight: 600, cursor: "pointer", ...extra }; };
+  var pick = function() { if (inputRef.current) inputRef.current.click(); };
+  // From this tap until the reload, no button acts on the old file and a photo
+  // still being read is dropped. A failure brings the stored file back.
+  var change = function(text, run, failText) {
+    changeRef.current++;
+    setMsg(""); setPhoto(""); setShareFailed(false); setSt({ state: "busy", rec: null, text: text });
+    var reload = function() { setTick(function(t) { return t + 1; }); };
+    run().then(reload).catch(function() { setMsg(failText); reload(); });
+  };
+  var onPick = function(e) {
+    var file = e.target.files && e.target.files[0];
+    e.target.value = "";
+    if (!file) return;
+    var prob = dirFormFileProblem(file);
+    if (prob) { setMsg(prob); return; }
+    change("Saving...", function() { return dirFormFileSave(dirId, file); }, "Couldn't save the form on this phone.");
+  };
+  var remove = function() {
+    if (!confirm("Remove your uploaded form from this phone?")) return;
+    change("Removing...", function() { return dirFormFileRemove(dirId); }, "Couldn't remove the form.");
+  };
+  var retry = function() { setSt({ state: "busy", rec: null, text: "Checking for your form..." }); setTick(function(t) { return t + 1; }); };
+  var togglePhoto = function() {
+    setMsg("");
+    if (photo) { changeRef.current++; setPhoto(""); return; }
+    var at = changeRef.current;
+    dirFormPhotoUrl(st.rec.blob).then(function(u) { if (at === changeRef.current) setPhoto(u); }).catch(function() { setMsg("Couldn't show this photo."); });
+  };
+  // Runs directly from its own tap. FILES ONLY: no title, text or url.
+  var shareForm = function() {
+    var r = st.rec;
+    if (!r || sharingRef.current || !canShareFile(r.file)) return;
+    var failed = function() { sharingRef.current = false; setShareFailed(true); setMsg("Couldn't open the share sheet - download the form instead."); };
+    setMsg("");
+    sharingRef.current = true;
+    try {
+      navigator.share({ files: [r.file] }).then(function() { sharingRef.current = false; }).catch(function(e) { if (e && e.name === "AbortError") { sharingRef.current = false; return; } failed(); });
+    } catch (e) { failed(); }
+  };
+  var downloadForm = function() { setMsg(""); try { downloadBlob(st.rec.blob, st.rec.name); } catch (e) { setMsg("Download failed - try again."); } };
+  var r = st.rec, canShare = !!r && canShareFile(r.file), isPhoto = !!r && String(r.type).indexOf("image/") === 0;
+  return (<div style={{ marginTop: 8 }}>
+    <input ref={inputRef} type="file" accept="application/pdf,image/*" onChange={onPick} style={{ display: "none" }} />
+    <div style={{ ...S.fieldLabel, marginBottom: 4 }}>Your own form (optional)</div>
+    {st.state === "busy" && <div style={{ fontSize: 12, color: "var(--text-muted)" }}>{st.text}</div>}
+    {st.state === "error" && <div>
+      <div style={{ fontSize: 12, color: "var(--global-90)", lineHeight: 1.5 }}>Couldn't open form storage on this phone. Anything saved here isn't deleted - try again, or reopen the app.</div>
+      <button onClick={retry} style={btn({ marginTop: 6 })}>Try again</button>
+    </div>}
+    {st.state === "ok" && !r && <button onClick={pick} style={btn({ width: "100%" })}>Upload a PDF or photo</button>}
+    {st.state === "ok" && r && <div>
+      <div style={{ fontSize: 12, color: "var(--text-primary)", wordBreak: "break-word" }}>{r.name + " (" + dirFormFileSize(r.size) + ")"}</div>
+      <div style={{ display: "flex", flexWrap: "wrap", gap: 6, marginTop: 6 }}>
+        {isPhoto && <button onClick={togglePhoto} style={btn()}>{photo ? "Hide" : "View"}</button>}
+        {canShare && !shareFailed && <button onClick={shareForm} style={btn()}>Save or send</button>}
+        {(!canShare || finePointer() || shareFailed) && <button onClick={downloadForm} style={btn()}>Download</button>}
+        <button onClick={pick} style={btn()}>Replace</button>
+        <button onClick={remove} style={btn({ color: "var(--accent-red)", border: "1px solid rgba(239,68,68,0.3)" })}>Remove</button>
+      </div>
+      {photo && <img src={photo} alt="Your form" onError={function() { setPhoto(""); setMsg("This phone can't show this photo here, but it is still saved."); }} style={{ display: "block", maxWidth: "100%", marginTop: 8, borderRadius: 6 }} />}
+    </div>}
+    <div style={{ fontSize: 11, color: "var(--text-muted)", marginTop: 6, lineHeight: 1.5 }}>Kept only on this phone, not in backups. The app doesn't fill it in: the Plain sheet lists your hours to send with it.</div>
+    {msg && <div style={{ fontSize: 12, color: "var(--global-90)", marginTop: 6, lineHeight: 1.5 }}>{msg}</div>}
   </div>);
 }
 

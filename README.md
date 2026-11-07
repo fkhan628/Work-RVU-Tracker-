@@ -17,9 +17,9 @@ A mobile-first Progressive Web App for physicians to track surgical procedure wo
 - **Compensation tracking** — set your contracted $/RVU rate and two yearly wRVU goals (decimals supported): an OR goal for the cases you log, and a Reconciliation goal for the hospital's monthly totals from Compare (incl. call + clinic). Home's Compensation card projects the year from this year's Compare months when you have them and compares that with the Reconciliation goal (or, if none is set, the OR goal); otherwise it projects your logged pace and compares it with the OR goal. The card names the goal it used, and is hidden with no rate or no goal to compare with.
 - **Call pay** — log call shifts per site with dated rate versions (stipend, call-in fees, hourly, Day/Night shift types); month and year totals stay separate from wRVU compensation.
 - **Acute care** — enter each month's acute pool and partner shifts to see your share.
-- **Directorships** — log directorship hours by month and create each month's time-sheet PDF.
-- **Offline-first** — all data stored in browser `localStorage`; works without a network connection after first load.
-- **Backup & Restore** — save the whole dataset as a PIN-encrypted backup, either as a file or as a copied code, and restore it from either.
+- **Directorships** — log directorship hours by month and create each month's time-sheet PDF. A directorship without a built-in layout uses the Plain sheet, and can keep your own form (a PDF or photo) on the phone beside it.
+- **Offline-first** — all data stored in browser `localStorage` (a Plain directorship's own form in IndexedDB); works without a network connection after first load.
+- **Backup & Restore** — save the whole dataset as a PIN-encrypted backup, either as a file or as a copied code, and restore it from either. A Plain directorship's own form is not included: upload it again on a new phone.
 - **PIN lock** — a required PIN lock, plus AES-GCM encrypted storage for an optional API key.
 - **Dark and light modes** — theme auto-persists across sessions.
 
@@ -69,7 +69,7 @@ js files/
 - **HTML-safe CPT descriptions.** Descriptions containing raw `<` or `>` (e.g., "hernia < 3 cm") are Unicode-escaped (`\u003c`, `\u003e`) to prevent HTML parser corruption when embedded in `<script>` tags.
 - **Flex-column layout.** The root is a flex column with a scrollable content area and a `flex-shrink: 0` nav bar. This keeps the nav pinned to the bottom on all mobile browsers without the bugs that come from `position: fixed` + `100vh` on iOS Safari.
 - **Error boundaries everywhere.** Each view is wrapped in its own React error boundary so a crash in one tab can't take down the whole app. A global window error handler logs unhandled exceptions.
-- **Crash recovery.** A "last known good" copy of the data is kept in `localStorage` (refreshed every few validated saves). If the live data can't be read, the app loads that snapshot with a loud banner and keeps a single forensic copy of the unreadable data, which is discarded when you dismiss the banner or on the next clean load. The whole-app crash screen's Reset App asks you to type RESET before it erases the data and the snapshot.
+- **Crash recovery.** A "last known good" copy of the data is kept in `localStorage` (refreshed every few validated saves). If the live data can't be read, the app loads that snapshot with a loud banner and keeps a single forensic copy of the unreadable data, which is discarded when you dismiss the banner or on the next clean load. The whole-app crash screen's Reset App asks you to type RESET before it erases the data, the snapshot and any uploaded forms.
 
 ---
 
@@ -79,7 +79,7 @@ js files/
 - **Codes included:** All 7,305 codes from the PFS
 - **Fields:** CPT, description, work RVU, category, global period (CMS "GLOB DAYS")
 - **Enhanced descriptions:** ~301 commonly used surgical codes have cleaned-up descriptions and keyword supplements (e.g., code 47562 matches "lap chole", "cholecystectomy", "gallbladder")
-- **Storage:** `localStorage` on the device is the only persistence layer. A "last known good" snapshot is kept beside the live data, and backups are PIN-encrypted codes or files the user saves.
+- **Storage:** `localStorage` on the device is the persistence layer, plus IndexedDB for a Plain directorship's own form (on that phone only, not in backups). A "last known good" snapshot is kept beside the live data, and backups are PIN-encrypted codes or files the user saves.
 - **Fresh install:** starts empty, with a blank rate and goals. The built-in call-pay sites and directorships load only when you tap their Load button; the acute-care cards appear when you turn them on or have acute data.
 
 ### Data versioning
@@ -133,7 +133,7 @@ The app itself runs entirely in the browser. It still needs a local server, beca
 - **SheetJS xlsx 0.20.1** (Excel import and export, lazy-loaded)
 - **jsPDF 4.2.1** (Directorships time-sheet PDFs, lazy-loaded)
 - **GitHub Pages** (hosting)
-- **`localStorage`** (data persistence, on the device only)
+- **`localStorage`** (data persistence, on the device only), **IndexedDB** (a Plain directorship's own form)
 - **Web Crypto API** (AES-GCM encryption for the optional PIN-locked API key)
 
 No bundler, no TypeScript, no build step. Node is used only for the dev tools (`npm run check`, `npm run serve`); GitHub Pages serves the files as they are.

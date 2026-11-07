@@ -1521,7 +1521,7 @@ function repairData(d) {
     } else {
       var dDrop = [], dDropIds = [], dNums = [], dHdr = [], dSeen = {}, cleanD = [];
       d.directorships.forEach(function(x, xi) {
-        var ok = dirPlainObj(x) && typeof x.name === "string" && x.name.trim() !== "" && (x.form === "genesis" || x.form === "select");
+        var ok = dirPlainObj(x) && typeof x.name === "string" && x.name.trim() !== "" && dirFormOk(x.form);
         if (!ok) { dDrop.push(dirLbl(dirPlainObj(x) && typeof x.name === "string" && x.name.trim() ? x.name.trim() : "#" + (xi + 1))); dDropIds.push(dirPlainObj(x) && typeof x.id === "string" ? x.id : ""); return; }
         var before = JSON.stringify(x), c = { ...x }, nm = dirLbl(x.name.trim());
         // A ":" in an id is fine (every key parser splits at the LAST ":");
@@ -2986,6 +2986,7 @@ var DIR_GENESIS_FOOTER = "Medical Director Time Sheet 5/18/2020";
 var DIR_SELECT_TITLE = "PROGRAM DIRECTOR TIME REPORT";
 var DIR_SELECT_ATTEST = "I hereby attest and certify to the validity and accuracy of the information reported for reimbursement of services rendered.";
 var DIR_SELECT_MORE = "If additional space is needed, please attach another sheet.";
+var DIR_PLAIN_TITLE = "MONTHLY TIME SHEET";
 // Row definitions. `key` is STORED data (dirEntries[].category) - never
 // rename one (check.js pins the list). `text` prints exactly.
 var DIR_GENESIS_ROWS = [
@@ -3020,7 +3021,23 @@ var DIR_SELECT_ROWS = [
   { key: "s_travel", label: "Supplementary Services (travel)", text: "Supplementary Services (when Physician is requested to travel away from Hospital to serve on committees, make presentations and/or attend meetings.) PROVIDE DESCRIPTION OF SERVICES:", detail: true },
   { key: "s_other", label: "Other Activity", text: "Other Activity. PROVIDE DESCRIPTION OF SERVICES:", detail: true }
 ];
-function dirRowsFor(form) { return form === "select" ? DIR_SELECT_ROWS : form === "genesis" ? DIR_GENESIS_ROWS : []; }
+// form is STORED data. "plain" is the neutral time sheet for anyone without one
+// of the built-in layouts: no hospital's wording, every entry on its own line.
+// It shares the Genesis row keys, so hours move between the two with nothing to
+// re-pick, and it has no line slots: dirSlotPlan is Genesis only.
+var DIR_FORMS = ["genesis", "select", "plain"];
+function dirFormOk(form) { return DIR_FORMS.indexOf(form) !== -1; }
+function dirFormName(form) { return form === "select" ? "Select" : form === "plain" ? "Plain" : "Genesis"; }
+function dirRowsFor(form) { return form === "select" ? DIR_SELECT_ROWS : form === "genesis" || form === "plain" ? DIR_GENESIS_ROWS : []; }
+function dirFormsShareRows(a, b) { var r = dirRowsFor(a); return r.length > 0 && r === dirRowsFor(b); }
+// A Plain form line, and what the log form says it will print.
+function dirPlainText(row, detail) {
+  var d = dirDetailText(detail);
+  if (!row) return "";
+  if (row.key === "g_meeting") return "Meeting with " + (d || "____") + " to discuss";
+  if (row.key === "g_other") return "Other: " + (d || "(details)");
+  return row.label + (row.detail && d ? ": " + d : "");
+}
 function dirRowByKey(form, key) { var rows = dirRowsFor(form); for (var i = 0; i < rows.length; i++) { if (rows[i].key === key) return rows[i]; } return null; }
 function dirNeedsDetail(form, key) { var r = dirRowByKey(form, key); return !!(r && r.detail); }
 
@@ -3184,7 +3201,7 @@ function dirFileNameNote(saved, draft, ym, data) {
   if (sn === dn && sp === dp) return "";
   var probe = { id: saved.id, name: dn, printName: dp }, prob = dirFileNameProblem(data, probe);
   var now = dirFileName(probe, ym), was = dirFileName(saved, ym);
-  return "The monthly email task finds these PDFs by this exact file name: " + (now || "(none - add a name and a Print Name with a surname)") + (was ? " (was " + was + ")." : ".") + (prob ? " " + prob : "");
+  return ((dirFormOk(draft.form) ? draft.form : saved.form) === "plain" ? "The file name will be: " : "The monthly email task finds these PDFs by this exact file name: ") + (now || "(none - add a name and a Print Name with a surname)") + (was ? " (was " + was + ")." : ".") + (prob ? " " + prob : "");
 }
 
 // --- IDs (never shown, never contain ":") ---
@@ -3277,8 +3294,8 @@ function dirDatesText(dates) { return dates.map(dirMD).join(", "); }
 function dirModelFlag(flags, level, code, text) { flags.push({ level: level, code: code, text: text }); }
 function dirFormModel(data, dirId, ym, today) {
   var dir = dirById(data, dirId), p = dirYMParts(ym);
-  var form = dir && dir.form === "select" ? "select" : "genesis";
-  var flags = [], chars = 0;
+  var form = dir && dir.form === "select" ? "select" : dir && dir.form === "plain" ? "plain" : "genesis";
+  var flags = [], chars = 0, lines = [];
   var A = function(s) { var r = dirAscii(s); chars += r.replaced; return r.text; };
   var list = dirMonthEntries(dirEntriesOf(data), dirId, ym);
   var defs = dirRowsFor(form), weeks = dirWeekRanges(ym), rows = [], rowAt = {};
@@ -3314,6 +3331,7 @@ function dirFormModel(data, dirId, ym, today) {
     if (c.dates.indexOf(e.date) === -1) c.dates.push(e.date);
     c.minutes += e.minutes; row.minutes += e.minutes;
     weekMinutes[dirWeekOf(e.date) - 1] += e.minutes; total += e.minutes;
+    if (form === "plain") lines.push({ date: e.date, dateText: dirMD(e.date), text: A(dirPlainText(r, e.detail)), minutes: e.minutes, dur: dirFmtHM(e.minutes) });
     if (form === "select" && r.detail) {
       dKeys[r.key] = dKeys[r.key] || {};
       if (!dKeys[r.key][dk]) { dKeys[r.key][dk] = true; row.details.push(A(dirDetailText(e.detail))); }
@@ -3330,11 +3348,14 @@ function dirFormModel(data, dirId, ym, today) {
     fileName: dirFileName(dir, ym), hash: dirEntriesHash(dirEntriesOf(data), dirId, ym), generatedYMD: today, generatedText: dirMDY(today),
     weeks: weeks, rows: rows, weekMinutes: weekMinutes, weekText: weekText, totalMinutes: total,
     totalHM: dirFmtHM(total), totalDec: dirFmtHours(total), totalText: fmt(total),
-    capMinutes: cap, overCap: cap !== null && total > cap, rate: rate, amount: amount, entryCount: list.length, flags: flags };
+    capMinutes: cap, overCap: cap !== null && total > cap, rate: rate, amount: amount, entryCount: list.length, flags: flags, lines: lines };
   var str = function(v) { return typeof v === "string" ? A(v.trim()) : typeof v === "number" ? String(v) : ""; };
   if (form === "genesis") {
     model.header = { printName: str(dir && dir.printName), emplNo: str(dir && dir.emplNo), monthYear: model.monthLabel };
     model.footer = { costCtr: str(dir && dir.costCtr), payCode: DIR_PAY_CODE, totalHrs: model.totalHM, rate: dirMoney(rate), due: dirMoney(amount) };
+  } else if (form === "plain") {
+    model.header = { directorship: str(dir && dir.name), org: str(dir && dir.org), printName: str(dir && dir.printName), monthYear: model.monthLabel };
+    model.footer = { totalHrs: model.totalHM, totalDec: model.totalDec, rate: dirMoney(rate), due: dirMoney(amount) };
   } else {
     var h = dir && dirPlainObj(dir.selectHeader) ? dir.selectHeader : {}, ra = Array.isArray(h.remitAddress) ? h.remitAddress : [];
     model.header = { programType: str(h.programType), hospital: str(h.hospital), physicianName: str(h.physicianName), contractingParty: str(h.contractingParty),
@@ -3347,7 +3368,7 @@ function dirFormModel(data, dirId, ym, today) {
   if (!dir) dirModelFlag(flags, "block", "noDir", "This directorship no longer exists.");
   if (!p) dirModelFlag(flags, "block", "month", "Pick a month.");
   if (list.length === 0) dirModelFlag(flags, "warn", "empty", "No time logged for " + model.monthLabel + " - this form reports zero hours.");
-  if (nUnplaced) dirModelFlag(flags, "block", "unplaced", nUnplaced + " " + plural(nUnplaced, "entry uses", "entries use") + " a category the " + (form === "select" ? "Select" : "Genesis") + " form does not have - edit " + plural(nUnplaced, "it", "them") + " first.");
+  if (nUnplaced) dirModelFlag(flags, "block", "unplaced", nUnplaced + " " + plural(nUnplaced, "entry uses", "entries use") + " a category the " + dirFormName(form) + " form does not have - edit " + plural(nUnplaced, "it", "them") + " first.");
   if (nNoDetail) dirModelFlag(flags, "block", "noDetail", nNoDetail + " " + plural(nNoDetail, "entry needs", "entries need") + " a detail - edit " + plural(nNoDetail, "it", "them") + " first.");
   if (nBad) dirModelFlag(flags, "block", "badMinutes", nBad + " " + plural(nBad, "entry has", "entries have") + " an invalid duration - edit " + plural(nBad, "it", "them") + " first.");
   if (nFuture) dirModelFlag(flags, "block", "future", nFuture + " " + plural(nFuture, "entry is", "entries are") + " dated after today - forms can only cover work already done.");
@@ -3356,7 +3377,7 @@ function dirFormModel(data, dirId, ym, today) {
   if (dir && !dirRateOk(dir)) dirModelFlag(flags, "block", "rate", "Set an hourly rate in Settings > Directorships.");
   if (dir && cap === null) dirModelFlag(flags, "block", "cap", "Set a monthly hour cap in Settings > Directorships.");
   if (model.overCap) {
-    if (form === "genesis") dirModelFlag(flags, "warn", "overCap", "Over the " + dirFmtHM(cap) + " monthly cap: the form prints all " + dirFmtHM(total) + "; Due counts " + dirFmtHM(cap) + ".");
+    if (form !== "select") dirModelFlag(flags, "warn", "overCap", "Over the " + dirFmtHM(cap) + " monthly cap: the form prints all " + dirFmtHM(total) + "; Due counts " + dirFmtHM(cap) + ".");
     else dirModelFlag(flags, "warn", "overCap", "Over the " + dirFmtHours(cap) + " h monthly cap: the form prints all " + dirFmtHours(total) + " hours; the amount counts " + dirFmtHours(cap) + ".");
   }
   if (isYMD(today) && today.slice(0, 7) === ym && p) dirModelFlag(flags, "warn", "monthOpen", mName + " isn't over (it ends " + p.m + "/" + dirMonthDays(p.y, p.m) + ").");
@@ -3364,7 +3385,7 @@ function dirFormModel(data, dirId, ym, today) {
   if (dirPlainObj(rec)) dirModelFlag(flags, "warn", "regenerate", "Handed off " + dirMD(rec.date) + ". This form uses today's rate and cap.");
   if (form === "select" && (!dir || !dirPlainObj(dir.selectHeader) || !model.header.hospital || !model.header.programType || !model.header.physicianName)) dirModelFlag(flags, "warn", "noHeader", "The Select header details are empty - add them in Settings > Directorships.");
   if (chars) dirModelFlag(flags, "warn", "chars", chars + " " + plural(chars, "character", "characters") + " could not print and " + plural(chars, "shows", "show") + " as ?.");
-  if (form === "select" && inexact) dirModelFlag(flags, "note", "rounded", "Hours print rounded to 2 places, so printed hours x rate may not equal the amount due.");
+  if ((form === "select" && inexact) || (form === "plain" && !dirHoursExact(total))) dirModelFlag(flags, "note", "rounded", "Hours print rounded to 2 places, so printed hours x rate may not equal the amount due.");
   if (form === "genesis" && (!model.header.emplNo || !model.footer.costCtr)) dirModelFlag(flags, "note", "blanks", (!model.header.emplNo && !model.footer.costCtr ? "Empl # and Cost Ctr. print" : !model.header.emplNo ? "Empl # prints" : "Cost Ctr. prints") + " blank.");
   model.ok = !flags.some(function(f) { return f.level === "block"; });
   return model;
@@ -3373,7 +3394,7 @@ function dirFormModel(data, dirId, ym, today) {
 // --- Writers: every write of the four fields goes through one of these; ---
 // --- each output passes repairData unchanged (check.js contract tests). ---
 function dirNew(form, printName) {
-  var d = { id: dirNewId(), name: "New directorship", shortName: "", org: "", form: form === "select" ? "select" : "genesis", printName: typeof printName === "string" ? printName : "", emplNo: "", costCtr: "", rate: 0, maxHours: 0 };
+  var d = { id: dirNewId(), name: "New directorship", shortName: "", org: "", form: form === "select" || form === "plain" ? form : "genesis", printName: typeof printName === "string" ? printName : "", emplNo: "", costCtr: "", rate: 0, maxHours: 0 };
   if (d.form === "select") d.selectHeader = { hospital: "", programType: "", physicianName: "", contractingParty: "", remitAddress: ["", ""], glNo: "", hospitalNo: "" };
   return d;
 }
@@ -3385,8 +3406,8 @@ var DIR_EDIT_SELECT = ["hospital", "programType", "physicianName", "contractingP
 function dirFromEditorDraft(dirs, orig, draft) {
   var errors = [], src = orig && typeof orig === "object" ? orig : null;
   var t = function(k) { return dirAsciiPunct(draft && typeof draft[k] === "string" ? draft[k] : "").trim(); };
-  var form = draft && draft.form === "select" ? "select" : draft && draft.form === "genesis" ? "genesis" : (src ? src.form : "");
-  if (form !== "genesis" && form !== "select") errors.push({ field: "form", text: "Pick the form type." });
+  var form = draft && dirFormOk(draft.form) ? draft.form : (src ? src.form : "");
+  if (!dirFormOk(form)) errors.push({ field: "form", text: "Pick the form type." });
   var name = t("name"), printName = t("printName");
   if (!name) errors.push({ field: "name", text: "Give it a name." });
   else if (DIR_FILE_BAD.test(name) || /[^\x20-\x7e]/.test(name)) errors.push({ field: "name", text: "The name goes into the file name: use plain letters and no \\ / : * ? \" < > |." });
@@ -3535,6 +3556,93 @@ function dirRestoreNote(restored, data) {
   if (dirHasSignature(data) && !(restored && dirPlainObj(restored.dirSignatureEnc))) parts.push("your saved signature will be removed (draw it again before your next form)");
   return parts.length ? " WARNING: " + parts.join("; ") + "." : "";
 }
+
+// --- A Plain directorship's own form file ---
+// One PDF or photo per directorship, kept in IndexedDB because a file is too big
+// for the localStorage store, which is rewritten whole on every save. Per device:
+// never in the store, a backup or an export, and not encrypted. Only these
+// helpers touch the database, and nothing opens it at load: the ways in are
+// DirFormFile, which shows only under a Plain directorship, the tap that removes
+// a Plain directorship, and Reset App. So a phone with no Plain directorship
+// never creates it. Nothing deletes a file by comparing lists, so a data recovery,
+// a restore or a stale tab can never lose one; a file a restore leaves behind
+// stays hidden and returns with its directorship. The app never reads the file's
+// contents: it stores it, shows a photo and hands it to the share sheet.
+var DIR_FORM_DB = "rvu-forms";
+var DIR_FORM_MAX = 20 * 1024 * 1024;
+function dirFormFileProblem(file) {
+  if (!file || typeof file.size !== "number") return "Pick a file.";
+  if (file.size === 0) return "That file is empty.";
+  if (file.size > DIR_FORM_MAX) return "That file is over 20 MB - pick a smaller one.";
+  var t = typeof file.type === "string" ? file.type : "";
+  return t === "application/pdf" || t.indexOf("image/") === 0 ? "" : "Upload a PDF or a photo.";
+}
+function dirFormDbOpen() {
+  return new Promise(function(res, rej) {
+    var q = indexedDB.open(DIR_FORM_DB, 1);
+    q.onupgradeneeded = function() { q.result.createObjectStore("files"); };
+    q.onsuccess = function() { res(q.result); };
+    q.onerror = function() { rej(q.error); };
+  });
+}
+// One transaction; resolves with run()'s request result once it commits.
+function dirFormTx(mode, run) {
+  return dirFormDbOpen().then(function(db) {
+    return new Promise(function(res, rej) {
+      var tx = db.transaction("files", mode), out, q = run(tx.objectStore("files"));
+      q.onsuccess = function() { out = q.result; };
+      tx.oncomplete = function() { db.close(); res(out); };
+      tx.onerror = tx.onabort = function() { db.close(); rej(tx.error); };
+    });
+  });
+}
+function dirFormFileRead(file) {
+  return new Promise(function(res, rej) {
+    var r = new FileReader();
+    r.onload = function() { res(r.result); };
+    r.onerror = function() { rej(r.error); };
+    r.readAsArrayBuffer(file);
+  });
+}
+function dirFormFileSave(dirId, file) {
+  var prob = dirFormFileProblem(file);
+  if (prob) return Promise.reject(new Error(prob));
+  return dirFormFileRead(file).then(function(bytes) {
+    return dirFormTx("readwrite", function(st) { return st.put({ name: typeof file.name === "string" && file.name ? file.name : "form", type: file.type, size: file.size, bytes: bytes }, dirId); });
+  });
+}
+// null, or { name, type, size, blob, file }: the file is ready before the tap,
+// so navigator.share can run directly from it (the iOS gesture rule).
+function dirFormFileLoad(dirId) {
+  return dirFormTx("readonly", function(st) { return st.get(dirId); }).then(function(rec) {
+    if (!rec || !rec.bytes) return null;
+    var blob = new Blob([rec.bytes], { type: rec.type }), file = null;
+    try { file = new File([blob], rec.name, { type: rec.type }); } catch (e) { file = null; }
+    return { name: rec.name, type: rec.type, size: rec.size, blob: blob, file: file };
+  });
+}
+function dirFormFileRemove(dirId) { return dirFormTx("readwrite", function(st) { return st.delete(dirId); }); }
+// Reset App erases everything. Settles whatever the database does (deleteDatabase
+// creates nothing when there is none), so the reload after it can never hang.
+function dirFormFilesErase() {
+  return new Promise(function(res) {
+    setTimeout(res, 2000);
+    try {
+      var q = indexedDB.deleteDatabase(DIR_FORM_DB);
+      q.onsuccess = q.onerror = q.onblocked = function() { res(); };
+    } catch (e) { res(); }
+  });
+}
+// A photo's data URL, for an <img> (no object URL: downloadBlob is the only one).
+function dirFormPhotoUrl(blob) {
+  return new Promise(function(res, rej) {
+    var r = new FileReader();
+    r.onload = function() { res(r.result); };
+    r.onerror = function() { rej(r.error); };
+    r.readAsDataURL(blob);
+  });
+}
+function dirFormFileSize(n) { return typeof n !== "number" || n < 0 ? "" : n >= 1048576 ? (Math.round(n / 104857.6) / 10) + " MB" : Math.max(1, Math.round(n / 1024)) + " KB"; }
 
 // --- Signature ---
 // The signature PNG is stored ENCRYPTED with the session PIN (RVU_CRYPTO,

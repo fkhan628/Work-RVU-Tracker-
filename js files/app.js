@@ -43,10 +43,10 @@ class ErrorBoundary extends React.Component {
               // Only the whole-app boundary offers it (per-view boundaries
               // keep Retry + Go Home), so a crash on one tab can't lead to
               // wiping all data.
-              var typed = prompt("This ERASES ALL app data on this phone (procedures, settings, call pay, directorship hours and signature). If you can, export a backup from More first.\n\nType RESET to erase everything:");
+              var typed = prompt("This ERASES ALL app data on this phone (procedures, settings, call pay, directorship hours, signature and uploaded forms). If you can, export a backup from More first.\n\nType RESET to erase everything:");
               if (typed !== null && typed.trim().toUpperCase() === "RESET") {
                 try { localStorage.removeItem(SK); localStorage.removeItem(LAST_GOOD_KEY); } catch(e) {}
-                location.reload();
+                try { dirFormFilesErase().then(function() { location.reload(); }); } catch(e) { location.reload(); }
               }
             },
             style: { padding: "10px 20px", borderRadius: 10, border: "1px solid #ef4444", background: "none", color: "var(--accent-red)", fontSize: 13, cursor: "pointer" }
