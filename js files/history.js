@@ -420,38 +420,24 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     setAddSourceId(null);
   };
 
-  // Snapshot-authoritative save. An edit that does not change the CPT code
-  // NEVER re-derives wRVU/description/category from the database - the old
-  // path looked the code up on every save and silently wrote 0 for any
-  // imported/unknown code (editing just a note destroyed the value). The db
-  // is consulted only when the user actively changed to a KNOWN code; a
-  // change to an unknown code takes the explicit manual value - never a
-  // silent zero. Adjusted is recomputed from the resolved base so modifier
-  // edits still apply. Returns true only when the edit was written (addAnother
-  // opens add mode only then).
+  // Snapshot-authoritative save. WHAT an edit writes is decided in ONE place,
+  // utils.js entryEditFields (check.js contract tests, 5f-18, 5f-19): an edit that
+  // does not change the CPT code NEVER re-derives wRVU/description/category
+  // from the database (the old path silently wrote 0 for an imported/unknown
+  // code - editing just a note destroyed the value); the db is consulted only
+  // when the user actively changed to a KNOWN code; a change to an unknown
+  // code takes the explicit manual value - never a silent zero. And an edit
+  // that changes neither the code nor the SET of modifiers writes neither
+  // modifiers nor the adjusted wRVU: the stored snapshot stays exactly as it
+  // is, whatever the modifier table says today. Only a changed code or
+  // modifier is recalculated - never call calcAdj here. Returns true only
+  // when the edit was written (addAnother opens add mode only then).
   const saveEdit = () => {
     var orig = data.entries.find(function(e) { return e.id === editId; });
     if (!orig) { setEditId(null); return false; }
     if (editCallInfo().need || !isYMD(editDate)) return false; // Save is disabled in these states; backstop
-    var info = cptMap[editCode];
-    var codeChanged = editCode !== orig.cptCode;
-    var baseRVU, desc, cat;
-    if (!codeChanged) {
-      baseRVU = orig.baseRVU || 0;
-      desc = orig.description;
-      cat = orig.category;
-    } else if (info) {
-      baseRVU = info.wRVU;
-      desc = info.desc;
-      cat = info.category;
-    } else {
-      baseRVU = parseFloat(editManualBase);
-      if (isNaN(baseRVU)) return false; // Save is disabled in this state; backstop
-      desc = "CPT " + editCode;
-      cat = "Other";
-    }
-    var adj = calcAdj(baseRVU, editMods);
-    var edited = { date: editDate, cptCode: editCode, description: desc, category: cat, baseRVU: baseRVU, modifiers: editMods, adjustedRVU: adj, notes: editNotes, encounterId: editPatient || undefined };
+    var edited = entryEditFields(orig, { date: editDate, cptCode: editCode, info: cptMap[editCode] || null, manualBase: editManualBase, modifiers: editMods, notes: editNotes, patient: editPatient });
+    if (!edited) return false; // a changed, unknown code with no usable wRVU: Save is disabled in this state; backstop
     var call = editIsCall, siteKey = editSite, rederive = editRederive, applyEnc = editApplyEnc, id = editId;
     // Credit and site through utils.js entryWithCall (kept unless Call/
     // Private, site or the side of the start date changed, or the rule was
@@ -501,7 +487,21 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
     var editBase = editOrig && !editCodeChanged ? (editOrig.baseRVU || 0)
       : editInfo ? editInfo.wRVU
       : editUnknownChanged ? (parseFloat(editManualBase) || 0) : 0;
-    var editAdj = calcAdj(editBase, editMods);
+    // The adjusted wRVU follows Save's rule (utils.js entryEditKeeps, the test
+    // entryEditFields writes by): while the code and the SET of modifiers are
+    // the stored ones, Save writes neither, so the STORED value is shown as it
+    // is - never recalculated. A changed code or modifier is recalculated
+    // (editCalc), and the "Saved ..., after save ..." line under the tiles
+    // shows both figures when they differ - but not while a changed code that
+    // is not in the database has no usable typed wRVU (Save is disabled then,
+    // so there is no "after save"). editBase above mirrors the base
+    // entryEditFields resolves; check.js 5f-18 pins every line here and 5f-19
+    // runs this block and saveEdit on made-up cases.
+    var editKeeps = !isAddMode && entryEditKeeps(editOrig, editCode, editMods);
+    var editCalc = calcAdj(editBase, editMods);
+    var editStored = editOrig ? editOrig.adjustedRVU : editCalc;
+    var editAdj = editKeeps && typeof editStored === "number" ? editStored : editCalc;
+    var editReprice = !isAddMode && !!editOrig && !editKeeps && !(editUnknownChanged && isNaN(parseFloat(editManualBase))) && typeof editStored === "number" && editStored.toFixed(2) !== editCalc.toFixed(2);
     // Call site + credit (7b). The preview runs the SAME entryWithCall as
     // Save, so what it shows is what Save writes. editRuleNC is the current
     // site rule; a kept snapshot that disagrees offers "Apply site rule".
@@ -562,7 +562,7 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
         <input type="text" inputMode="decimal" value={editManualBase} onChange={function(e) { setEditManualBase(e.target.value.replace(/[^0-9.]/g, "")); }} placeholder="wRVU" style={{ ...S.numberInput, fontSize: 13 }} />
       </div>}
       <div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}><span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span></button>)}</div></div>
-      <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>${(creditedRVU(editPv) * settings.ratePerRVU).toFixed(0)}</div>{editNC && <div style={{ marginTop: 2 }}><span style={S.ncTag}>no credit</span></div>}</div></div></div>
+      <div style={{ ...S.card, marginBottom: 12 }}><div style={{ display: "flex", justifyContent: "space-around" }}><div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{editBase.toFixed(2)}</div></div>{editMods.length > 0 && <div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{editAdj.toFixed(2)}</div></div>}<div style={{ textAlign: "center" }}><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>${(creditedRVU(editPv) * settings.ratePerRVU).toFixed(0)}</div>{editNC && <div style={{ marginTop: 2 }}><span style={S.ncTag}>no credit</span></div>}</div></div>{editReprice && <div style={{ fontSize: 11, color: "var(--text-muted)", textAlign: "center", marginTop: 8, lineHeight: 1.5 }}>{"Saved " + editStored.toFixed(2) + " wRVU, after save " + editCalc.toFixed(2)}</div>}</div>
       {editMismatch && <div style={{ padding: "10px 12px", borderRadius: 10, background: "rgba(245,158,11,0.06)", border: "1px solid rgba(245,158,11,0.3)", marginBottom: 10 }}>
         <div style={{ fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 }}>{editRuleNC
           ? "Saved with credit. Call cases at " + editSiteLbl + " dated " + fmt(CALL_NO_CREDIT_FROM) + " or later now earn no wRVU credit."

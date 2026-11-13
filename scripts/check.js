@@ -370,7 +370,10 @@ check("one restore path: paste and file -> restoreFromText -> finishRestore; und
 // or passed (utils.js declares each once); adjustedRVU is never written as
 // literal 0; withNoCredit is called only by entryWithCall (G7); casesEarnRVU
 // is written only by paySiteWithCredit / repairData / the preset (G9).
-const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 6, "settings.js": 3, "utils.js": 2 };
+// history.js is 7 since ASSET_V 66 (was 6): the edit panel DISPLAYS the stored
+// adjusted wRVU of a case whose code and modifiers are unchanged - the value
+// Save keeps (5f-18: editStored = editOrig ? editOrig.adjustedRVU : editCalc).
+const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 7, "settings.js": 3, "utils.js": 2 };
 const CREDIT_HELPERS = ["creditedRVU", "isNoCredit", "noCreditRVU", "withNoCredit"];
 const ARITH_OPS = { "+": 1, "-": 1, "*": 1, "/": 1, "%": 1 };
 const WALK_SKIP = { loc: 1, start: 1, end: 1, leadingComments: 1, trailingComments: 1, innerComments: 1 };
@@ -2274,6 +2277,182 @@ const COMP_MONEY_PIN = 8;
     histDelete: /style=\{\{ \.\.\.S\.deleteBtn, minWidth: 44, minHeight: 44,[^}]*\}\}>Delete</.test(hist) };
   check("5f-17: Log / History tap targets - no clickable span or button-in-button in log.js / history.js, glyph and S.hitBtn buttons labelled; S.hitBtn 44x44 (relative, zIndex 1) on the 10 Log glyph controls; Today/Yesterday, Private/Call (Log + edit panel), History Back x3 and row Delete at 44px",
     bad.length === 0 && info.hitBtn44 && info.hitUses === 10 && info.clearX && info.dayChips && info.logPrivCall === 2 && info.histPrivCall === 2 && info.histBack === 3 && info.plainBack === 0 && info.histDelete, JSON.stringify(info));
+}
+
+// 5f-18. History's Save keeps a stored case's pricing (CLAUDE.md "Entries'
+// snapshotted wRVUs are authoritative"). Exact shapes, pinned on purpose -
+// update this gate with the code. 5f-19 (the vm sandbox, further down) RUNS
+// the same code on made-up cases; this gate names the line that moved.
+// - saveEdit: `orig` is the stored case as found (declared, tested, passed -
+//   never rebound); it stops on a call site not picked or a bad date; ONE
+//   entryEditFields(orig, { the panel's seven values, each as it is });
+//   `if (!edited) return false;` right after it, before its one upd(); no
+//   calcAdj and no adjustedRVU key; the updater returns entryWithCall({ ...e,
+//   ...edited, isCall: call }, ...) ITSELF inside `entries:
+//   prev.entries.map(...)`, and every other case as `mates[e.id] || e`.
+// - The panel's state: startEdit seeds the code and the modifiers with the
+//   stored values as they are; setEditMods / setEditCode have no caller beyond
+//   the counted ones; toggleEditMod adds or removes exactly the tapped code;
+//   History writes a `modifiers` key in two places only (saveAdd's new case,
+//   the rule's argument) and never assigns one.
+// - The preview: editOrig and editBase are the stored case and the base Save
+//   resolves; ONE entryEditKeeps(editOrig, editCode, editMods); editStored =
+//   editOrig ? editOrig.adjustedRVU : editCalc (the raw display read
+//   RAW_RVU_PIN counts); editAdj and editReprice as written; the Base,
+//   Adjusted and Compensation tiles and the one "Saved <stored> wRVU, after
+//   save <new>" line print exactly those; Save is disabled while a changed
+//   code outside the database has no usable typed wRVU.
+// - saveAdd prices a NEW case: adjustedRVU: adj, adj = calcAdj(info.wRVU,
+//   editMods). Three per-file pins count every calcAdj call, every mention of
+//   its name and every `.factor` read in the app (see CALC_PIN below for what
+//   they can and cannot see).
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression");
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const calls = (root, name) => deep(root, n => n.type === "CallExpression" && isId(n.callee, name));
+  const keyName = p => p && p.key ? (p.key.name || p.key.value || "") : "";
+  const hasOwn18 = (o, k) => Object.prototype.hasOwnProperty.call(o, k);
+  const bad = [];
+  let ast = null, hsrc = "";
+  try { hsrc = fs.readFileSync(path.join(JS_DIR, "history.js"), "utf8"); ast = parser.parse(hsrc, AST_OPTS); } catch (e) { bad.push("parse"); }
+  // A node's own source text, whitespace collapsed (exact-shape pins).
+  const srcOf = n => n ? hsrc.slice(n.start, n.end).replace(/\s+/g, " ") : "";
+  const hist = ast ? ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "History"))[0] : null;
+  if (ast && !hist) bad.push("no History");
+  if (hist) {
+    const decl = name => deep(hist, n => n.type === "VariableDeclarator" && isId(n.id, name));
+    const se = decl("saveEdit").filter(d => isFn(d.init)).map(d => d.init)[0];
+    const st = se && se.body.type === "BlockStatement" ? se.body.body : [];
+    const fc = se ? calls(se, "entryEditFields") : [];
+    if (!se || fc.length !== 1 || calls(hist, "entryEditFields").length !== 1 || fc[0].arguments.length !== 2 || !isId(fc[0].arguments[0], "orig") || fc[0].arguments[1].type !== "ObjectExpression") bad.push("saveEdit does not build its fields with the one entryEditFields(orig, {...}) call");
+    else {
+      // The panel's seven values, each passed as it is: the stored case is
+      // compared with the modifiers the panel SHOWS (editMods), never a copy
+      // or a default, and the database row is the one of the panel's code.
+      const WANT = { date: "editDate", cptCode: "editCode", info: "cptMap[editCode] || null", manualBase: "editManualBase", modifiers: "editMods", notes: "editNotes", patient: "editPatient" };
+      const props = fc[0].arguments[1].properties, got = {};
+      props.forEach(p => { got[keyName(p)] = p.type === "ObjectProperty" && !p.computed ? srcOf(p.value) : "?"; });
+      const off = Object.keys(WANT).filter(k => got[k] !== WANT[k]);
+      if (off.length || props.length !== 7) bad.push("entryEditFields is not passed the panel's seven values as they are (" + (off.join(", ") || props.map(keyName).join(",")) + ")");
+    }
+    if (se && calls(se, "calcAdj").length) bad.push("saveEdit calls calcAdj");
+    if (se && deep(se, n => n.type === "ObjectProperty" && keyName(n) === "adjustedRVU").length) bad.push("saveEdit writes an adjustedRVU key itself");
+    // `edited` is built, tested and spread - never touched in between.
+    if (se && deep(se, n => isId(n, "edited")).length !== 3) bad.push("saveEdit uses `edited` other than: build it, test it, spread it");
+    const di = st.findIndex(s => s.type === "VariableDeclaration" && s.declarations.some(d => isId(d.id, "edited") && !!d.init && d.init.type === "CallExpression" && isId(d.init.callee, "entryEditFields")));
+    // `return false;` itself - a nested test around it is not a stop.
+    const isRetFalse = r => !!r && r.type === "ReturnStatement" && !!r.argument && r.argument.type === "BooleanLiteral" && r.argument.value === false;
+    const isGuard = s => !!s && s.type === "IfStatement" && s.test.type === "UnaryExpression" && s.test.operator === "!" && isId(s.test.argument, "edited") && !s.alternate && isRetFalse(s.consequent);
+    const ui = st.findIndex(s => calls(s, "upd").length > 0);
+    if (di === -1 || !isGuard(st[di + 1]) || ui === -1 || ui <= di + 1) bad.push("saveEdit does not `if (!edited) return false;` right after building `edited`, before upd(");
+    // The stored case Save compares with is the one found in the store, used
+    // only to test it and to pass it: a rebound or doctored `orig` re-prices.
+    const origD = se ? deep(se, n => n.type === "VariableDeclarator" && isId(n.id, "orig")) : [];
+    if (origD.length !== 1 || srcOf(origD[0].init) !== "data.entries.find(function(e) { return e.id === editId; })" || deep(se, n => isId(n, "orig")).length !== 3) bad.push("saveEdit's `orig` is not the stored case as found (declare it, test it, pass it)");
+    if (!st.some(s => s.type === "IfStatement" && srcOf(s.test) === "editCallInfo().need || !isYMD(editDate)" && !s.alternate && isRetFalse(s.consequent))) bad.push("saveEdit does not stop on a call site not picked or a bad date");
+    const writes = se ? deep(se, n => n.type === "CallExpression" && isId(n.callee, "entryWithCall") && !!n.arguments[0] && n.arguments[0].type === "ObjectExpression") : [];
+    const wp = writes.length === 1 ? writes[0].arguments[0].properties : [];
+    if (wp.length !== 3 || wp[0].type !== "SpreadElement" || !isId(wp[0].argument, "e") || wp[1].type !== "SpreadElement" || !isId(wp[1].argument, "edited") || wp[2].type !== "ObjectProperty" || keyName(wp[2]) !== "isCall") bad.push("saveEdit's updater is not entryWithCall({ ...e, ...edited, isCall: call }, ...)");
+    // The one upd() stores that call's result itself: nothing wraps it, maps
+    // the list again or touches the result afterwards; the other cases come
+    // back as the encounter plan's copy or as they are.
+    const retOk = writes.length === 1 && deep(se, n => n.type === "ReturnStatement" && n.argument === writes[0]).length === 1;
+    const entProp = se ? deep(se, n => n.type === "ObjectProperty" && keyName(n) === "entries") : [];
+    const mapOk = entProp.length === 1 && entProp[0].value.type === "CallExpression" && srcOf(entProp[0].value.callee) === "prev.entries.map" && entProp[0].value.arguments.length === 1;
+    if (!retOk || !mapOk || (se ? calls(se, "upd").length : 0) !== 1) bad.push("saveEdit's one upd() does not return entryWithCall(...) itself inside `entries: prev.entries.map(...)`");
+    const matesD = se ? deep(se, n => n.type === "VariableDeclarator" && isId(n.id, "mates")) : [];
+    const cbRets = mapOk ? deep(entProp[0].value.arguments[0], n => n.type === "ReturnStatement") : [];
+    if (matesD.length !== 1 || srcOf(matesD[0].init) !== "applyEnc ? entryEncounterCallPlan(prev.entries, cur, call, siteKey, sites, rederive) : {}" || cbRets.length !== 2 || srcOf(cbRets[1].argument) !== "mates[e.id] || e") bad.push("saveEdit's updater does not return every other case as `mates[e.id] || e`");
+    // The panel's state: seeded with the stored code and modifiers as they
+    // are, changed one tapped code at a time, and written nowhere else.
+    const startE = decl("startEdit").filter(d => isFn(d.init)).map(d => d.init)[0];
+    const sp = startE && startE.params[0] && startE.params[0].type === "Identifier" ? startE.params[0].name : "?";
+    const argOf = (fn, name) => { const c = fn ? calls(fn, name) : []; return c.length === 1 && c[0].arguments.length === 1 ? srcOf(c[0].arguments[0]) : null; };
+    if (argOf(startE, "setEditMods") !== sp + ".modifiers || []" || argOf(startE, "setEditCode") !== sp + ".cptCode") bad.push("startEdit does not seed the panel with the stored code and modifiers as they are");
+    if (calls(hist, "setEditMods").length !== 4 || calls(hist, "setEditCode").length !== 5) bad.push("setEditMods / setEditCode callers in History: want 4 / 5, got " + calls(hist, "setEditMods").length + " / " + calls(hist, "setEditCode").length);
+    const tg = decl("toggleEditMod").filter(d => isFn(d.init)).map(d => d.init)[0];
+    if (srcOf(tg) !== "(mc) => { setEditMods(prev => prev.includes(mc) ? prev.filter(m => m !== mc) : [...prev, mc]); }") bad.push("toggleEditMod does not add or remove exactly the tapped code");
+    if (deep(hist, n => n.type === "ObjectProperty" && keyName(n) === "modifiers").length !== 2 ||
+      deep(hist, n => n.type === "AssignmentExpression" && n.left.type === "MemberExpression" && !n.left.computed && n.left.property.name === "modifiers").length) bad.push("History writes a `modifiers` key somewhere new (want: saveAdd's new case and the rule's argument, no assignment)");
+    // saveAdd prices the NEW case with the table.
+    const sa = decl("saveAdd").filter(d => isFn(d.init)).map(d => d.init)[0];
+    const saAdj = sa ? deep(sa, n => n.type === "VariableDeclarator" && isId(n.id, "adj")) : [];
+    const saKey = sa ? deep(sa, n => n.type === "ObjectProperty" && keyName(n) === "adjustedRVU") : [];
+    const saMods = sa ? deep(sa, n => n.type === "ObjectProperty" && keyName(n) === "modifiers") : [];
+    if (saAdj.length !== 1 || srcOf(saAdj[0].init) !== "calcAdj(info.wRVU, editMods)" || saKey.length !== 1 || !isId(saKey[0].value, "adj") || saMods.length !== 1 || srcOf(saMods[0].value) !== "editMods.slice()") bad.push("saveAdd does not store modifiers: editMods.slice(), adjustedRVU: adj = calcAdj(info.wRVU, editMods)");
+    // The panel preview.
+    const kc = calls(hist, "entryEditKeeps");
+    if (kc.length !== 1 || !isId(kc[0].arguments[0], "editOrig") || !isId(kc[0].arguments[1], "editCode") || !isId(kc[0].arguments[2], "editMods") || kc[0].arguments.length !== 3) bad.push("the panel does not ask entryEditKeeps(editOrig, editCode, editMods) exactly once");
+    if (calls(hist, "calcAdj").length !== 2) bad.push("calcAdj calls in History: want 2 (saveAdd, the panel preview), got " + calls(hist, "calcAdj").length);
+    const one = name => { const d = decl(name); return d.length === 1 ? d[0].init : null; };
+    const stored = one("editStored");
+    if (!stored || stored.type !== "ConditionalExpression" || !isId(stored.test, "editOrig") || stored.consequent.type !== "MemberExpression" || stored.consequent.computed || !isId(stored.consequent.object, "editOrig") ||
+      stored.consequent.property.name !== "adjustedRVU" || !isId(stored.alternate, "editCalc")) bad.push("editStored is not `editOrig ? editOrig.adjustedRVU : editCalc`");
+    const calc = one("editCalc");
+    if (!calc || calc.type !== "CallExpression" || !isId(calc.callee, "calcAdj") || !isId(calc.arguments[0], "editBase") || !isId(calc.arguments[1], "editMods")) bad.push("editCalc is not calcAdj(editBase, editMods)");
+    const adj = one("editAdj");
+    const isNumTest = t => !!t && t.type === "BinaryExpression" && t.operator === "===" && t.left.type === "UnaryExpression" && t.left.operator === "typeof" && isId(t.left.argument, "editStored") && t.right.type === "StringLiteral" && t.right.value === "number";
+    if (!adj || adj.type !== "ConditionalExpression" || !isId(adj.consequent, "editStored") || !isId(adj.alternate, "editCalc") || adj.test.type !== "LogicalExpression" || adj.test.operator !== "&&" ||
+      !isId(adj.test.left, "editKeeps") || !isNumTest(adj.test.right)) bad.push("editAdj is not `editKeeps && typeof editStored === \"number\" ? editStored : editCalc`");
+    // The preview's inputs and its five figures, each as written (exact text).
+    const TEXT = {
+      isAddMode: "editId === ADD_SENTINEL",
+      editInfo: "cptMap[editCode]",
+      editOrig: "isAddMode ? null : data.entries.find(function(e) { return e.id === editId; })",
+      editCodeChanged: "editOrig ? editCode !== editOrig.cptCode : false",
+      editUnknownChanged: "editCodeChanged && !editInfo",
+      editBase: "editOrig && !editCodeChanged ? (editOrig.baseRVU || 0) : editInfo ? editInfo.wRVU : editUnknownChanged ? (parseFloat(editManualBase) || 0) : 0",
+      editKeeps: "!isAddMode && entryEditKeeps(editOrig, editCode, editMods)",
+      editReprice: "!isAddMode && !!editOrig && !editKeeps && !(editUnknownChanged && isNaN(parseFloat(editManualBase))) && typeof editStored === \"number\" && editStored.toFixed(2) !== editCalc.toFixed(2)",
+      editPv: "entryWithCall({ date: editDate, adjustedRVU: editAdj }, ci.src, editIsCall, editSite, ci.sites, editRederive)",
+      editSaveDisabled: "(editUnknownChanged && isNaN(parseFloat(editManualBase))) || ci.need || !editDateOk",
+    };
+    Object.keys(TEXT).forEach(k => { if (srcOf(one(k)) !== TEXT[k]) bad.push(k + " is not `" + TEXT[k] + "`"); });
+    if (deep(hist, n => n.type === "AssignmentExpression" && n.left.type === "Identifier" && (hasOwn18(TEXT, n.left.name) || ["editCalc", "editStored", "editAdj"].indexOf(n.left.name) !== -1)).length) bad.push("a preview figure is assigned after its declaration");
+    // Every use of the five names is one of the pinned ones: declared once,
+    // read by the rule above, the two credit previews, the Adjusted tile
+    // (editAdj) and the one line.
+    const USES = { editKeeps: 3, editCalc: 5, editStored: 6, editAdj: 4, editReprice: 2 };
+    Object.keys(USES).forEach(k => { const n = deep(hist, x => isId(x, k)).length; if (n !== USES[k]) bad.push(k + " is named " + n + " times in History, want " + USES[k]); });
+    // What the panel prints: the three tiles and the one line, as written.
+    const jsxOf = text => deep(hist, n => n.type === "JSXExpressionContainer" && srcOf(n.expression) === text);
+    if (jsxOf("editBase.toFixed(2)").length !== 1) bad.push("the Base tile does not print {editBase.toFixed(2)} once");
+    if (deep(hist, n => n.type === "LogicalExpression" && n.operator === "&&" && srcOf(n.left) === "editMods.length > 0" && n.right.type === "JSXElement" && deep(n.right, x => x.type === "JSXExpressionContainer" && srcOf(x.expression) === "editAdj.toFixed(2)").length === 1).length !== 1 || jsxOf("editAdj.toFixed(2)").length !== 1) bad.push("the Adjusted tile is not {editMods.length > 0 && ...{editAdj.toFixed(2)}...}");
+    if (jsxOf("(creditedRVU(editPv) * settings.ratePerRVU).toFixed(0)").length !== 1) bad.push("the Compensation tile does not print (creditedRVU(editPv) * settings.ratePerRVU).toFixed(0) once");
+    const lines = deep(hist, n => n.type === "LogicalExpression" && n.operator === "&&" && isId(n.left, "editReprice") && n.right.type === "JSXElement");
+    const lineTxt = lines.length === 1 ? lines[0].right.children.filter(c => c.type === "JSXExpressionContainer").map(c => srcOf(c.expression)).join("|") : "";
+    if (lineTxt !== "\"Saved \" + editStored.toFixed(2) + \" wRVU, after save \" + editCalc.toFixed(2)") bad.push("no single `editReprice && <div>` line reading \"Saved \" + editStored.toFixed(2) + \" wRVU, after save \" + editCalc.toFixed(2)");
+    // The credit preview is built from editAdj, never a second calculation.
+    if (deep(hist, n => n.type === "ObjectProperty" && keyName(n) === "adjustedRVU" && isId(n.value, "editAdj")).length !== 2) bad.push("the credit previews are not built from { ..., adjustedRVU: editAdj } twice");
+  }
+  // Every place in the app that prices a case from the modifier table, three
+  // ways: direct calcAdj calls (Log's new cases 2, History's + Add and its
+  // preview 2, utils.js's two import parsers and entryEditFields 3); every
+  // mention of the NAME calcAdj (those plus its declaration - so a call under
+  // another name, or through .call / .apply, is seen); and every read of a
+  // modifier's `.factor` (calcAdj's own two). A new one anywhere is a new
+  // place that prices a case: if it prices a STORED case it breaks the rule
+  // above, so move these pins only for a writer of NEW cases. Syntactic - code
+  // that reaches the table some other way is not seen; the sandbox tests
+  // below (a stale-priced store through loadData / saveData, 5f-19) cover the
+  // load, the save and History's own paths by value.
+  const CALC_PIN = { "history.js": 2, "log.js": 2, "utils.js": 3 }, CALC_ID_PIN = { "history.js": 2, "log.js": 2, "utils.js": 4 }, FACTOR_PIN = { "utils.js": 2 };
+  const calcSeen = {}, idSeen = {}, facSeen = {};
+  jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
+    try {
+      const prog = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS).program;
+      const nCall = calls(prog, "calcAdj").length, nId = deep(prog, x => isId(x, "calcAdj")).length, nFac = deep(prog, x => x.type === "MemberExpression" && !x.computed && x.property.name === "factor").length;
+      if (nCall) calcSeen[f] = nCall;
+      if (nId) idSeen[f] = nId;
+      if (nFac) facSeen[f] = nFac;
+    } catch (e) { calcSeen[f] = "parse"; }
+  });
+  if (JSON.stringify(calcSeen) !== JSON.stringify(CALC_PIN)) bad.push("calcAdj call sites " + JSON.stringify(calcSeen) + ", pinned " + JSON.stringify(CALC_PIN));
+  if (JSON.stringify(idSeen) !== JSON.stringify(CALC_ID_PIN)) bad.push("calcAdj mentions " + JSON.stringify(idSeen) + ", pinned " + JSON.stringify(CALC_ID_PIN));
+  if (JSON.stringify(facSeen) !== JSON.stringify(FACTOR_PIN)) bad.push("modifier factor reads " + JSON.stringify(facSeen) + ", pinned " + JSON.stringify(FACTOR_PIN));
+  check("5f-18: History's Save keeps a stored case's pricing - saveEdit passes the stored case as found and the panel's seven values to ONE utils.js entryEditFields call, stops when it returns nothing, and stores entryWithCall({ ...e, ...edited, isCall }) itself (no calcAdj, no adjustedRVU or modifiers write of its own, the other cases untouched); the panel is seeded with the stored code and modifiers and changes one tapped code at a time; the preview's lines, the three tiles and the one `Saved <stored> wRVU, after save <new>` line are as written; saveAdd prices a new case; calcAdj call sites pinned per file",
+    bad.length === 0, bad.join(", "));
 }
 
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
@@ -4460,6 +4639,317 @@ if (sb) {
     } finally { sb.localStorage = realLS7; sb.console = realConsole7; sb.showDataAlert = realAlert7; }
   }
 
+  // History's Save (utils.js entryEditFields / entryEditKeeps / entryModsSame,
+  // ASSET_V 66): the ONE rule for what an edit writes over a stored case. An
+  // edit that changes neither the code nor the SET of modifiers writes neither
+  // modifiers nor adjustedRVU, so the stored snapshot stays byte for byte -
+  // whatever the modifier table says today. Every case below is made up; the
+  // "table moved on" shapes are a stored value the current table would not
+  // produce, a code the table does not hold, and a list the panel cannot show.
+  {
+    const J = x => JSON.stringify(x);
+    const calc = (b, m) => sb.calcAdj(b, m);
+    const mk = (id, mods, adj, more) => Object.assign({ id: id, date: "2026-09-20", cptCode: "47562", description: "x", category: "General", baseRVU: 10.21, modifiers: mods, adjustedRVU: adj, notes: "AB - n", encounterId: "AB", isCall: false, imported: false }, more || {});
+    const drop = (e, k) => { const o = Object.assign({}, e); delete o[k]; return o; };
+    // The panel's values for a stored case, as History's startEdit seeds them
+    // (the modifiers state is the stored value itself, or [] when it is falsy).
+    // info is the database row of the code even when the code is unchanged:
+    // an unchanged code must never read it.
+    const DBROW = { code: "47562", desc: "DB DESC", wRVU: 99, category: "DB CAT" };
+    const panel = (e, o) => Object.assign({ date: e.date, cptCode: e.cptCode, info: DBROW, manualBase: String(e.baseRVU || 0), modifiers: e.modifiers || [], notes: e.notes, patient: e.encounterId || "" }, o || {});
+    const KEYS_KEPT = "date,cptCode,description,category,baseRVU,notes,encounterId", KEYS_PRICED = "date,cptCode,description,category,baseRVU,modifiers,adjustedRVU,notes,encounterId";
+
+    // What a stored modifier list is worth, as shipped: the table's codes and
+    // factors, the lookup built from it (MOD_MAP: exactly the table's rows),
+    // calcAdj's own text, and literal figures - so the recalculations below
+    // are not only compared with calcAdj's own output. A change to ANY of the
+    // three turns this red ON PURPOSE: whatever changes the figure calcAdj
+    // returns for an existing list is allowed only as its own, later deploy on
+    // top of History's keep rule (CLAUDE.md "Deploy rules") - read that
+    // first, then move the pins and the figures in the same commit.
+    const MODS_PIN = "-22:1.2,-26:1,-50:1.5,-51:0.5,-62:0.625,-80:0.16,-59:1,-78:0.7,-79:1,-76:1,-77:1";
+    const CALC_SRC = "function calcAdj(base, mods) { if (!mods || mods.length === 0) return base; if (mods.length === 1) { const m = MOD_MAP[mods[0]]; return m ? base * m.factor : base; } let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r; }";
+    const modsNow = vm.runInContext("MODIFIERS.map(function(m) { return m.code + \":\" + m.factor; }).join(\",\")", sb);
+    const mapIsTable = vm.runInContext("Object.keys(MOD_MAP).join() === MODIFIERS.map(function(m) { return m.code; }).join() && MODIFIERS.every(function(m) { return MOD_MAP[m.code] === m; })", sb) === true;
+    const calcSrcNow = String(sb.calcAdj).replace(/\s+/g, " ");
+    const CALC_LIT = [[10.21, [], 10.21], [10.21, ["-51"], 5.105], [10, ["-50", "-51"], 7.5], [10.21, ["-22"], 12.252], [10.21, ["-22", "-51"], 6.126], [10.21, ["-78"], 7.147], [10.21, ["-AS"], 10.21], [10.21, ["51"], 10.21], [10.21, ["51", "-22"], 12.252], [10, ["-50", "-51", "-78"], 5.25]];
+    const badLit = CALC_LIT.filter(t => sb.calcAdj(t[0], t[1]) !== t[2]).map(t => J(t[1]) + " -> " + sb.calcAdj(t[0], t[1]));
+    check("MODIFIERS pin: the modifier table's codes and factors, MOD_MAP (exactly the table's rows) and calcAdj's text are the shipped ones, and calcAdj gives the literal figures (a code the table does not hold changes nothing). Anything that changes what calcAdj returns for an existing list ships only as its own, later deploy on top of History's keep rule - CLAUDE.md Deploy rules",
+      modsNow === MODS_PIN && mapIsTable && calcSrcNow === CALC_SRC && badLit.length === 0, modsNow + " | MOD_MAP is the table: " + mapIsTable + " | " + (calcSrcNow === CALC_SRC ? "" : calcSrcNow) + " " + badLit.join(" | "));
+
+    const SAME = [ // [a, b, same set?]
+      [["-51"], ["-51"], true], [["-51", "-59"], ["-59", "-51"], true], [["-51", "-51"], ["-51"], true], [[], [], true], [undefined, [], true], [null, undefined, true], ["51", [], true], ["51", "51", true],
+      [["-51"], [], false], [[], ["-51"], false], [["51"], ["-51"], false], [["-51"], ["-51", "-59"], false], [["-51", "-59"], ["-51"], false], [["-AS"], ["-AS", "-59"], false],
+      // a code the table does not hold still counts: dropping it is a change
+      [["-AS"], [], false], [["51"], [], false], [["-51", "-AS"], ["-51"], false],
+    ];
+    // A rule that throws is a red line naming the case, never a stopped run.
+    const tryv = fn => { try { return fn(); } catch (x) { return "threw: " + (x && x.message); } };
+    const fields = (e, p) => { const f = tryv(() => sb.entryEditFields(e, p)); return f && typeof f === "object" ? f : { threw: f }; };
+    const badSame = SAME.filter(t => tryv(() => sb.entryModsSame(t[0], t[1])) !== t[2] || tryv(() => sb.entryModsSame(t[1], t[0])) !== t[2]);
+    const kE = mk("ke", ["-51", "-59"], calc(10.21, ["-51", "-59"]));
+    const KEEPS = [ // [stored case, panel code, panel modifiers, keeps?]
+      [kE, "47562", ["-59", "-51"], true], [kE, "47562", ["-51"], false], [kE, "47563", ["-51", "-59"], false],
+      [null, "47562", [], false], [undefined, undefined, [], false], ["47562", "47562", [], false],
+      // a non-object whose "code" would match, and a stored code of another type
+      ["x", undefined, [], false], [Object.assign({}, kE, { cptCode: 47562 }), "47562", ["-51", "-59"], false],
+    ];
+    const badKeeps = KEEPS.map((t, i) => tryv(() => sb.entryEditKeeps(t[0], t[1], t[2])) === t[3] ? "" : "#" + i + " " + J(tryv(() => sb.entryEditKeeps(t[0], t[1], t[2])))).filter(Boolean);
+    // The rule itself compares codes the same strict way: a stored code of
+    // another type is a CHANGED code (database row, recalculated).
+    const numCode = mk("kn", ["-51"], calc(10.21, ["-51"]), { cptCode: 47562 });
+    const fNum = fields(numCode, panel(numCode, { cptCode: "47562" }));
+    check("entryModsSame / entryEditKeeps: the same code and the same SET of modifiers (order and repeats ignored, a value that is not a list counts as none, a code the table does not hold still counts); a changed code, a missing case, a non-object or a code of another type never keeps (" + SAME.length + " pairs, " + KEEPS.length + " cases)",
+      badSame.length === 0 && badKeeps.length === 0 && Object.keys(fNum).join() === KEYS_PRICED && fNum.description === "DB DESC" && fNum.baseRVU === 99, J(badSame) + " " + badKeeps.join(" | ") + " " + J(fNum));
+
+    const inShape = mk("k0", ["-51"], calc(10.21, ["-51"]));
+    const KEEP = [ // [label, stored case, panel overrides]
+      ["in-shape case, note edited", inShape, { notes: "AB - edited" }],
+      ["in-shape case with no modifier, date edited", mk("k0b", [], 10.21), { date: "2026-09-22" }],
+      ["stored value the table would not produce today (12.7625 on 10.21 with -22), note edited", mk("k1", ["-22"], 12.7625), { notes: "AB - typo fixed" }],
+      ["a modifier the table no longer holds, stored at 0.135 of the base", mk("k2", ["-AS"], 10.21 * 0.135), { date: "2026-09-21" }],
+      ["a dashless modifier the table never held, stored at the full value", mk("k3", ["51"], 10.21), { patient: "CD" }],
+      ["a repeated modifier, toggled off and on again in the panel", mk("k4", ["-51", "-51"], 10.21 * 0.25), { modifiers: ["-51"] }],
+      ["the same set in another order", mk("k5", ["-51", "-59"], calc(10.21, ["-51", "-59"])), { modifiers: ["-59", "-51"] }],
+      ["no modifiers key on the stored case", drop(mk("k6", [], 10.21), "modifiers"), { notes: "n" }],
+      ["a stored modifiers value that is not a list", mk("k7", "51", 10.21), {}],
+      ["no adjusted wRVU key on the stored case", drop(mk("k8", ["-51"], 0), "adjustedRVU"), {}],
+      ["no stored base, note edited (the missing base is written as 0, as before)", drop(mk("k8b", ["-51"], 5.105), "baseRVU"), { notes: "n2" }],
+      ["a code outside the database, unchanged", mk("k9", ["-22"], 12.7625, { cptCode: "99999", description: "CPT 99999", category: "Imported" }), { info: null }],
+      ["a case with no initials, note edited", drop(mk("k11", ["-51"], calc(10.21, ["-51"])), "encounterId"), { notes: "note" }],
+      ["initials cleared in the panel", inShape, { patient: "" }],
+    ];
+    const badKeep = [], written = [];
+    KEEP.forEach(r => {
+      const e = r[1], p = panel(e, r[2]), eJ = J(e), pJ = J(p);
+      const f = fields(e, p), m = Object.assign({}, e, f);
+      const ok = Object.keys(f).join() === KEYS_KEPT && tryv(() => sb.entryEditKeeps(e, p.cptCode, p.modifiers)) === true &&
+        hasK7(m, "modifiers") === hasK7(e, "modifiers") && m.modifiers === e.modifiers && hasK7(m, "adjustedRVU") === hasK7(e, "adjustedRVU") && m.adjustedRVU === e.adjustedRVU &&
+        f.description === e.description && f.category === e.category && f.baseRVU === (e.baseRVU || 0) && f.date === p.date && f.notes === p.notes && f.encounterId === (p.patient || undefined) &&
+        J(e) === eJ && J(p) === pJ;
+      if (!ok) badKeep.push(r[0] + " -> " + J(f));
+      if (ok) written.push(sb.entryWithCall(Object.assign({}, m, { isCall: false }), e, false, "", S7, false));
+    });
+    check("CONTRACT: entryEditFields - an edit that changes neither the code nor the set of modifiers writes NEITHER modifiers nor adjustedRVU (the stored list and value stay as they are, also a stale value, a modifier the table does not hold, a repeated or reordered list, a missing key); base / description / category stay the snapshot's, never the database row's (a missing base is written as 0, as before); inputs untouched (" + KEEP.length + " cases)",
+      badKeep.length === 0, badKeep.join(" | "));
+
+    const RECALC = [ // [label, stored case, panel overrides, want base, want description, want category]
+      ["a modifier added", mk("c0", ["-22"], 12.7625), { modifiers: ["-22", "-51"] }, 10.21, "x", "General"],
+      ["a modifier removed", mk("c1", ["-51", "-59"], calc(10.21, ["-51", "-59"])), { modifiers: ["-59"] }, 10.21, "x", "General"],
+      ["every modifier removed", mk("c2", ["-22"], 12.7625), { modifiers: [] }, 10.21, "x", "General"],
+      ["a known modifier added beside one the table does not hold", mk("c3", ["-AS"], 10.21 * 0.135), { modifiers: ["-AS", "-59"] }, 10.21, "x", "General"],
+      ["the code changed to a database code, same modifiers", mk("c4", ["-51"], calc(10.21, ["-51"])), { cptCode: "49650", info: { code: "49650", desc: "DB DESC 2", wRVU: 6.2, category: "DB CAT 2" } }, 6.2, "DB DESC 2", "DB CAT 2"],
+      ["the code changed to a code outside the database, typed wRVU", mk("c5", ["-51"], calc(10.21, ["-51"])), { cptCode: "99999", info: null, manualBase: "7.5" }, 7.5, "CPT 99999", "Other"],
+      ["a modifier changed on a case with no stored base", drop(mk("c6", [], 10.21), "baseRVU"), { modifiers: ["-51"] }, 0, "x", "General"],
+      ["a modifier added to a case with no modifiers key", drop(mk("c7", [], 10.21), "modifiers"), { modifiers: ["-50"] }, 10.21, "x", "General"],
+      ["a modifier added to a case with no initials", drop(mk("c8", [], 10.21), "encounterId"), { modifiers: ["-51"] }, 10.21, "x", "General"],
+      ["a modifier added and the initials cleared", mk("c9", [], 10.21), { modifiers: ["-51"], patient: "" }, 10.21, "x", "General"],
+    ];
+    // What ASSET_V 65's saveEdit built inline, for every edit.
+    const old65 = (orig, p) => {
+      const changed = p.cptCode !== orig.cptCode;
+      let b, d, c;
+      if (!changed) { b = orig.baseRVU || 0; d = orig.description; c = orig.category; }
+      else if (p.info) { b = p.info.wRVU; d = p.info.desc; c = p.info.category; }
+      else { b = parseFloat(p.manualBase); if (isNaN(b)) return null; d = "CPT " + p.cptCode; c = "Other"; }
+      return { date: p.date, cptCode: p.cptCode, description: d, category: c, baseRVU: b, modifiers: p.modifiers, adjustedRVU: calc(b, p.modifiers), notes: p.notes, encounterId: p.patient || undefined };
+    };
+    const badRe = [];
+    RECALC.forEach(r => {
+      const e = r[1], p = panel(e, r[2]), eJ = J(e), pJ = J(p);
+      const f = fields(e, p), o = old65(e, p);
+      const ok = Object.keys(f).join() === KEYS_PRICED && tryv(() => sb.entryEditKeeps(e, p.cptCode, p.modifiers)) === false && f.modifiers === p.modifiers && f.adjustedRVU === calc(r[3], p.modifiers) &&
+        f.baseRVU === r[3] && f.description === r[4] && f.category === r[5] && J(f) === J(o) && Object.keys(f).join() === Object.keys(o).join() && J(e) === eJ && J(p) === pJ;
+      if (!ok) badRe.push(r[0] + " -> " + J(f));
+      if (ok) written.push(sb.entryWithCall(Object.assign({}, e, f, { isCall: false }), e, false, "", S7, false));
+    });
+    const typed = t => tryv(() => sb.entryEditFields(inShape, panel(inShape, { cptCode: "99999", info: null, manualBase: t })));
+    const nulls = ["", "abc", "."].filter(t => typed(t) !== null);
+    const zero = typed("0");
+    check("CONTRACT: entryEditFields - a changed modifier set or code IS recalculated from the resolved base with the current table (stored base for the same code, the database row for a changed known code, the typed wRVU for a changed unknown code), writes exactly what ASSET_V 65 wrote, and returns null for a changed unknown code with no usable wRVU (" + RECALC.length + " cases)",
+      badRe.length === 0 && nulls.length === 0 && !!zero && zero.baseRVU === 0 && zero.adjustedRVU === 0, badRe.join(" | ") + J(nulls) + J(zero));
+
+    // An untouched save of an in-shape case is byte-identical to the stored
+    // case and to what ASSET_V 65 wrote, through the same entryWithCall spread
+    // saveEdit uses; a Call case at a site keeps its call fields too.
+    const callCase = sb.entryWithCall(Object.assign(mk("k10", ["-50"], calc(10.21, ["-50"])), { date: "2026-10-05" }), null, true, "st-n", S7, true);
+    const same65 = [inShape, mk("k0b", [], 10.21), callCase].filter(e => {
+      const p = panel(e), call = !!e.isCall, key = call ? sb.entrySiteKey(e) : "";
+      const now = sb.entryWithCall(Object.assign({}, e, fields(e, p), { isCall: call }), e, call, key, S7, false);
+      const was = sb.entryWithCall(Object.assign({}, e, old65(e, p), { isCall: call }), e, call, key, S7, false);
+      written.push(now);
+      return J(now) !== J(e) || J(now) !== J(was) || Object.keys(now).join() !== Object.keys(e).join();
+    });
+    check("entryEditFields: an untouched save of an in-shape case writes the stored case byte for byte - the same bytes ASSET_V 65 wrote (plain, no modifier, Call at a no-credit site); every case written above passes repairData unchanged",
+      same65.length === 0 && sb.isNoCredit(callCase) && written.length === KEEP.length + RECALC.length + 3 && fixedPoint7(entStore7(JSON.parse(J(written)))), J(same65.map(e => e.id)) + " written " + written.length);
+  }
+
+  // Loading and saving never price a case: a store of cases whose figures
+  // today's table would not give (an older factor, a modifier the table does
+  // not hold, a dashless or repeated one, a figure with no modifier behind it)
+  // comes back from loadData, and goes out through saveData, with every case
+  // byte for byte and no write during the load.
+  {
+    const realLS9 = sb.localStorage, realConsole9 = sb.console, realAlert9 = sb.showDataAlert;
+    try {
+      const mem = {}, writes = [];
+      sb.localStorage = { getItem: k => (hasK7(mem, k) ? mem[k] : null), setItem: (k, v) => { writes.push(k); mem[k] = String(v); }, removeItem: k => { delete mem[k]; } };
+      sb.console = { log: () => {}, warn: () => {}, error: () => {} };
+      sb.showDataAlert = () => {};
+      const SK9 = vm.runInContext("SK", sb);
+      const mk9 = (id, mods, adj) => ({ id: id, date: "2026-09-20", cptCode: "47562", description: "x", category: "General", baseRVU: 10.21, modifiers: mods, adjustedRVU: adj, notes: "AB - n", encounterId: "AB", isCall: false, imported: false });
+      const stale = [mk9("p1", ["-22"], 12.7625), mk9("p2", ["-AS"], 1.37835), mk9("p3", ["51"], 10.21), mk9("p4", ["-51", "-51"], 2.5525), mk9("p5", [], 9.9)];
+      const want = JSON.stringify(stale);
+      mem[SK9] = JSON.stringify(entStore7(JSON.parse(want)));
+      const d9 = sb.loadData();
+      const loadOk = !!d9 && JSON.stringify(d9.entries) === want && writes.length === 0;
+      sb.saveData(d9);
+      const saveOk = JSON.stringify(JSON.parse(mem[SK9]).entries) === want;
+      check("loadData / saveData: a store of cases priced unlike today's table loads, and saves, with every case byte for byte (no write during the load)",
+        loadOk && saveOk, JSON.stringify({ loadOk: loadOk, saveOk: saveOk, writes: writes, got: d9 && d9.entries ? d9.entries.map(e => e.adjustedRVU) : null }));
+    } finally { sb.localStorage = realLS9; sb.console = realConsole9; sb.showDataAlert = realAlert9; }
+  }
+
+  // 5f-19. History's real Save path, RUN on made-up cases. The source text of
+  // History's own startEdit / toggleEditMod / editCallInfo / saveEdit /
+  // startAdd / saveAdd / addAnother, and of the edit panel's statements before
+  // its return, is taken out of history.js by AST position and run here as it
+  // is, against plain variables standing in for the component's state (STATE
+  // below: a new piece of state these functions read must be added there - a
+  // missing one is a red line naming it, never a skipped test). No JSX is
+  // evaluated: 5f-18 pins that the tiles and the line print exactly the
+  // figures read here. What is asserted is the STORE after the taps - a save
+  // that changes neither the code nor the SET of modifiers leaves modifiers and
+  // adjustedRVU as stored, changes nothing but what was edited and touches no
+  // other case; a changed modifier or code stores the literal figure the panel
+  // announced; + Add prices the new case; a blocked save writes nothing.
+  {
+    const J = x => JSON.stringify(x);
+    const bad = [];
+    let make = null;
+    try {
+      const hsrc = fs.readFileSync(path.join(JS_DIR, "history.js"), "utf8");
+      const ast = parser.parse(hsrc, AST_OPTS);
+      const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+      const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+      const hist = ast.program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "History"))[0];
+      const initSrc = name => {
+        const d = deep(hist, n => n.type === "VariableDeclarator" && isId(n.id, name) && !!n.init);
+        if (d.length !== 1) throw new Error(name + " is declared " + d.length + " times in History");
+        return hsrc.slice(d[0].init.start, d[0].init.end);
+      };
+      const panelIf = hist.body.body.filter(s => s.type === "IfStatement" && isId(s.test, "editId"))[0];
+      const pst = panelIf ? panelIf.consequent.body : [], ret = pst[pst.length - 1];
+      if (!ret || ret.type !== "ReturnStatement") throw new Error("the edit panel block does not end in a return");
+      const STATE = { editId: "null", editDate: "\"\"", editCode: "\"\"", editMods: "[]", editNotes: "\"\"", editSearch: "\"\"", editPatient: "\"\"", editIsCall: "false", editSite: "\"\"", editRederive: "false", editApplyEnc: "true", editManualBase: "\"\"", addSourceId: "null" };
+      const setter = n => "set" + n.charAt(0).toUpperCase() + n.slice(1);
+      const FNS = ["startEdit", "toggleEditMod", "editCallInfo", "saveEdit", "startAdd", "saveAdd", "addAnother"];
+      const src = "(function(store, cptMap) {\n" +
+        "var data = store, entries = data.entries, settings = data.settings, fixKept = [], toast = null;\n" +
+        "var ADD_SENTINEL = " + initSrc("ADD_SENTINEL") + ";\n" +
+        Object.keys(STATE).map(n => "var " + n + " = " + STATE[n] + "; var " + setter(n) + " = function(v) { " + n + " = typeof v === \"function\" ? v(" + n + ") : v; };").join("\n") + "\n" +
+        "var editNotesLinked = { current: false }, editNotesLinkable = { current: false }, addSavingRef = { current: false }, listScroll = { current: null }, editSnap = { current: null };\n" +
+        "var keepListScroll = function() {}, showUndo = function(u) { toast = u && u.message; };\n" +
+        "var upd = function(fn) { data = fn(data); entries = data.entries; settings = data.settings; };\n" +
+        FNS.map(n => "var " + n + " = " + initSrc(n) + ";").join("\n") + "\n" +
+        "var panel = function() {\n" + hsrc.slice(pst[0].start, ret.start) + "\nreturn { addMode: isAddMode, base: editBase, adj: editAdj, calc: editCalc, stored: editStored, keeps: editKeeps, reprice: editReprice, pv: editPv, saveDisabled: editSaveDisabled };\n};\n" +
+        "return { startEdit: startEdit, toggle: toggleEditMod, saveEdit: saveEdit, startAdd: startAdd, saveAdd: saveAdd, addAnother: addAnother, panel: panel, setNotes: setEditNotes, setCode: setEditCode, setManual: setEditManualBase, setIsCall: setEditIsCall, data: function() { return data; }, mods: function() { return editMods; }, toast: function() { return toast; } };\n})";
+      make = vm.runInContext(src, sb, { filename: "history-save-path.js" });
+    } catch (e) { bad.push("cannot lift History's Save path out of history.js: " + (e && e.message)); }
+    if (make) {
+      const RATE = 50;
+      const CPT = { "47562": { code: "47562", desc: "DB DESC", wRVU: 10.21, category: "DB CAT" }, "49650": { code: "49650", desc: "DB DESC 2", wRVU: 6.2, category: "DB CAT 2" } };
+      const mk = (id, mods, adj, more) => Object.assign({ id: id, date: "2026-09-20", cptCode: "47562", description: "x", category: "General", baseRVU: 10.21, modifiers: mods, adjustedRVU: adj, notes: "AB - n", encounterId: "AB", isCall: false, imported: false }, more || {});
+      // A second stored case, never opened, priced under an older factor: no
+      // save of another case may touch it.
+      const bystander = () => mk("z9", ["-22"], 12.7625, { date: "2026-08-03", notes: "ZZ - x", encounterId: "ZZ" });
+      const boot = cases => make(JSON.parse(J({ entries: cases, settings: { ratePerRVU: RATE }, paySites: [] })), CPT);
+      const open = cases => { const h = boot(cases); h.startEdit(h.data().entries[0]); return h; };
+      const ents = h => JSON.parse(J(h.data().entries));
+      // What the panel shows (5f-18 pins that the tiles and the line print these).
+      const look = h => { const p = h.panel(); return { addMode: p.addMode, base: p.base, adj: p.adj, keeps: p.keeps, saveDisabled: p.saveDisabled, comp: sb.creditedRVU(p.pv) * RATE, line: p.reprice ? "Saved " + p.stored.toFixed(2) + " wRVU, after save " + p.calc.toFixed(2) : null }; };
+      const tap = (h, t) => { if (t[0] === "mod") h.toggle(t[1]); else if (t[0] === "notes") h.setNotes(t[1]); else if (t[0] === "code") h.setCode(t[1]); else if (t[0] === "manual") h.setManual(t[1]); else if (t[0] === "call") h.setIsCall(t[1]); else throw new Error("unknown tap " + t[0]); };
+      const without = (e, keys) => { const o = Object.assign({}, e); keys.forEach(k => { delete o[k]; }); return J(o); };
+      const run = (label, fn) => { try { const why = fn(); if (why) bad.push(label + " -> " + why); } catch (e) { bad.push(label + " threw: " + (e && e.message)); } };
+
+      const KEPT = [ // [label, stored case, taps] - none changes the code or the SET of modifiers
+        ["a note edit on an in-shape -51 case", mk("a1", ["-51"], 5.105), [["notes", "AB - typo fixed"]]],
+        ["a note edit on a case stored under an older -22 factor", mk("a2", ["-22"], 12.7625), [["notes", "AB - typo fixed"]]],
+        ["a note edit on a case whose modifier the table no longer holds", mk("a3", ["-AS"], 1.37835), [["notes", "AB - typo fixed"]]],
+        ["a note edit on a case with a dashless modifier", mk("a4", ["51"], 10.21), [["notes", "AB - typo fixed"]]],
+        ["-22 tapped off and on again on an older-factor case", mk("a5", ["-22", "-51"], 6.38125), [["mod", "-22"], ["mod", "-22"], ["notes", "AB - n2"]]],
+        ["-51 tapped on and off again beside a modifier the table does not hold", mk("a6", ["-AS"], 1.37835), [["mod", "-51"], ["mod", "-51"], ["notes", "AB - n3"]]],
+        ["a repeated modifier tapped off and on", mk("a7", ["-51", "-51"], 2.5525), [["mod", "-51"], ["mod", "-51"], ["notes", "AB - n4"]]],
+        ["a note edit on an imported row whose code is not in the database", mk("a8", ["-22"], 5, { cptCode: "99999", description: "CPT 99999", category: "Imported", baseRVU: 4, imported: true }), [["notes", "AB - typo fixed"]]],
+        ["the code changed and changed back", mk("a9", ["-22"], 12.7625), [["code", "49650"], ["code", "47562"], ["notes", "AB - n5"]]],
+      ];
+      KEPT.forEach(r => run(r[0], () => {
+        const h = open([r[1], bystander()]), was = ents(h);
+        r[2].forEach(t => tap(h, t));
+        const seen = look(h), ok = h.saveEdit(), now = ents(h);
+        if (ok !== true) return "Save returned " + ok;
+        if (!seen.keeps || seen.line !== null || seen.saveDisabled) return "the panel did not read as kept: " + J(seen);
+        if (seen.adj !== was[0].adjustedRVU || seen.comp !== was[0].adjustedRVU * RATE) return "the panel did not show the stored figure: " + J(seen);
+        if (J(now[0].modifiers) !== J(was[0].modifiers) || now[0].adjustedRVU !== was[0].adjustedRVU) return "pricing rewritten: " + J(now[0]);
+        if (without(now[0], ["notes"]) !== without(was[0], ["notes"]) || Object.keys(now[0]).join() !== Object.keys(was[0]).join() || now[0].notes === was[0].notes) return "not exactly the note changed: " + J(now[0]);
+        if (now.length !== 2 || J(now[1]) !== J(was[1])) return "another case changed: " + J(now);
+        return "";
+      }));
+
+      const MOVED = [ // [label, stored case, taps, the line the panel must show, what Save must store over the case]
+        ["-51 added to a case stored under an older -22 factor", mk("b1", ["-22"], 12.7625), [["mod", "-51"]], "Saved 12.76 wRVU, after save 6.13", { modifiers: ["-22", "-51"], adjustedRVU: 6.126 }],
+        ["-51 added to a plain case", mk("b2", [], 10.21), [["mod", "-51"]], "Saved 10.21 wRVU, after save 5.11", { modifiers: ["-51"], adjustedRVU: 5.105 }],
+        ["-22 removed from an older-factor case", mk("b3", ["-22"], 12.7625), [["mod", "-22"]], "Saved 12.76 wRVU, after save 10.21", { modifiers: [], adjustedRVU: 10.21 }],
+        ["-59 added beside a modifier the table does not hold", mk("b4", ["-AS"], 1.37835), [["mod", "-59"]], "Saved 1.38 wRVU, after save 10.21", { modifiers: ["-AS", "-59"], adjustedRVU: 10.21 }],
+        ["the code changed to a database code", mk("b5", ["-51"], 5.105), [["code", "49650"]], "Saved 5.11 wRVU, after save 3.10", { cptCode: "49650", description: "DB DESC 2", category: "DB CAT 2", baseRVU: 6.2, adjustedRVU: 3.1 }],
+        ["the code changed to one outside the database, wRVU typed", mk("b6", [], 10.21), [["code", "99998"], ["manual", "7.5"]], "Saved 10.21 wRVU, after save 7.50", { cptCode: "99998", description: "CPT 99998", category: "Other", baseRVU: 7.5, adjustedRVU: 7.5 }],
+        ["a modifier added that leaves the figure where it was: no line, the list is stored", mk("b7", ["-51"], 5.105), [["mod", "-59"]], null, { modifiers: ["-51", "-59"] }],
+        ["a snapshot base unlike the database row's, -51 added: priced from the snapshot", mk("b8", [], 9.5, { baseRVU: 9.5 }), [["mod", "-51"]], "Saved 9.50 wRVU, after save 4.75", { modifiers: ["-51"], adjustedRVU: 4.75 }],
+      ];
+      MOVED.forEach(r => run(r[0], () => {
+        const h = open([r[1], bystander()]), was = ents(h);
+        r[2].forEach(t => tap(h, t));
+        const seen = look(h), ok = h.saveEdit(), now = ents(h);
+        if (ok !== true) return "Save returned " + ok;
+        if (seen.keeps || seen.line !== r[3] || seen.saveDisabled) return "the panel read " + J(seen);
+        if (J(now[0]) !== J(Object.assign({}, was[0], r[4]))) return "stored " + J(now[0]);
+        if (seen.adj !== now[0].adjustedRVU || seen.comp !== now[0].adjustedRVU * RATE || seen.base !== now[0].baseRVU) return "the tiles did not match what was stored: " + J(seen);
+        if (now.length !== 2 || J(now[1]) !== J(was[1])) return "another case changed: " + J(now);
+        return "";
+      }));
+
+      run("a changed code outside the database with no usable wRVU: no line, Save disabled, nothing written", () => {
+        const h = open([mk("c1", ["-51"], 5.105), bystander()]), was = J(h.data().entries);
+        tap(h, ["code", "99998"]); tap(h, ["manual", ""]);
+        const seen = look(h), ok = h.saveEdit();
+        return ok === false && seen.saveDisabled === true && seen.line === null && J(h.data().entries) === was ? "" : J({ ok: ok, seen: seen });
+      });
+      run("Private to Call with the rest of the encounter: the mate takes the call fields and keeps its pricing", () => {
+        const h = open([mk("m1", ["-51"], 5.105), mk("m2", ["-22"], 12.7625, { cptCode: "49650" }), bystander()]), was = ents(h);
+        tap(h, ["call", true]);
+        const ok = h.saveEdit(), now = ents(h);
+        return ok === true && now.length === 3 && now[0].isCall === true && now[1].isCall === true && without(now[0], ["isCall"]) === without(was[0], ["isCall"]) && without(now[1], ["isCall"]) === without(was[1], ["isCall"]) && J(now[2]) === J(was[2]) ? "" : J(now);
+      });
+      run("+ Add: the new case is priced with the table from the database row; its source keeps its own pricing", () => {
+        const h = boot([mk("s1", ["-22"], 12.7625, { baseRVU: 9.5 })]), was = J(h.data().entries[0]);
+        h.startAdd(h.data().entries[0]); tap(h, ["code", "47562"]); tap(h, ["mod", "-51"]);
+        const seen = look(h); h.saveAdd();
+        const now = ents(h), n = now[1];
+        return now.length === 2 && J(now[0]) === was && seen.addMode === true && seen.line === null && seen.base === 10.21 && seen.adj === 5.105 && seen.comp === 5.105 * RATE &&
+          !!n && n.cptCode === "47562" && n.baseRVU === 10.21 && n.adjustedRVU === 5.105 && J(n.modifiers) === "[\"-51\"]" && n.description === "DB DESC" && n.category === "DB CAT" && n.date === "2026-09-20" && n.encounterId === "AB" &&
+          h.toast() === "Added 47562 (5.11 wRVU)" ? "" : J({ seen: seen, now: now, toast: h.toast() });
+      });
+      run("+ Save + add another: the open case is saved by the same rule, then the panel is a blank add panel", () => {
+        const h = open([mk("p1", ["-AS"], 1.37835), bystander()]), was = ents(h);
+        tap(h, ["notes", "AB - typo fixed"]); h.addAnother();
+        const now = ents(h), seen = look(h);
+        return now.length === 2 && now[0].notes === "AB - typo fixed" && without(now[0], ["notes"]) === without(was[0], ["notes"]) && J(now[1]) === J(was[1]) && seen.addMode === true && seen.line === null && J(h.mods()) === "[]" ? "" : J({ now: now, seen: seen });
+      });
+      check("5f-19: History's real Save path, run - a save that changes neither the code nor the set of modifiers leaves the stored modifiers and adjusted wRVU exactly as they were, also under an older factor, a modifier the table does not hold, a dashless or repeated one, an imported code (" + KEPT.length + " cases); a changed modifier or code stores the literal figure the panel announced (" + MOVED.length + " cases); a blocked save writes nothing; the rest of an encounter, a never-opened case and + Add's source keep their pricing; + Add prices the new case",
+        bad.length === 0, bad.join(" | "));
+    } else check("5f-19: History's real Save path, run", false, bad.join(" | "));
+  }
+
   {
     const m0 = { id: "m0", date: "2026-10-05", encounterId: "AB" }, m1 = { id: "m1", date: "2026-10-05", encounterId: "AB" };
     const m2 = { id: "m2", date: "2026-10-06", encounterId: "AB" }, m3 = { id: "m3", date: "2026-10-05", encounterId: "ab" };
@@ -4615,6 +5105,10 @@ if (sb) {
     const m6 = sb.entryWithCall(Object.assign(lit7("2026-10-05"), { id: "c6" }), null, true, "st-n", [sb.paySiteWithCredit(N7, true)], true); // Call at N, credited when N still earned
     const ents = [cur, m1, m2, m3, m4, m5, m6], entsJ = JSON.stringify(ents);
     const keysOf = p => Object.keys(p).sort().join(",");
+    // A plan changes a mate's call fields and nothing else - its modifiers and
+    // adjusted wRVU included (lit7 is priced under an older -22 factor, so a
+    // recalculation would show).
+    const planSame7 = (plan, src) => Object.keys(plan).every(id => otherSame7(plan[id], src.filter(e => e && e.id === id)[0]));
     const pN = sb.entryEncounterCallPlan(ents, cur, true, "st-n", S7, false);
     const pSame = sb.entryEncounterCallPlan(ents, cur, true, sb.CALL_SITE_OTHER, S7, false);
     const pRe = sb.entryEncounterCallPlan(ents, m5, true, "st-n", S7, true);
@@ -4625,7 +5119,8 @@ if (sb) {
     const pBlank = sb.entryEncounterCallPlan(ents, cur, true, "", [], false);
     const q0 = Object.assign(lit7("2026-10-05"), { id: "q0", isCall: false, encounterId: "QQ" }), q1 = Object.assign(lit7("2026-10-05"), { id: "q1", isCall: false, encounterId: "QQ" });
     const pToCall = sb.entryEncounterCallPlan([q0, q1], q0, true, "", [], false);
-    check("entryEncounterCallPlan: only same-date exact-initials mates whose call fields change, credit by each mate's own date; nothing when the picks are unchanged; inputs untouched",
+    check("entryEncounterCallPlan: only same-date exact-initials mates whose call fields change, credit by each mate's own date; nothing when the picks are unchanged; a mate's other fields (its modifiers and adjusted wRVU too) and the inputs untouched",
+      planSame7(pN, ents) && planSame7(pRe, ents) && planSame7(pPriv, ents) && planSame7(pOld, [o0, o1]) && planSame7(pToCall, [q0, q1]) && lit7("2026-10-05").adjustedRVU !== sb.calcAdj(10.21, ["-22"]) &&
       keysOf(pN) === "c1,c2,c6" && sb.isNoCredit(pN.c1) && pN.c1.siteId === "st-n" && pN.c2.isCall === true && sb.isNoCredit(pN.c2) && sb.isNoCredit(pN.c6) &&
       keysOf(pSame) === "" && keysOf(pPriv) === "c0,c1,c6" && pPriv.c0.isCall === false && !hasK7(pPriv.c0, "siteId") && !hasK7(pPriv.c1, "noCredit") &&
       keysOf(pRe) === "c0,c1,c2,c6" && [pRe.c0, pRe.c1, pRe.c2, pRe.c6].every(x => sb.isNoCredit(x) && x.siteName === "North") &&
@@ -4648,7 +5143,11 @@ if (sb) {
     const pNC = sb.entrySitelessCallPlan(fEnts, "st-n", S7), pCR = sb.entrySitelessCallPlan(fEnts, "st-c", S7);
     const fixedEnts = fEnts.map(e => (e && pNC[e.id]) || e);
     const back = sb.entryRestoreInPlace(fixedEnts, [f1, f2]);
-    check("call-site fix-up: only siteless Call cases dated on/after the start; at a no-credit site they lose credit, at a crediting site they keep it; unknown site does nothing; Undo restores in place",
+    // The fix-up writes the call fields only: a case's modifiers and adjusted
+    // wRVU (lit7: priced under an older -22 factor) come out as they went in.
+    const fixSame7 = plan => Object.keys(plan).every(id => otherSame7(plan[id], fEnts.filter(e => e && e.id === id)[0]));
+    check("call-site fix-up: only siteless Call cases dated on/after the start; at a no-credit site they lose credit, at a crediting site they keep it (every other field, pricing included, untouched); unknown site does nothing; Undo restores in place",
+      fixSame7(pNC) && fixSame7(pCR) &&
       fIds === "f1,f2" && Object.keys(pNC).sort().join() === "f1,f2" && sb.isNoCredit(pNC.f1) && pNC.f1.siteId === "st-n" && pNC.f2.siteName === "North" &&
       Object.keys(pCR).sort().join() === "f1,f2" && !sb.isNoCredit(pCR.f1) && pCR.f1.siteId === "st-c" &&
       Object.keys(sb.entrySitelessCallPlan(fEnts, "zz", S7)).length === 0 && Object.keys(sb.entrySitelessCallPlan(fEnts, "st-n", [])).length === 0 &&

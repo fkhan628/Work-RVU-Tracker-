@@ -75,6 +75,21 @@ the per-file gates below. Run it after EVERY file change.
   reader, and bump ASSET_V again: a build without the reader drops every
   typed version, typed shift and Original-priced shift on its first load
   (announced in a banner, but permanent on that device).
+- History's keep rule (ASSET_V 66: utils.js entryEditFields, called by
+  history.js saveEdit) is never reverted and never removed: a build without
+  it recalculates a stored case's adjusted wRVU from the CURRENT modifier
+  table on every History save, a note edit included, so any later change to
+  MODIFIERS would silently re-price old cases. Anything that changes what
+  calcAdj returns for an existing modifier list - MODIFIERS (a factor, a
+  code added or removed), MOD_MAP, or calcAdj itself - is therefore its OWN,
+  LATER deploy: never in the same push as the keep rule, and only once
+  ASSET_V 66 or later has been confirmed live for at least an hour. GitHub
+  Pages caches each file for about ten minutes, and inside that window a
+  phone can load a cached history.js 65 beside the new utils.js - which
+  would price a note edit with the new table. check.js pins all three
+  (MODIFIERS pin) so the session that edits one is stopped and sent here
+  first. Back out a later modifier-table change by shipping a forward build
+  that keeps this rule - never by reverting to a build older than 66.
 - Commit and push from `RVU App Split/` (the repo root). Never commit
   billing data (`RVU Wallet Data/`), CMS source files (`CMS 2026/`), or
   any partner name — the repo is public and the roster is runtime user
@@ -346,7 +361,10 @@ the per-file gates below. Run it after EVERY file change.
   when the panel opens or switches to add mode); Delete and the saves close
   directly; the panel opens at the top and closing it returns the list to
   where it was (instant jumps). A tab switch with the panel open still
-  discards it (no nav guard) (check.js 5f-7). Patient ID keeps Log's
+  discards it (no nav guard) (check.js 5f-7). What Save writes for the
+  case's modifiers and adjusted wRVU is the snapshot rule below (utils.js
+  entryEditFields; saveEdit also returns false when it gives null). Patient
+  ID keeps Log's
   "<initials> - " notes prefix in step, live in the Notes box (utils.js
   notesHasInitials / notesForInitials), only when the panel opened on notes
   starting with exactly "<stored initials> - " OR equal to them (Log's bare
@@ -375,7 +393,41 @@ the per-file gates below. Run it after EVERY file change.
   value tests).
 - Entries' snapshotted wRVUs are authoritative: analytics never re-look-up
   values from the CPT db, and an edit that doesn't change the CPT never
-  re-derives base/description/category (history.js saveEdit).
+  re-derives base/description/category. What History's Save writes over a
+  stored case has ONE rule, utils.js entryEditFields (ASSET_V 66): an edit
+  that changes neither the code nor the SET of modifiers (entryEditKeeps /
+  entryModsSame - order and repeats ignored, a value that is not a list
+  counts as none) writes NEITHER `modifiers` NOR `adjustedRVU`, so both stay
+  byte for byte as stored, whatever MODIFIERS says today (a factor changed
+  since, a modifier the table dropped, a dashless one it never held). Only a
+  changed code or modifier set is recalculated, from the resolved base with
+  the current table (the stored base for the same code, the database row for
+  a changed known code, the typed wRVU for a changed unknown code - null, and
+  no save, when that is not a number). The panel follows the same test: its
+  Adjusted and Compensation tiles show the STORED value while the rule keeps
+  it, and a recalculation that moves the figure prints "Saved <stored> wRVU,
+  after save <new>" under the tiles before Save (not while Save is disabled
+  for a changed code with no usable typed wRVU). The preview's base
+  (history.js editBase) is a second copy of the rule's base and must mirror
+  it. saveEdit passes the stored case as found, never calls calcAdj, never
+  writes an adjustedRVU or modifiers key itself and stores entryWithCall's
+  result as it is; + Add (saveAdd) and Log price a NEW case with the current
+  table. The panel's modifier state IS the stored list (startEdit), codes
+  the table does not hold included: such a code has no chip, stays on the
+  case and keeps its stored figure until the user changes the set - never
+  filter, de-duplicate or normalise that seed or the stored case before the
+  rule (a note edit would then re-price the case). Nothing else prices a
+  STORED case: loading, saving, restore, Undo, the encounter plan and the
+  call-site fix-up copy a case's modifiers and adjusted wRVU as they are.
+  check.js: 5f-18 pins the shapes of all of this and counts, per file, every
+  calcAdj call, every mention of its name and every `.factor` read (a new
+  one must price NEW cases only; the count is syntactic); 5f-19 runs
+  History's real startEdit / toggle / saveEdit / saveAdd text on made-up
+  cases and compares the store; a stale-priced store goes through loadData
+  and saveData byte for byte; the entryEditFields contract tests pin the
+  rule's values. Any change to what calcAdj returns for an existing list
+  ships ON TOP of this rule, as its own later deploy (Deploy rules; check.js
+  MODIFIERS pin).
 - wRVU overrides (rvuOverrides, { code: number }): getDB applies one only
   when truthy - a stored 0 is inert (the code keeps its CMS value; check.js
   pins it, since honoring 0 would silently zero that code on any phone that

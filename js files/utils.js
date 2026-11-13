@@ -1750,6 +1750,56 @@ function calcAdj(base, mods) {
   let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r;
 }
 
+// History's edit of a STORED case - the ONE rule for what Save writes (check.js
+// contract tests, 5f-18, 5f-19). A stored case's modifiers and adjusted wRVU are a
+// snapshot: an edit that changes neither the code nor the SET of modifiers
+// writes neither field, so both stay byte for byte as stored - whatever the
+// modifier table says today. (Before ASSET_V 66 every save recalculated: an
+// edited note re-priced a case whose modifier the table had since dropped or
+// re-weighted.) Only a changed code or modifier is recalculated, from the
+// resolved base and the CURRENT table, and History's panel shows the stored
+// and the new figure before Save.
+// entryModsSame: two modifier lists hold the same set of codes (order and
+// repeats ignored; a value that is not a list counts as empty).
+function entryModsSame(a, b) {
+  var x = Array.isArray(a) ? a : [], y = Array.isArray(b) ? b : [];
+  return x.every(function(m) { return y.indexOf(m) !== -1; }) && y.every(function(m) { return x.indexOf(m) !== -1; });
+}
+// entryEditKeeps: true while the panel's code is the stored code and its
+// modifiers are the stored set - the edit then leaves both pricing fields alone.
+function entryEditKeeps(orig, cptCode, mods) {
+  return !!orig && typeof orig === "object" && cptCode === orig.cptCode && entryModsSame(orig.modifiers, mods);
+}
+// entryEditFields: the fields Save spreads over the stored case (the call
+// fields then go through entryWithCall). p = { date, cptCode, info (the
+// database row of cptCode, or null), manualBase (the typed wRVU of a changed
+// code that is not in the database), modifiers, notes, patient }. An unchanged
+// code NEVER re-derives base / description / category from the database (an
+// imported or unknown code would be zeroed); a changed, known code takes the
+// database row; a changed, unknown code takes manualBase. Returns null when
+// that manual value is not a number (Save is disabled in that state). The
+// pricing fields are written as object-literal keys only when not kept.
+function entryEditFields(orig, p) {
+  var codeChanged = p.cptCode !== orig.cptCode;
+  var baseRVU, desc, cat;
+  if (!codeChanged) {
+    baseRVU = orig.baseRVU || 0;
+    desc = orig.description;
+    cat = orig.category;
+  } else if (p.info) {
+    baseRVU = p.info.wRVU;
+    desc = p.info.desc;
+    cat = p.info.category;
+  } else {
+    baseRVU = parseFloat(p.manualBase);
+    if (isNaN(baseRVU)) return null;
+    desc = "CPT " + p.cptCode;
+    cat = "Other";
+  }
+  var priced = entryEditKeeps(orig, p.cptCode, p.modifiers) ? {} : { modifiers: p.modifiers, adjustedRVU: calcAdj(baseRVU, p.modifiers) };
+  return { date: p.date, cptCode: p.cptCode, description: desc, category: cat, baseRVU: baseRVU, ...priced, notes: p.notes, encounterId: p.patient || undefined };
+}
+
 // wRVU credit - the ONE rule deciding whether a case counts toward wRVU and
 // comp TOTALS. entry.noCredit === true (strict) marks a case logged for the
 // record but credited elsewhere (e.g. acute-care pool call cases);
