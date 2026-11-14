@@ -314,6 +314,88 @@ function getGlobalColor(code) {
   return "var(--global-0)"; // 0-day and add-on
 }
 
+// ---------------------------------------
+// CMS PAYMENT-POLICY LOOKUPS - one source each, like GLOBAL_DAYS: the 7th to
+// 9th CMS_RAW elements and the CMS_MORE tables, all written by
+// scripts/build-cpt-data.js from CMS files. Never type codes here either.
+// r[6] is four digits - the PFS MULT PROC, BILAT SURG, ASST SURG and CO- SURG
+// indicators, as CMS's record layout defines them:
+//   mult   0 no multiple-procedure reduction; 2 the standard reduction; 3 the
+//          endoscopy-family rule; 4 to 7 CMS's own reductions for imaging
+//          (4), therapy (5), cardiovascular (6) and eye (7) services; 9 the
+//          concept does not apply.
+//   bilat  1 the 150% bilateral adjustment applies; 0 it does not; 2 already
+//          valued as bilateral; 3 each side in full; 9 does not apply.
+//   asst   2 an assistant may be paid; 0 only with documentation; 1 never;
+//          9 does not apply.
+//   co     2 co-surgeons permitted; 1 with documentation; 0 not permitted;
+//          9 does not apply.
+// r[7] is the facility total RVU (work + facility practice expense +
+// malpractice) a physician is paid for the code: the professional (-26)
+// row's where CMS prints one, else the base row's. r[8] is the work RVU of
+// the year CMS_MORE.priorYear, or null when that year's file has no payable
+// row for the code (so a 0 there is a real 0.00).
+// A row WITHOUT these elements has no policy (for a moment after an update a
+// phone can hold an older cpt-data.js beside this file): every reader then
+// gets null, "no CMS data", and proposes nothing. CMS_MORE is read behind
+// typeof for the same reason, and because only CMS_RAW has a fallback when
+// the data file fails to load.
+// ---------------------------------------
+var CMS_POLICY = (function() {
+  var map = {};
+  CMS_RAW.forEach(function(r) {
+    if (typeof r[6] !== "string" || !/^[0-9]{4}$/.test(r[6]) || typeof r[7] !== "number") return;
+    map[r[0]] = { mult: r[6].charAt(0), bilat: r[6].charAt(1), asst: r[6].charAt(2), co: r[6].charAt(3), facTotal: r[7], priorWork: typeof r[8] === "number" ? r[8] : null };
+  });
+  return map;
+})();
+var CMS_TABLES = (typeof CMS_MORE !== "undefined" && CMS_MORE && typeof CMS_MORE === "object") ? CMS_MORE : {};
+// Add-on pairs, { add-on code: "<type>" or "<type>:<tokens>" }, as CMS's NCCI
+// add-on code edits list them on CMS_TABLES.addonAsOf. Type "1": the tokens
+// are the whole list of primary codes; "2": CMS lists none; "3": the tokens
+// are a partial list. A token is one code, or A-B = every code from A to B in
+// string order (the builder writes a range only when every fee-schedule code
+// inside it is a listed primary).
+var CMS_ADDON = (CMS_TABLES.addon && typeof CMS_TABLES.addon === "object") ? CMS_TABLES.addon : {};
+// Endoscopy families, { base code: "member member ..." }, turned around:
+// member -> base, and base -> true.
+var CMS_ENDO = (function() {
+  var of = {}, bases = {};
+  var t = (CMS_TABLES.endo && typeof CMS_TABLES.endo === "object") ? CMS_TABLES.endo : {};
+  Object.keys(t).forEach(function(base) {
+    if (typeof t[base] !== "string") return;
+    bases[base] = true;
+    t[base].split(" ").forEach(function(c) { if (c) of[c] = base; });
+  });
+  return { of: of, bases: bases };
+})();
+function cmsOwn(map, key) { return typeof key === "string" && key !== "" && Object.prototype.hasOwnProperty.call(map, key); }
+// cmsPolicy(code): { mult, bilat, asst, co, facTotal, priorWork }, or null
+// when the app holds no CMS policy data for the code.
+function cmsPolicy(code) { return cmsOwn(CMS_POLICY, code) ? CMS_POLICY[code] : null; }
+// addOnRule(code): null when CMS does not list the code as an add-on code,
+// else { type: "1" | "2" | "3", tokens: [...] }.
+function addOnRule(code) {
+  var v = cmsOwn(CMS_ADDON, code) ? CMS_ADDON[code] : null;
+  if (typeof v !== "string" || !/^[123](:.+)?$/.test(v)) return null;
+  return { type: v.charAt(0), tokens: v.length > 2 ? v.slice(2).split(" ") : [] };
+}
+// addOnAllows(addOn, primary): true when CMS lists `primary` for that add-on
+// code, false when it lists primaries and this is not one, null when there is
+// no list to test against (not in the table, or type 2). Exact for the codes
+// of the fee schedule the table was built from; a range also answers true
+// for any other five-character code between its ends (a code CMS has since
+// deleted, a code typed by hand), which only ever spares a flag.
+function addOnAllows(addOn, primary) {
+  var rule = addOnRule(addOn);
+  if (!rule || rule.type === "2" || rule.tokens.length === 0) return null;
+  var p = typeof primary === "string" ? primary : "";
+  return rule.tokens.some(function(t) { return t.indexOf("-") === -1 ? t === p : (p.length === 5 && t.slice(0, 5) <= p && p <= t.slice(6)); });
+}
+// endoFamily(code): the base code of the endoscopy family the code belongs to
+// (a base code belongs to its own family), or "".
+function endoFamily(code) { return cmsOwn(CMS_ENDO.of, code) ? CMS_ENDO.of[code] : cmsOwn(CMS_ENDO.bases, code) ? code : ""; }
+
 // =======================================
 // COMPANION CODE SUGGESTIONS
 // Maps CPT codes to commonly paired codes with labels
@@ -533,12 +615,13 @@ function rankCPTMatches(items, query, usage, favorites) {
 const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();
 
 const MODIFIERS = [
-  { code: "-22", label: "Increased Complexity", factor: 1.2, desc: "~20% increase", guide: "Use when work significantly exceeds the usual effort. Requires documentation of specific factors (dense adhesions, morbid obesity, unusual anatomy, prior surgery). Must be substantial - minor extra effort does not qualify." },
+  { code: "-22", label: "Increased Complexity", factor: 1.0, desc: "no wRVU change", guide: "Use when work significantly exceeds the usual effort. Requires documentation of specific factors (dense adhesions, morbid obesity, unusual anatomy, prior surgery). Must be substantial - minor extra effort does not qualify. The wRVU counted here does not change." },
   { code: "-26", label: "Professional Component", factor: 1.0, desc: "100% wRVU (PC only)", guide: "Use when billing only for the physician interpretation of a diagnostic test (e.g., reading an imaging study). The technical component (equipment, technician) is billed separately or by the facility." },
   { code: "-50", label: "Bilateral Procedure", factor: 1.5, desc: "150% of base", guide: "Use when the same procedure is performed on both sides of the body in the same operative session (e.g., bilateral inguinal hernia repair, bilateral breast procedures). Do not use for midline structures." },
   { code: "-51", label: "Multiple Procedures", factor: 0.5, desc: "50% (2nd+ proc)", guide: "Apply to the 2nd, 3rd, etc. procedure during the same operative session. The highest-RVU procedure is billed at 100% (no modifier), subsequent procedures get -51. Does not apply to add-on codes." },
   { code: "-62", label: "Co-Surgeon", factor: 0.625, desc: "62.5% of base", guide: "Two surgeons of different specialties each performing a distinct part of the same procedure. Each surgeon bills with -62 and receives 62.5%. Both surgeons must document their specific operative roles." },
   { code: "-80", label: "Assistant Surgeon", factor: 0.16, desc: "16% of base", guide: "Billed by the assistant surgeon when assisting at surgery. The primary surgeon bills without modifier. Common for cases requiring retraction, exposure, or a second pair of hands. Not all procedures allow an assistant." },
+  { code: "-82", label: "Assistant, No Resident", factor: 0.16, desc: "16% of base", guide: "Billed by the assistant surgeon at a teaching hospital when no qualified resident was available to assist. Counted like -80." },
   { code: "-59", label: "Distinct Procedural Service", factor: 1.0, desc: "100% (unbundle)", guide: "Use to indicate a procedure is distinct and independent from another on the same date. Separates procedures that would otherwise be bundled (e.g., different anatomic site, separate incision, different encounter). Use sparingly and document clearly." },
   { code: "-78", label: "Return to OR, Related", factor: 0.7, desc: "70% of base", guide: "Unplanned return to the OR for a complication related to the original procedure, during the global period. Only the intraoperative portion of the RVU is paid (70%). Examples: post-op bleeding, wound dehiscence, anastomotic leak." },
   { code: "-79", label: "Unrelated Proc, Postop", factor: 1.0, desc: "100% of base", guide: "Use for a procedure performed during the global period of a prior surgery, but unrelated to the original procedure. Starts a new global period. Example: appendectomy during global period of a prior hernia repair." },
@@ -1798,6 +1881,283 @@ function entryEditFields(orig, p) {
   }
   var priced = entryEditKeeps(orig, p.cptCode, p.modifiers) ? {} : { modifiers: p.modifiers, adjustedRVU: calcAdj(baseRVU, p.modifiers) };
   return { date: p.date, cptCode: p.cptCode, description: desc, category: cat, baseRVU: baseRVU, ...priced, notes: p.notes, encounterId: p.patient || undefined };
+}
+
+// Lead code and modifier proposal for ONE case (the procedures of one
+// operation) - the ONE rule (check.js contract tests). It only PROPOSES: it
+// writes nothing, leaves its input untouched and prices with calcAdj; a
+// caller applies a proposal only on the user's tap.
+// proposeCaseModifiers(lines), lines = [{ code, modifiers, baseRVU }] (a
+// stored case's cptCode is read where code is missing, null or ""), returns
+//   { lines: [{ code, modifiers (as entered), proposed, before, after,
+//               changed, lead, flags: [{ kind, text }] }],
+//     totalBefore, totalAfter, changed, notes: [{ kind, text }],
+//     alt: null | { lines: [{ proposed, after, changed, lead }], totalAfter, changed },
+//     settled }
+// `before` and `after` are TODAY's prices of the modifiers entered and
+// proposed (calcAdj on the line's baseRVU), never a saved case's stored
+// figure: a caller that shows saved cases must put the stored adjustedRVU
+// beside them itself (and History's keep rule decides what a save writes).
+// A line without a usable baseRVU (a finite number, or text that reads as
+// one) is priced and ranked as 0.
+// The only change it ever proposes to a line is taking "-51" off or putting
+// one "-51" on.
+// `settled` says that nothing NEEDS a tap: every line is as the proposal
+// has it, except that a group where the other order (alt) is offered may
+// instead be, as a whole, as alt has it. A tap may still be on offer: where
+// alt exists, `changed` (a group follows the other order) or `alt.changed`
+// (it follows the proposal) stays true. Nor does it say that nothing is
+// wrong: flags stand whatever it says (a doubled modifier, a never -51 on a
+// line that is not changed, a 51-on-family-lead), with ONE exception - while
+// settled is true, a 51-on-lead flag belongs to the order the user did not
+// choose (its group follows alt) and is not an error. While settled is
+// false that cannot be told from the result (it carries no group id).
+// It never throws for anything JSON can hold: a modifier that is neither
+// text nor a number is an unknown modifier (calcAdj itself would still read
+// a list holding one modifier as that modifier; no form writes one).
+// The rules (CMS's indicators come from cmsPolicy; nothing is typed here):
+// - Lines are sequenced in groups that never mix: the user's own lines,
+//   lines where they assisted (-80, -82 or AS), lines as co-surgeon (-62; a
+//   line with both counts as co-surgeon); within each, lines with -79 apart.
+//   Lines with -76, -77 or -78 are never sequenced and never changed (a
+//   note names those with a readable code). A line without a code (a row
+//   not filled in yet) takes no part in sequencing or pairing; only its
+//   modifiers are still flagged. A modifier is recognised with or without
+//   its dash, in either case, for GROUPING and for the assistant and
+//   co-surgeon flags only; pricing and the -51 / -50 tests use the exact
+//   code calcAdj applies.
+// - Ranked lines are those CMS reduces by the standard rule (MULT PROC 2),
+//   and endoscopy codes (MULT PROC 3). The LEADER is the ranked line with the
+//   highest work RVU - the line's own baseRVU, times 1.5 when it carries -50
+//   and CMS allows the bilateral adjustment (BILAT SURG 1). A tie in work RVU
+//   goes to a line that does not carry -51 (a case entered in order is never
+//   re-sequenced for no gain), then to the higher facility total (same 1.5),
+//   then to the earlier line; values are compared to four decimals. (A tie
+//   is a tie in RANK: other modifiers can still price two tied lines
+//   differently.) The leader loses -51; every other ranked line gets it.
+// - Every other code (MULT PROC 0, 4 to 7, 9: add-ons, visits, tests) never
+//   takes -51: one found there is flagged on any line, and proposed away
+//   except on a -76 / -77 / -78 line - also in a group that gets no other
+//   proposal.
+// - Two or more lines of one endoscopy family in one group are left as
+//   entered (CMS prices a family by its own rule) but still count when the
+//   leader is found. When the leader is such a line and carries -51, it is
+//   flagged (51-on-family-lead: an error by the work-RVU order, with nothing
+//   to tap) and NOTHING is proposed for the other ranked lines of its group
+//   (no line would be left at full value).
+// - A group that holds a code without CMS data, or whose ranked lines ALL
+//   carry -51, gets no proposal for its ranked lines: the leader may be the
+//   unknown code, or logged elsewhere.
+// - When CMS's facility total would name ANOTHER leader (found by facility
+//   total, then work RVU, then a line without -51, then the earlier line),
+//   `alt` holds that order too, with its total and its own lead marks, and
+//   a note says so - the caller shows both; nothing is picked silently.
+//   `alt` flips every group where the other order is offered, and equals
+//   the main proposal elsewhere; alt.changed === false means the case as
+//   entered already follows that order. No other order is offered - and no
+//   note says that the facility total names another leader - when the two
+//   leaders tie in work RVU (the wRVU total is the same either way unless
+//   another modifier prices the tied lines differently), when the work
+//   leader is a line of an endoscopy family of two or more or such a line
+//   ties its work RVU, or when the facility leader is such a line and
+//   carries -51 (a family line is never changed).
+// - Flags never change a proposal: -50 where BILAT SURG is not 1; an
+//   assistant modifier where ASST SURG is 0 or 1; -62 where CO- SURG is not 1
+//   or 2; an add-on code CMS lists primaries for with none of them in the
+//   case; a modifier the app does not know; a modifier of the table listed
+//   twice, or -80 together with -82.
+// - Kinds. Flags: unknown-modifier, repeated-modifier, no-cms-data,
+//   bilateral, assistant, co-surgeon, add-on-primary, add-on-partial,
+//   51-never, 51-on-lead, 51-on-family-lead. Notes: left-alone,
+//   endoscopy-family, not-sequenced, all-51, family-lead, measures-disagree.
+//   A group that gets no sequencing proposal (a code without CMS data, every
+//   ranked line at -51) has no lead mark.
+function modKey(m) { return typeof m === "string" || typeof m === "number" ? String(m).replace(/^-/, "").toUpperCase() : ""; }
+function proposeCaseModifiers(lines) {
+  var BILAT_TEXT = { "0": "CMS does not allow the 150% bilateral adjustment for this code", "2": "CMS already values this code as bilateral, so -50 does not apply", "3": "CMS pays each side of this code in full instead of 150%" };
+  // A modifier as calcAdj reads it: a number is its own text. Anything that
+  // is neither text nor a number is no modifier (null), and is shown as JSON.
+  var codeOf = function(m) { return typeof m === "number" ? String(m) : typeof m === "string" ? m : null; };
+  var known = function(m) { var c = codeOf(m); return c !== null && cmsOwn(MOD_MAP, c); };
+  var is51 = function(m) { return codeOf(m) === "-51"; };
+  var shown = function(m) {
+    var t;
+    try { t = m === null || typeof m !== "object" ? String(m) : JSON.stringify(m); } catch (e) { t = "?"; }
+    return typeof t === "string" ? t : "?";
+  };
+  var without51 = function(mods) { return mods.filter(function(m) { return !is51(m); }); };
+  var listText = function(tokens) {
+    var t = tokens.slice(0, 6).map(function(x) { return x.indexOf("-") === -1 ? x : x.slice(0, 5) + " to " + x.slice(6); }).join(", ");
+    return tokens.length > 6 ? t + " and more" : t;
+  };
+  var notes = [];
+  var note = function(kind, text) { if (!notes.some(function(n) { return n.kind === kind && n.text === text; })) notes.push({ kind: kind, text: text }); };
+  var L = (Array.isArray(lines) ? lines : []).map(function(src) {
+    var o = src && typeof src === "object" ? src : {};
+    var given = o.code === undefined || o.code === null || o.code === "" ? o.cptCode : o.code;
+    var blank = given === "" || given === null || given === undefined;
+    var code = typeof given === "string" ? given : "";
+    var mods = Array.isArray(o.modifiers) ? o.modifiers.slice() : [];
+    var keys = mods.map(modKey);
+    var has = function(k) { return keys.indexOf(k) !== -1; };
+    var assists = has("80") || has("82") || has("AS");
+    var b = typeof o.baseRVU === "string" && o.baseRVU.trim() !== "" ? Number(o.baseRVU) : o.baseRVU;
+    var pol = cmsPolicy(code);
+    var l = {
+      code: code, blank: blank, mods: mods, base: typeof b === "number" && isFinite(b) ? b : 0, pol: pol,
+      role: has("62") ? "co" : assists ? "assist" : "own",
+      stage: (has("76") || has("77") || has("78")) ? "alone" : has("79") ? "79" : "main",
+      has51: mods.some(is51), has50: mods.some(function(m) { return codeOf(m) === "-50"; }),
+      proposed: mods.slice(), lead: false, family: "", flags: []
+    };
+    var seen = [], twice = [];
+    mods.forEach(function(m) {
+      var s = shown(m);
+      if (seen.indexOf(s) === -1) {
+        seen.push(s);
+        if (!known(m)) l.flags.push({ kind: "unknown-modifier", text: "\"" + s + "\" is not a modifier the app knows, so it changes no wRVU" });
+      } else if (known(m) && twice.indexOf(s) === -1) {
+        twice.push(s);
+        l.flags.push({ kind: "repeated-modifier", text: s + " is on this line more than once and is counted each time" });
+      }
+    });
+    if (mods.some(function(m) { return codeOf(m) === "-80"; }) && mods.some(function(m) { return codeOf(m) === "-82"; })) l.flags.push({ kind: "repeated-modifier", text: "-80 and -82 are both on this line: one assistant modifier is enough, and each is counted" });
+    if (blank) return l;
+    if (!pol) l.flags.push({ kind: "no-cms-data", text: code ? code + ": the app has no CMS data for this code" : "A line has a code the app cannot read" });
+    else {
+      if (l.has50 && pol.bilat !== "1") l.flags.push({ kind: "bilateral", text: code + ": " + (BILAT_TEXT[pol.bilat] || "CMS has no bilateral rule for this code") + " (the line still counts 150% here)" });
+      if (assists && (pol.asst === "0" || pol.asst === "1")) l.flags.push({ kind: "assistant", text: code + ": " + (pol.asst === "1" ? "CMS does not pay an assistant for this code" : "CMS pays an assistant for this code only with documentation of medical need") });
+      if (has("62") && pol.co !== "1" && pol.co !== "2") l.flags.push({ kind: "co-surgeon", text: code + ": " + (pol.co === "0" ? "CMS does not permit co-surgeons for this code" : "CMS has no co-surgeon rule for this code") });
+    }
+    return l;
+  });
+  var isRanked = function(l) { return !!l.pol && (l.pol.mult === "2" || l.pol.mult === "3"); };
+  // Add-on pairing, across the whole case.
+  L.forEach(function(l, i) {
+    var rule = addOnRule(l.code);
+    if (!rule || rule.type === "2" || rule.tokens.length === 0) return;
+    if (L.some(function(o, j) { return j !== i && addOnAllows(l.code, o.code) === true; })) return;
+    l.flags.push(rule.type === "1"
+      ? { kind: "add-on-primary", text: l.code + " is an add-on code and none of its primary codes is in this case (CMS lists " + listText(rule.tokens) + ")" }
+      : { kind: "add-on-partial", text: l.code + " is an add-on code and none of the primary codes CMS names for it is in this case (its list is not complete)" });
+  });
+  // A code that never takes -51: flagged on any line, proposed away unless
+  // the line is one that is never changed.
+  L.forEach(function(l) {
+    if (!l.pol || isRanked(l) || !l.has51) return;
+    if (l.stage !== "alone") l.proposed = without51(l.mods);
+    var addOn = cmsOwn(GLOBAL_DAYS, l.code) && GLOBAL_DAYS[l.code] === "ZZZ";
+    l.flags.push({ kind: "51-never", text: addOn ? l.code + " is an add-on code, so -51 does not apply to it"
+      : l.pol.mult === "0" ? "CMS applies no multiple-procedure reduction to " + l.code + ", so -51 does not apply to it"
+      : l.pol.mult === "9" ? "CMS's multiple-procedure rule does not apply to " + l.code + ", so -51 does not apply to it"
+      : "CMS reduces " + l.code + " by a rule of its own when several tests or therapy services are done together, so -51 does not apply to it" });
+  });
+  // Sequencing, group by group.
+  var groups = {}, order = [];
+  L.forEach(function(l, i) {
+    if (l.blank || l.stage === "alone") return;
+    var g = l.role + "|" + l.stage;
+    if (!cmsOwn(groups, g)) { groups[g] = []; order.push(g); }
+    groups[g].push(i);
+  });
+  var codesText = function(idx) { var c = idx.map(function(i) { return L[i].code; }); return c.length > 6 ? c.slice(0, 6).join(", ") + " and more" : c.join(", "); };
+  var alone = [];
+  L.forEach(function(l, i) { if (!l.blank && l.stage === "alone" && l.code !== "") alone.push(i); });
+  if (alone.length) note("left-alone", codesText(alone) + (alone.length === 1 ? " carries" : " carry") + " -76, -77 or -78 (a repeat procedure or a return to the operating room), so " + (alone.length === 1 ? "that line is" : "those lines are") + " left as entered");
+  var altLead = [];
+  order.forEach(function(g) {
+    var idx = groups[g];
+    var ranked = idx.filter(function(i) { return isRanked(L[i]); });
+    if (ranked.length === 0) return;
+    var famCount = {};
+    ranked.forEach(function(i) { var f = endoFamily(L[i].code); L[i].family = f; if (f) famCount[f] = (cmsOwn(famCount, f) ? famCount[f] : 0) + 1; });
+    var inFamily = function(i) { return L[i].family !== "" && famCount[L[i].family] > 1; };
+    Object.keys(famCount).forEach(function(f) {
+      if (famCount[f] < 2) return;
+      note("endoscopy-family", codesText(ranked.filter(function(i) { return L[i].family === f; })) + " are one endoscopy family (base " + f + "): CMS pays the highest in full and each other one less the base code's value. No modifier here counts that, so their modifiers are left as entered");
+    });
+    var noData = idx.filter(function(i) { return !L[i].pol; });
+    if (noData.length) {
+      var named = noData.filter(function(i) { return L[i].code !== ""; });
+      note("not-sequenced", (named.length ? codesText(named) + (named.length === 1 ? " has" : " have") + " no CMS data and" : "A line the app cannot read") + " may be the leading procedure, so no -51 is proposed here");
+      return;
+    }
+    if (ranked.every(function(i) { return L[i].has51; })) {
+      note("all-51", (ranked.length === 1 ? L[ranked[0]].code + " carries -51 and no other procedure here can lead: the leading procedure may be logged elsewhere, so its -51 is left as entered"
+        : codesText(ranked) + " all carry -51: the leading procedure may be logged elsewhere, so they are left as entered"));
+      return;
+    }
+    var bil = function(i) { return L[i].has50 && L[i].pol.bilat === "1" ? 1.5 : 1; };
+    var rankW = function(i) { return Math.round(L[i].base * bil(i) * 1e4); };
+    var rankF = function(i) { return Math.round(L[i].pol.facTotal * bil(i) * 1e4); };
+    // The work leader: work RVU, then a line without -51, then the facility
+    // total. The facility leader: facility total, then work RVU, then a line
+    // without -51. The earlier line keeps whatever is still tied.
+    var beatsWork = function(i, j) { return rankW(i) !== rankW(j) ? rankW(i) > rankW(j) : L[i].has51 !== L[j].has51 ? !L[i].has51 : rankF(i) > rankF(j); };
+    var beatsFac = function(i, j) { return rankF(i) !== rankF(j) ? rankF(i) > rankF(j) : rankW(i) !== rankW(j) ? rankW(i) > rankW(j) : !L[i].has51 && L[j].has51; };
+    var lead = ranked[0], leadFac = ranked[0];
+    ranked.forEach(function(i) { if (beatsWork(i, lead)) lead = i; if (beatsFac(i, leadFac)) leadFac = i; });
+    var nameOf = function(i) { return L[i].code + (bil(i) === 1.5 ? " (with -50, counted 1.5 times)" : ""); };
+    var leadText = function(i) { return bil(i) === 1.5 ? L[i].code + " leads here (with -50 its work RVU counts 1.5 times), so it should not carry -51" : L[i].code + " has the highest work RVU here, so it leads and should not carry -51"; };
+    L[lead].lead = true;
+    if (inFamily(lead) && L[lead].has51) {
+      L[lead].flags.push({ kind: "51-on-family-lead", text: leadText(lead) + " (it is in an endoscopy family, so it is left as entered)" });
+      if (ranked.some(function(i) { return !inFamily(i); })) note("family-lead", "The leading procedure " + L[lead].code + " carries -51 and is in an endoscopy family, so no -51 is proposed for the other procedures here");
+      return;
+    }
+    ranked.forEach(function(i) {
+      var l = L[i];
+      if (inFamily(i)) return;
+      if (i === lead) {
+        if (l.has51) { l.proposed = without51(l.mods); l.flags.push({ kind: "51-on-lead", text: leadText(i) }); }
+      } else if (!l.has51) l.proposed = l.mods.concat(["-51"]);
+    });
+    // The other order is offered only where it can be told apart and kept:
+    // not when the two leaders tie in work RVU; not when a family line has
+    // the leader's work RVU (the leader itself, or a line that would lead as
+    // soon as the leader takes -51); not when the facility leader is a family
+    // line that carries -51 (it could not lose it).
+    var famTie = ranked.some(function(i) { return inFamily(i) && rankW(i) === rankW(lead); });
+    if (leadFac !== lead && rankW(leadFac) !== rankW(lead) && !famTie && !(inFamily(leadFac) && L[leadFac].has51)) {
+      altLead.push({ ranked: ranked.filter(function(i) { return !inFamily(i); }), lead: leadFac, mainLead: lead });
+      note("measures-disagree", "By work RVU " + nameOf(lead) + " leads; by CMS's facility total " + nameOf(leadFac) + " would lead");
+    }
+  });
+  // Priced with the modifiers the table holds - what calcAdj applies; anything
+  // else on the line (flagged above) changes no figure here.
+  var price = function(l, mods) { return calcAdj(l.base, mods.filter(known)); };
+  var same = function(a, b) { return a.length === b.length && a.every(function(m, i) { return m === b[i] || (m !== m && b[i] !== b[i]); }); };
+  var out = { lines: [], totalBefore: 0, totalAfter: 0, changed: false, notes: notes, alt: null, settled: true };
+  L.forEach(function(l) {
+    var row = { code: l.code, modifiers: l.mods, proposed: l.proposed, before: price(l, l.mods), after: price(l, l.proposed), changed: !same(l.mods, l.proposed), lead: l.lead, flags: l.flags };
+    out.lines.push(row);
+    out.totalBefore += row.before; out.totalAfter += row.after;
+    if (row.changed) out.changed = true;
+  });
+  if (altLead.length) {
+    var altMods = L.map(function(l) { return l.proposed.slice(); });
+    var altIsLead = L.map(function(l) { return l.lead; });
+    altLead.forEach(function(a) {
+      a.ranked.forEach(function(i) { altMods[i] = i === a.lead ? without51(L[i].mods) : (L[i].has51 ? L[i].mods.slice() : L[i].mods.concat(["-51"])); });
+      altIsLead[a.mainLead] = false; altIsLead[a.lead] = true;
+    });
+    var alt = { lines: [], totalAfter: 0, changed: false };
+    L.forEach(function(l, i) {
+      var row = { proposed: altMods[i], after: price(l, altMods[i]), changed: !same(l.mods, altMods[i]), lead: altIsLead[i] };
+      alt.lines.push(row);
+      alt.totalAfter += row.after;
+      if (row.changed) alt.changed = true;
+    });
+    out.alt = alt;
+    // Settled, group by group: a group that disagrees may follow either order.
+    var asMain = L.map(function(l) { return same(l.mods, l.proposed); }), inFlipped = L.map(function() { return false; });
+    var groupsOk = altLead.every(function(a) {
+      a.ranked.forEach(function(i) { inFlipped[i] = true; });
+      return a.ranked.every(function(i) { return asMain[i]; }) || a.ranked.every(function(i) { return same(L[i].mods, altMods[i]); });
+    });
+    out.settled = groupsOk && L.every(function(l, i) { return inFlipped[i] || asMain[i]; });
+  } else out.settled = !out.changed;
+  return out;
 }
 
 // wRVU credit - the ONE rule deciding whether a case counts toward wRVU and
@@ -3905,7 +4265,8 @@ function parseImport(text, cptMap) {
   // The app's own exports carry a Credit column. CSV import never turns it
   // back into a no-credit mark (import is not a writer of the flag); it warns
   // instead, so a re-import cannot silently credit no-credit cases. The note
-  // goes FIRST: the Import preview shows only the first few messages.
+  // goes first, or right after the wRVU note below when there is one: the
+  // Import preview shows only the first few messages.
   // Counted over whole records AND physical lines, keeping the larger (an
   // undercount is the silent case): csvField keeps a line break inside a
   // quoted note, splitting one record across lines (a record is open while
@@ -3926,6 +4287,53 @@ function parseImport(text, cptMap) {
     ncRows = Math.max(byLine, byRec);
   }
   var creditNote = ncRows > 0 ? ncRows + " row" + (ncRows === 1 ? " is" : "s are") + " marked No credit and will import as CREDITED - to keep the marks, restore the JSON export or the encrypted backup in Settings instead." : "";
+  // Import never takes a row's ADJUSTED wRVU from the file (the app's
+  // exports: "Adjusted wRVU"; RVU Wallet: "Total Adjusted Work RVUs"): every
+  // row is priced here, with today's modifier table and today's database
+  // value. In a file with a wRVU column of its own (detectCols' rvu names;
+  // the app's exports have none, and the RVU Wallet branch never reads one)
+  // that column is the base instead - but only in a row whose cell there
+  // reads as a number other than 0 (parseFloat). A blank, 0 or non-numeric
+  // cell falls back to today's database value, and to 0 for a code the
+  // database lacks: hence "(today's value where a row has none)" in the
+  // message. So a file from another year, or one saved under other modifier
+  // rules, comes in at other figures - the preview says for how many rows,
+  // as its FIRST message (the credit note follows; both stay inside the few
+  // it shows). A row counts when its figure in the file is a number more
+  // than half a cent away from ours (a file shows two decimals). An RVU
+  // Wallet row prints ONE total for all its codes, so it is allowed half a
+  // cent per code: a total added up from each code's own rounded figure is
+  // the same sum, not a difference. The price of that is that a real
+  // difference of up to half a cent per code in such a row is not counted.
+  // A row with MORE cells than the header - shifted by a comma in a tab
+  // paste - has no column we can trust. Its figure is not compared, and the
+  // same shift can cost it its modifiers or put another cell where its wRVU
+  // belongs, so it may be stored wrong: it is counted apart, in the same
+  // message, which asks the user to check such rows before importing. (A row
+  // cut short by a line break inside a quoted note still has its figure in
+  // place.) Both counts need an adjusted column: a file without one gets no
+  // message here, however its rows split.
+  var ADJ_HEADS = ['adjustedwrvu', 'adjustedwrvus', 'adjustedrvu', 'adjustedrvus', 'adjwrvu', 'adjwrvus', 'adjrvu', 'adjrvus', 'adjustedworkrvu', 'adjustedworkrvus', 'totaladjustedworkrvus', 'totaladjustedwrvus'];
+  var fileAdjCol = -1, repriced = 0, unread = 0, fileBase = false;
+  hNorm.forEach(function(h, i) { if (fileAdjCol === -1 && ADJ_HEADS.indexOf(h) !== -1) fileAdjCol = i; });
+  // One row against the file: "differs", "unread" (more cells than the
+  // header) or "". codes = how many figures the file's cell adds up.
+  var fileSays = function(cols, ours, codes) {
+    if (fileAdjCol < 0) return "";
+    if (cols.length > headers.length) return "unread";
+    if (cols.length <= fileAdjCol) return "";
+    var cell = cols[fileAdjCol];
+    if (!/^-?(\d+(\.\d+)?|\.\d+)$/.test(cell || "")) return "";
+    return Math.abs(parseFloat(cell) - ours) > 0.005000001 * codes ? "differs" : "";
+  };
+  var fileTally = function(cols, ours, codes) { var s = fileSays(cols, ours, codes); if (s === "differs") repriced++; else if (s === "unread") unread++; };
+  var repriceNote = function() {
+    var rows = function(n) { return n === 1 ? " row" : " rows"; };
+    var parts = [];
+    if (repriced > 0) parts.push(repriced + rows(repriced) + " will import at a different wRVU than the file shows - import prices every row with " + (fileBase ? "the file's own wRVU column (today's value where a row has none) and today's modifier rules" : "today's wRVU values and modifier rules"));
+    if (unread > 0) parts.push(unread + (repriced > 0 ? " more" : "") + rows(unread) + (unread === 1 ? " has" : " have") + " more cells than the file's header (a comma inside a cell?) and may import with the wrong modifiers or wRVU - check " + (unread === 1 ? "it" : "them") + " before importing");
+    return parts.length ? parts.join("; ") + "." : "";
+  };
 
   // Detect RVU Wallet format: Date, Encounter ID, Reference ID, Location, Codes, Total Work RVUs, Total Adjusted Work RVUs
   let isRVUWallet = false;
@@ -3961,12 +4369,13 @@ function parseImport(text, cptMap) {
       const ref = refCol >= 0 ? (cols[refCol] || '') : '';
       const loc = locCol >= 0 ? (cols[locCol] || '') : '';
       const codesStr = codesCol >= 0 ? cols[codesCol] : '';
-      const totalAdj = adjRvuCol >= 0 ? parseFloat(cols[adjRvuCol]) : 0;
 
       if (!codesStr.trim()) { errors.push('Row ' + (i+1) + ': No codes'); continue; }
 
       // Split multiple codes: "19301, 38525-51, 38900"
       const codeItems = codesStr.split(',').map(function(s) { return s.trim(); }).filter(function(s) { return s; });
+      // What this row's codes come to here, against the file's own total.
+      let rowAdj = 0, rowCodes = 0;
 
       codeItems.forEach(function(codeStr, idx) {
         // Parse code and modifier: "38525-51" -> code=38525, mod=-51
@@ -3994,6 +4403,7 @@ function parseImport(text, cptMap) {
         if (!info) unmatched++;
 
         var adjustedRVU = calcAdj(baseRVU, mods);
+        rowAdj += adjustedRVU; rowCodes++;
 
         // Build notes from reference ID and location
         var notes = '';
@@ -4013,10 +4423,12 @@ function parseImport(text, cptMap) {
           imported: true
         });
       });
+      if (rowCodes > 0) fileTally(cols, rowAdj, rowCodes);
     }
 
     if (unmatched > 0) errors.push(unmatched + ' CPT code(s) not in database');
     if (creditNote) errors.unshift(creditNote);
+    if (repriceNote()) errors.unshift(repriceNote());
     return { entries: entries, errors: errors, mapping: { date: dateCol, cpt: codesCol, desc: -1, rvu: rvuCol, modifier: -1, notes: -1 }, headers: headers };
   }
 
@@ -4024,6 +4436,7 @@ function parseImport(text, cptMap) {
   if (mapping.cpt === -1) { var first = parseLine(lines[1]); first.forEach(function(v, i) { if (mapping.cpt === -1 && /^\d{5}$/.test(v.trim())) mapping.cpt = i; }); }
   if (mapping.cpt === -1) return { entries: [], errors: ['Could not detect CPT code column.'], mapping: mapping, headers: headers };
   var entries = [], errors = []; var unmatched2 = 0;
+  fileBase = mapping.rvu >= 0;
   for (var i = 1; i < lines.length; i++) {
     var cols = parseLine(lines[i]); if (cols.length < 2) continue;
     var code = extractCPT(mapping.cpt >= 0 ? cols[mapping.cpt] : '');
@@ -4034,10 +4447,13 @@ function parseImport(text, cptMap) {
     var info = cptMap[code]; var desc = mapping.desc >= 0 ? (cols[mapping.desc] || '') : ''; var base;
     if (info) { desc = desc || info.desc; base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || info.wRVU) : info.wRVU; }
     else { unmatched2++; desc = desc || ('CPT ' + code); base = (mapping.rvu >= 0 && cols[mapping.rvu]) ? (parseFloat(cols[mapping.rvu]) || 0) : 0; }
-    entries.push({ id: Date.now().toString() + '-' + i, date: date, cptCode: code, description: desc, category: info ? info.category : 'Imported', baseRVU: base, modifiers: mods, adjustedRVU: calcAdj(base, mods), notes: notes, imported: true });
+    var priced = calcAdj(base, mods);
+    fileTally(cols, priced, 1);
+    entries.push({ id: Date.now().toString() + '-' + i, date: date, cptCode: code, description: desc, category: info ? info.category : 'Imported', baseRVU: base, modifiers: mods, adjustedRVU: priced, notes: notes, imported: true });
   }
   if (unmatched2 > 0) errors.push(unmatched2 + ' CPT code(s) not in database');
   if (creditNote) errors.unshift(creditNote);
+  if (repriceNote()) errors.unshift(repriceNote());
   return { entries: entries, errors: errors, mapping: mapping, headers: headers };
 }
 

@@ -37,7 +37,7 @@ icon-512.png            # PWA icon (Android/Chrome, also used for iOS)
 README.md               # This file
 js files/
   crypto.js             # PIN auth + AES-GCM encryption helpers
-  cpt-data.js           # 7,305 CPT codes (CMS CY2026 PFS, incl. global period) — loaded as plain script
+  cpt-data.js           # 7,305 CPT codes (CMS CY2026 PFS, incl. global period and payment-policy indicators) — loaded as plain script
   utils.js              # Constants, helpers, parsers, data persistence
   styles.js             # CSS variable injection + shared style object
   dashboard.js          # Home view
@@ -77,7 +77,8 @@ js files/
 
 - **Source:** CMS CY2026 Physician Fee Schedule (`PPRRVU2026_Jan_nonQPP.csv`)
 - **Codes included:** All 7,305 codes from the PFS
-- **Fields:** CPT, description, work RVU, category, global period (CMS "GLOB DAYS")
+- **Fields:** CPT, description, work RVU, category, global period (CMS "GLOB DAYS"), the CMS multiple-procedure, bilateral, assistant and co-surgeon indicators, the facility total RVU (the professional row's where CMS prints one), and the CY2025 work RVU (`PPRRVU2025_Oct.csv`)
+- **Tables:** CMS's NCCI add-on code pairs (effective 1 October 2026) and its endoscopy families, for the codes above
 - **Enhanced descriptions:** ~301 commonly used surgical codes have cleaned-up descriptions and keyword supplements (e.g., code 47562 matches "lap chole", "cholecystectomy", "gallbladder")
 - **Storage:** `localStorage` on the device is the persistence layer, plus IndexedDB for a Plain directorship's own form (on that phone only, not in backups). A "last known good" snapshot is kept beside the live data, and backups are PIN-encrypted codes or files the user saves.
 - **Fresh install:** starts empty, with a blank rate and goals. The built-in call-pay sites and directorships load only when you tap their Load button; the acute-care cards appear when you turn them on or have acute data.

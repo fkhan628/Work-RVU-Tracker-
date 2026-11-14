@@ -22,6 +22,37 @@ const CMS_ROW_BASELINE = 7305;
 // report). Changes only together with CMS_ROW_BASELINE, in the yearly swap
 // commit - a hand edit of any single row's global fails this.
 const GLOB_BASELINE = { "000": 1194, "010": 464, "090": 3751, "XXX": 1390, "ZZZ": 488, "YYY": 1, "MMM": 17 };
+// CMS payment-policy baselines of CMS_RAW[6..8] and of the CMS_MORE tables
+// (all five from the build-cpt-data.js report). They change only with the
+// data file itself - the yearly swap, or a deliberate refresh of a CMS column
+// or of the add-on file - so a hand edit of any CMS element of any row (the
+// wRVU and the global included, through the fingerprint) or of any table
+// entry fails.
+// IND_BASELINE: how many codes carry each value of the four indicator digits
+// of r[6] (MULT PROC, BILAT SURG, ASST SURG, CO- SURG).
+const IND_BASELINE = {
+  mult: { "0": 1548, "2": 5024, "3": 360, "4": 138, "5": 51, "6": 111, "7": 32, "9": 41 },
+  bilat: { "0": 4816, "1": 2148, "2": 210, "3": 68, "9": 63 },
+  asst: { "0": 2458, "1": 2088, "2": 2692, "9": 67 },
+  co: { "0": 4629, "1": 2354, "2": 277, "9": 45 }
+};
+// FAC_SUM_BASELINE: every row's facility total (r[7] - the professional -26
+// row's where CMS prints one for the code, else the base row's), summed in
+// cents.
+const FAC_SUM_BASELINE = 12437765;
+// POLICY_HASH_BASELINE: one fingerprint (FNV-1a, 32 bit, 8 hex digits) over
+// every row's "code|r[2]|r[5]|r[6]|r[7]|r[8]" line - it moves when ANY CMS
+// element of ANY row does (wRVU, global, indicators, facility total,
+// prior-year value), also an edit that keeps every count and sum.
+const POLICY_HASH_BASELINE = "1d9704ed";
+// PRIOR_BASELINE: the prior-year work RVU (r[8]) - its year (CMS_MORE
+// priorYear), the sum in cents, how many rows have none (null: that year's
+// file has no payable row for the code) and how many hold a real 0.
+const PRIOR_BASELINE = { year: 2025, cents: 7006330, none: 99, zero: 1 };
+// MORE_BASELINE: CMS_MORE's add-on table (codes, by edit type, tokens, total
+// characters of its values, a fingerprint of its sorted "key:value" lines) as
+// of its effective date, and its endoscopy table (bases, members, fingerprint).
+const MORE_BASELINE = { addonAsOf: "2026-10-01", addon: { codes: 489, types: { "1": 459, "2": 23, "3": 7 }, tokens: 1941, chars: 17925, hash: "cb2e0b24" }, endo: { bases: 35, members: 360, hash: "e63ebdc5" } };
 
 const failures = [];
 function check(name, ok, detail) {
@@ -131,6 +162,27 @@ if (plainArrMatch && jsArrMatch) {
   const EXPECTED_PLAIN = ["cpt-data", "crypto", "styles", "utils"];
   check("plain set is exactly crypto/cpt-data/utils/styles", plainNames.slice().sort().join(",") === EXPECTED_PLAIN.join(","), "got: " + plainNames.join(", "));
   check("index.html defines hand-bumped ASSET_V", /var ASSET_V = "[^"]+"/.test(html));
+  // Every local URL takes its ?v= from that ONE constant (the preload, the
+  // plain loader, the Babel loader): a typed ?v= would pin a file to an old
+  // build or fetch the data file twice. And the constant never goes back
+  // below the build whose modifier table check.js pins (MODS_PIN, ASSET_V
+  // 67): raise this floor together with that table.
+  // The three stamped lines are pinned as TEXTS, once each: a count of stamps
+  // cannot see a preload that names another file than the data file. They,
+  // and any further ?v=, are looked for in the page with its comments blanked
+  // out (the HTML ones, and those the parser finds in each inline script, so
+  // a "//" inside a URL is not taken for one): a stamp that is commented out
+  // is not there, and a comment may speak of ?v= in any words.
+  const STAMPS = [["the cpt-data.js preload line", "<script>document.write('<link rel=\"preload\" href=\"js%20files/cpt-data.js?v=' + ASSET_V + '\" as=\"script\">');</script>"],
+    ["the plain loader line", "document.write('<script src=\"js%20files/' + f + '.js?v=' + ASSET_V + '\"><\\/script>');"],
+    ["the Babel loader line", "document.write('<script type=\"text/babel\" src=\"js%20files/' + f + '.js?v=' + ASSET_V + '\"><\\/script>');"]];
+  const blankOut = t => t.replace(/[^\r\n]/g, " ");
+  const htmlCode = html.replace(/<!--[\s\S]*?-->/g, m => blankOut(m)).replace(/<script>([\s\S]*?)<\/script>/g, (all, s) => { try { return "<script>" + parser.parse(s, { sourceType: "script" }).comments.reduce((t, c) => t.slice(0, c.start) + blankOut(t.slice(c.start, c.end)) + t.slice(c.end), s) + "</script>"; } catch (e) { return all; } });
+  const vNow = parseInt((/var ASSET_V = "([^"]+)"/.exec(html) || [])[1], 10);
+  const stampBad = STAMPS.filter(s => htmlCode.split(s[1]).length !== 2).map(s => s[0] + " is there " + (htmlCode.split(s[1]).length - 1) + " times, want it once as: " + s[1]);
+  htmlCode.split("\n").forEach((l, i) => { if (STAMPS.reduce((t, s) => t.split(s[1]).join(""), l).indexOf("?v=") !== -1) stampBad.push("line " + (i + 1) + " holds a ?v= that is not one of the three stamps: " + l.trim().slice(0, 140)); });
+  if (!(vNow >= 67)) stampBad.push("ASSET_V is " + vNow + ", want 67 or later");
+  check("index.html stamps its three local script URLs from ASSET_V (no typed ?v=), and ASSET_V is 67 or later", stampBad.length === 0, stampBad.join(" | "));
 }
 
 // 4c. Startup robustness (CLAUDE.md "Startup"). Each unpkg tag is DIRECTLY
@@ -2306,6 +2358,13 @@ const COMP_MONEY_PIN = 8;
 //   editMods). Three per-file pins count every calcAdj call, every mention of
 //   its name and every `.factor` read in the app (see CALC_PIN below for what
 //   they can and cannot see).
+// - Log's save prices a NEW case the same way, pinned by syntax tree: in its
+//   loop `info` is cptMap[p.code], `adj` is calcAdj(info.wRVU, p.mods) and
+//   nothing more, `adj` is named twice (declared, stored), the ONE
+//   adjustedRVU key that save writes holds `adj`, and save assigns to none of
+//   p, info and adj. The counts below cannot see arithmetic added to that
+//   line: a -22 counted at 1.2 again by a `* 1.2` after the call moved none
+//   of them.
 {
   const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
   const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression");
@@ -2426,6 +2485,29 @@ const COMP_MONEY_PIN = 8;
     // The credit preview is built from editAdj, never a second calculation.
     if (deep(hist, n => n.type === "ObjectProperty" && keyName(n) === "adjustedRVU" && isId(n.value, "editAdj")).length !== 2) bad.push("the credit previews are not built from { ..., adjustedRVU: editAdj } twice");
   }
+  // Log's save: the line that prices a new case and the key that stores the
+  // figure, as written (log.js, `var save = function() {...}` in LogProc).
+  {
+    let lsrc = "", lprog = null;
+    try { lsrc = fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8"); lprog = parser.parse(lsrc, AST_OPTS).program; } catch (e) { bad.push("parse log.js"); }
+    const lsrcOf = n => n ? lsrc.slice(n.start, n.end).replace(/\s+/g, " ") : "";
+    const logFn = lprog ? lprog.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "LogProc"))[0] : null;
+    const lsaves = logFn ? deep(logFn, n => n.type === "VariableDeclarator" && isId(n.id, "save") && isFn(n.init)).map(d => d.init) : [];
+    if (lprog && lsaves.length !== 1) bad.push("Log's save was not found once as `var save = function() {...}` in LogProc (found " + lsaves.length + ")");
+    else if (lprog) {
+      const declIn = name => deep(lsaves[0], n => n.type === "VariableDeclarator" && isId(n.id, name));
+      const lInfo = declIn("info"), lAdj = declIn("adj"), lKeys = deep(lsaves[0], n => n.type === "ObjectProperty" && keyName(n) === "adjustedRVU"), lUses = deep(lsaves[0], n => isId(n, "adj")).length;
+      if (lInfo.length !== 1 || lsrcOf(lInfo[0].init) !== "cptMap[p.code]") bad.push("Log's save does not read the line's database row as `var info = cptMap[p.code]` (got " + (lInfo.map(d => lsrcOf(d)).join(" | ") || "no info") + ")");
+      if (lAdj.length !== 1 || lsrcOf(lAdj[0].init) !== "calcAdj(info.wRVU, p.mods)") bad.push("Log's save does not price a line as `var adj = calcAdj(info.wRVU, p.mods)` and nothing more (got " + (lAdj.map(d => lsrcOf(d)).join(" | ") || "no adj") + ")");
+      if (lUses !== 2) bad.push("Log's save names `adj` " + lUses + " times, want 2 (declare it, store it): the figure is not to be changed after calcAdj");
+      if (lKeys.length !== 1 || lKeys[0].computed || !isId(lKeys[0].value, "adj")) bad.push("Log's save does not store that figure as it is in ONE `adjustedRVU: adj` (got " + (lKeys.map(k => lsrcOf(k)).join(" | ") || "no adjustedRVU key") + ")");
+      // The line, its row and the figure are read, never assigned (a row or
+      // a modifier list doctored before the call prices by something else).
+      const rootOf = n => { while (n && n.type === "MemberExpression") n = n.object; return n && n.type === "Identifier" ? n.name : ""; };
+      const lSets = deep(lsaves[0], n => (n.type === "AssignmentExpression" && ["info", "p", "adj"].indexOf(rootOf(n.left)) !== -1) || (n.type === "UpdateExpression" && ["info", "p", "adj"].indexOf(rootOf(n.argument)) !== -1));
+      if (lSets.length) bad.push("Log's save assigns to the line (p), its database row (info) or the figure (adj): " + lSets.map(n => lsrcOf(n)).join(" | "));
+    }
+  }
   // Every place in the app that prices a case from the modifier table, three
   // ways: direct calcAdj calls (Log's new cases 2, History's + Add and its
   // preview 2, utils.js's two import parsers and entryEditFields 3); every
@@ -2433,12 +2515,40 @@ const COMP_MONEY_PIN = 8;
   // another name, or through .call / .apply, is seen); and every read of a
   // modifier's `.factor` (calcAdj's own two). A new one anywhere is a new
   // place that prices a case: if it prices a STORED case it breaks the rule
-  // above, so move these pins only for a writer of NEW cases. Syntactic - code
-  // that reaches the table some other way is not seen; the sandbox tests
-  // below (a stale-priced store through loadData / saveData, 5f-19) cover the
-  // load, the save and History's own paths by value.
-  const CALC_PIN = { "history.js": 2, "log.js": 2, "utils.js": 3 }, CALC_ID_PIN = { "history.js": 2, "log.js": 2, "utils.js": 4 }, FACTOR_PIN = { "utils.js": 2 };
+  // above, so move these pins only for a writer of NEW cases or for code that
+  // only shows a figure and writes nothing. Syntactic - code that reaches the
+  // table some other way is not seen; the sandbox tests below (a stale-priced
+  // store through loadData / saveData, 5f-19) cover the load, the save and
+  // History's own paths by value.
+  // utils.js is 4 calls / 5 mentions since ASSET_V 67 (was 3 / 4): one more
+  // call, in proposeCaseModifiers, which prices a PROPOSAL for display (the
+  // wRVU before and after) - it returns figures, writes nothing and leaves
+  // its input untouched (its contract tests).
+  const CALC_PIN = { "history.js": 2, "log.js": 2, "utils.js": 4 }, CALC_ID_PIN = { "history.js": 2, "log.js": 2, "utils.js": 5 }, FACTOR_PIN = { "utils.js": 2 };
   const calcSeen = {}, idSeen = {}, facSeen = {};
+  // Six more counts close the ways around the three above (each was shown to
+  // pass them): a WRITE of a case's price is an object-literal adjustedRVU
+  // key; the factor can be read as ["factor"], destructured or copied under
+  // its key; the table can be changed through MOD_MAP at run time; calcAdj
+  // can be reached by its name in a string; and proposeCaseModifiers returns
+  // priced figures, so a caller could store them. Nothing calls
+  // proposeCaseModifiers until Log's card does - that batch moves its pin,
+  // for a caller that shows a proposal and applies it on a tap.
+  // Either name inside a string or a template is looked for as a PART of the
+  // text, in every file walked here: a whole-text test let new
+  // Function("b", "m", "return calcAdj(b, m)") and
+  // window["proposeCaseModifiers"] pass. Still syntactic: a name put together
+  // from pieces ("calc" + "Adj") is not seen.
+  const keyOf = x => x.key ? (x.key.name || x.key.value || "") : "";
+  const inText = (x, name) => (x.type === "StringLiteral" && x.value.indexOf(name) !== -1) || (x.type === "TemplateElement" && (x.value.raw.indexOf(name) !== -1 || String(x.value.cooked).indexOf(name) !== -1));
+  const MORE_PINS = [
+    { what: "object-literal adjustedRVU keys (a write of a case's price)", pin: { "history.js": 3, "log.js": 2, "utils.js": 3 }, seen: {}, test: x => x.type === "ObjectProperty" && !x.computed && keyOf(x) === "adjustedRVU" },
+    { what: "mentions of the name factor", pin: { "utils.js": 14 }, seen: {}, test: x => (x.type === "MemberExpression" && ((!x.computed && x.property.name === "factor") || (x.computed && x.property.type === "StringLiteral" && x.property.value === "factor"))) || (x.type === "ObjectProperty" && keyOf(x) === "factor") || (x.type === "StringLiteral" && x.value === "factor") },
+    { what: "mentions of MOD_MAP", pin: { "utils.js": 6 }, seen: {}, test: x => isId(x, "MOD_MAP") },
+    { what: "strings or templates that hold the text calcAdj", pin: {}, seen: {}, test: x => inText(x, "calcAdj") },
+    { what: "mentions of proposeCaseModifiers (nothing calls it yet)", pin: { "utils.js": 1 }, seen: {}, test: x => isId(x, "proposeCaseModifiers") },
+    { what: "strings or templates that hold the text proposeCaseModifiers", pin: {}, seen: {}, test: x => inText(x, "proposeCaseModifiers") },
+  ];
   jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
     try {
       const prog = parser.parse(fs.readFileSync(path.join(JS_DIR, f), "utf8"), AST_OPTS).program;
@@ -2446,13 +2556,54 @@ const COMP_MONEY_PIN = 8;
       if (nCall) calcSeen[f] = nCall;
       if (nId) idSeen[f] = nId;
       if (nFac) facSeen[f] = nFac;
+      MORE_PINS.forEach(p => { const n = deep(prog, p.test).length; if (n) p.seen[f] = n; });
     } catch (e) { calcSeen[f] = "parse"; }
   });
   if (JSON.stringify(calcSeen) !== JSON.stringify(CALC_PIN)) bad.push("calcAdj call sites " + JSON.stringify(calcSeen) + ", pinned " + JSON.stringify(CALC_PIN));
   if (JSON.stringify(idSeen) !== JSON.stringify(CALC_ID_PIN)) bad.push("calcAdj mentions " + JSON.stringify(idSeen) + ", pinned " + JSON.stringify(CALC_ID_PIN));
   if (JSON.stringify(facSeen) !== JSON.stringify(FACTOR_PIN)) bad.push("modifier factor reads " + JSON.stringify(facSeen) + ", pinned " + JSON.stringify(FACTOR_PIN));
-  check("5f-18: History's Save keeps a stored case's pricing - saveEdit passes the stored case as found and the panel's seven values to ONE utils.js entryEditFields call, stops when it returns nothing, and stores entryWithCall({ ...e, ...edited, isCall }) itself (no calcAdj, no adjustedRVU or modifiers write of its own, the other cases untouched); the panel is seeded with the stored code and modifiers and changes one tapped code at a time; the preview's lines, the three tiles and the one `Saved <stored> wRVU, after save <new>` line are as written; saveAdd prices a new case; calcAdj call sites pinned per file",
+  MORE_PINS.forEach(p => { if (JSON.stringify(p.seen) !== JSON.stringify(p.pin)) bad.push(p.what + " " + JSON.stringify(p.seen) + ", pinned " + JSON.stringify(p.pin)); });
+  check("5f-18: History's Save keeps a stored case's pricing - saveEdit passes the stored case as found and the panel's seven values to ONE utils.js entryEditFields call, stops when it returns nothing, and stores entryWithCall({ ...e, ...edited, isCall }) itself (no calcAdj, no adjustedRVU or modifiers write of its own, the other cases untouched); the panel is seeded with the stored code and modifiers and changes one tapped code at a time; the preview's lines, the three tiles and the one `Saved <stored> wRVU, after save <new>` line are as written; saveAdd prices a new case, and so does Log's save (adj = calcAdj(info.wRVU, p.mods), stored as it is); calcAdj call sites pinned per file, neither calcAdj nor proposeCaseModifiers named inside a string",
     bad.length === 0, bad.join(", "));
+}
+
+// 5f-20. A modifier chip says what the modifier does to the wRVU: in Log and
+// in History's edit / add panel every chip of the grid prints the table's
+// code, label AND desc ("no wRVU change" for -22, "16% of base" for -82), in
+// that order, straight from MODIFIERS.map - never a typed list of chips.
+{
+  const CHIP = "<span style={S.modCode}>{m.code}</span><span style={S.modLabel}>{m.label}</span><span style={S.modFactor}>{m.desc}</span></button>";
+  const srcOfFile = f => fs.readFileSync(path.join(JS_DIR, f), "utf8");
+  const logSrc = srcOfFile("log.js"), histSrc = srcOfFile("history.js");
+  const count = (s, sub) => s.split(sub).length - 1;
+  // The selected chip is the one in the case's own list (never the reverse),
+  // and the import preview shows the first SIX messages: the wRVU note is one
+  // more first line, and it must not cost an older message its place.
+  const SEL_LOG = "style={curMods.includes(m.code) ? S.modBtnActive : S.modBtn}", SEL_HIST = "style={editMods.includes(m.code) ? S.modBtnActive : S.modBtn}";
+  // Each grid as ONE text, so no chip can be hidden, skipped or wired to
+  // another field between its ends; and the third line's own style.
+  const GRID_HIST = "<div style={S.fieldGroup}><label style={S.fieldLabel}>Modifiers</label><div style={S.modGrid}>{MODIFIERS.map(m => <button key={m.code} onClick={() => toggleEditMod(m.code)} " + SEL_HIST + ">" + CHIP + ")}</div></div>";
+  const GRID_LOG = "<div style={S.modGrid}>{MODIFIERS.map(function(m) { return <button key={m.code} onClick={function() { toggleMod(m.code); }} " + SEL_LOG + ">" + CHIP + "; })}</div>";
+  const stylesSrc = srcOfFile("styles.js").replace(/\r\n/g, "\n");
+  const FACTOR_STYLE = "  modFactor: {\n    fontSize: 10, color: \"var(--text-dim)\", marginTop: 1,\n    fontFamily: \"'JetBrains Mono'\"\n  },";
+  // The Warnings block of the import preview as ONE text too, from its
+  // condition on: a second condition there (say, only when no row was read)
+  // would hide the wRVU note exactly when rows are about to be imported, and
+  // the pin on the six messages inside it would not move.
+  const WARNINGS = '{parsed.errors.length > 0 && <div style={{ background: "rgba(251,191,36,0.1)", border: "1px solid rgba(251,191,36,0.25)", borderRadius: 10, padding: 12, marginBottom: 12 }}><div style={{ fontSize: 12, fontWeight: 600, color: "var(--accent-amber-soft)", marginBottom: 4 }}> Warnings</div>{parsed.errors.slice(0, 6).map((e, i) => <div key={i} style={{ fontSize: 11, color: "var(--accent-amber-pale)", padding: "2px 0" }}>{e}</div>)}</div>}';
+  // Every pin is a text that must be there exactly ONCE, and all of them sit
+  // in this one list: the condition and the failure line are both made from
+  // it, so no pin can be tested without being named when it moves (a line of
+  // seven counts, all 1, was what the newer pins printed). chip* is CHIP,
+  // sel* SEL_LOG / SEL_HIST, grid* GRID_LOG / GRID_HIST, active* the mentions
+  // of S.modBtnActive, modGrid* those of S.modGrid, map* the grid's opening.
+  const PINS20 = { chipLog: count(logSrc, CHIP), chipHist: count(histSrc, CHIP), mapLog: count(logSrc, "<div style={S.modGrid}>{MODIFIERS.map("), mapHist: count(histSrc, "<div style={S.modGrid}>{MODIFIERS.map("),
+    modGridLog: count(logSrc, "S.modGrid"), modGridHist: count(histSrc, "S.modGrid"), selLog: count(logSrc, SEL_LOG), selHist: count(histSrc, SEL_HIST), activeLog: count(logSrc, "S.modBtnActive"), activeHist: count(histSrc, "S.modBtnActive"),
+    gridLog: count(logSrc, GRID_LOG), gridHist: count(histSrc, GRID_HIST), factorStyle: count(stylesSrc, FACTOR_STYLE),
+    warnings: count(histSrc, WARNINGS), sixMessages: count(histSrc, "{parsed.errors.slice(0, 6).map("), slices: count(histSrc, "parsed.errors.slice(") };
+  const moved20 = Object.keys(PINS20).filter(k => PINS20[k] !== 1);
+  check("5f-20: modifier chips in Log and in History's panel print code, label and desc from MODIFIERS.map (one grid each, pinned whole, with the third line's style), the lit chip is the one in the case's list, and the import preview's Warnings block (pinned whole, from its condition on) shows the first six messages",
+    moved20.length === 0, "moved: " + moved20.join(", ") + " - each pinned text must be there once, found: " + JSON.stringify(PINS20));
 }
 
 // 2b. ASCII only in scripts/*.js too (the same CLAUDE.md rule; test
@@ -2621,6 +2772,9 @@ fs.readdirSync(path.join(APP, "scripts")).filter(f => /\.js$/.test(f)).forEach(f
   // G10: no Babel file redeclares a plain-script top-level name (CLAUDE.md 3c).
   const plainNames = {};
   ["crypto.js", "utils.js", "styles.js"].forEach(f => topNames(astOf(f)).forEach(n => { plainNames[n] = f; }));
+  // cpt-data.js is the fourth plain script: its constants (CMS_RAW, CMS_MORE)
+  // are read from its text - the file is too large to walk for two names.
+  (read("cpt-data.js").match(/^(?:const|let|var) [A-Za-z_$][\w$]*/gm) || []).forEach(d => { plainNames[d.replace(/^\w+ /, "")] = "cpt-data.js"; });
   const clash = [];
   jsFiles.filter(f => PLAIN.indexOf(f) === -1).forEach(f => topNames(astOf(f)).forEach(n => { if (plainNames[n]) clash.push(f + ":" + n + " (" + plainNames[n] + ")"); }));
   check("directorships G10: no Babel file redeclares a plain-script top-level name", clash.length === 0, clash.join(", "));
@@ -2831,24 +2985,481 @@ if (rows) {
   check("CMS_RAW row count == " + CMS_ROW_BASELINE, rows.length === CMS_ROW_BASELINE, "got " + rows.length);
   const badShape = rows.filter(r => !(Array.isArray(r) && typeof r[0] === "string" && r[0].length === 5 && typeof r[1] === "string" && typeof r[2] === "number" && typeof r[3] === "string"));
   check("all CMS_RAW rows well-formed", badShape.length === 0, badShape.length + " malformed row(s)");
-  // Row contract [code, desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS]
-  const badGlobRows = rows.filter(r => !(r.length === 6 && typeof r[4] === "string" && /^(000|010|090|XXX|ZZZ|YYY|MMM)$/.test(r[5])));
-  check("CMS_RAW rows: 6 elements, keywords string, CMS global", badGlobRows.length === 0, badGlobRows.slice(0, 5).map(r => r[0]).join(", "));
+  // Row contract [code, desc, wRVU, category, keywords ("" if none), CMS GLOB
+  // DAYS, "MBAC" indicator digits (MULT PROC, BILAT SURG, ASST SURG, CO- SURG),
+  // FACILITY TOTAL, prior-year work RVU or null]
+  const badGlobRows = rows.filter(r => !(r.length === 9 && typeof r[4] === "string" && /^(000|010|090|XXX|ZZZ|YYY|MMM)$/.test(r[5])));
+  check("CMS_RAW rows: 9 elements, keywords string, CMS global", badGlobRows.length === 0, badGlobRows.slice(0, 5).map(r => r[0]).join(", "));
   const globDist = {};
   rows.forEach(r => { globDist[r[5]] = (globDist[r[5]] || 0) + 1; });
   const globKeys = Object.keys(Object.assign({}, GLOB_BASELINE, globDist));
   check("CMS global distribution == GLOB_BASELINE", globKeys.every(k => (GLOB_BASELINE[k] || 0) === (globDist[k] || 0)), JSON.stringify(globDist));
+  // The three policy elements: one digit per indicator from the values CMS
+  // documents (MULT PROC 0 2-7 9; BILAT SURG 0-3 9; ASST SURG and CO- SURG
+  // 0-2 9), a facility total that is an amount above zero and never below
+  // the work RVU it contains, and a prior-year work RVU that is a number or
+  // null - then the baselines from the builder's report.
+  const badPolicyRows = rows.filter(r => !(typeof r[6] === "string" && /^[02345679][01239][0129][0129]$/.test(r[6]) &&
+    typeof r[7] === "number" && isFinite(r[7]) && r[7] > 0 && r[7] >= r[2] && (r[8] === null || (typeof r[8] === "number" && isFinite(r[8]) && r[8] >= 0))));
+  check("CMS_RAW rows: four indicator digits, a facility total at or above the work RVU, a prior-year work RVU or null", badPolicyRows.length === 0, badPolicyRows.slice(0, 5).map(r => r[0] + " " + JSON.stringify(r.slice(6))).join(", "));
+  const indDist = { mult: {}, bilat: {}, asst: {}, co: {} };
+  let facCents = 0, policyText = "";
+  const prior = { year: null, cents: 0, none: 0, zero: 0 };
+  const fnv1a = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ("0000000" + h.toString(16)).slice(-8); };
+  const tableHash = t => fnv1a(Object.keys(t).sort().map(k => k + ":" + t[k]).join("\n"));
+  rows.forEach(r => {
+    ["mult", "bilat", "asst", "co"].forEach((k, i) => { const d = String(r[6]).charAt(i); indDist[k][d] = (indDist[k][d] || 0) + 1; });
+    facCents += Math.round(r[7] * 100);
+    if (r[8] === null) prior.none++; else { prior.cents += Math.round(r[8] * 100); if (r[8] === 0) prior.zero++; }
+    policyText += r[0] + "|" + r[2] + "|" + r[5] + "|" + r[6] + "|" + r[7] + "|" + r[8] + "\n";
+  });
+  check("fingerprint self-test (FNV-1a 32 bit)", fnv1a("") === "811c9dc5" && fnv1a("a") === "e40c292c" && fnv1a("foobar") === "bf9cf968" && tableHash({ b: "2", a: "1" }) === fnv1a("a:1\nb:2"));
+  check("CMS fingerprint == POLICY_HASH_BASELINE (every row's wRVU, global, indicators, facility total and prior-year value)", fnv1a(policyText) === POLICY_HASH_BASELINE, "got " + fnv1a(policyText));
+  const sameCounts = (a, b) => Object.keys(Object.assign({}, a, b)).every(k => (a[k] || 0) === (b[k] || 0));
+  check("CMS indicator distributions == IND_BASELINE", ["mult", "bilat", "asst", "co"].every(k => sameCounts(IND_BASELINE[k], indDist[k])) && Object.keys(IND_BASELINE).join() === "mult,bilat,asst,co", JSON.stringify(indDist));
+  check("CMS facility totals sum (cents) == FAC_SUM_BASELINE", facCents === FAC_SUM_BASELINE, "got " + facCents);
+  // 6-more. CMS_MORE, the second constant of cpt-data.js: its four keys, the
+  // add-on table ({ code: "<type>" or "<type>:<tokens>" }, a token = one
+  // primary code or A-B with A before B) and the endoscopy table ({ base:
+  // "member member" }). Every key and member is a database code; a base
+  // follows the standard rule (MULT PROC 2), a member is MULT PROC 3 and
+  // appears once, and every MULT PROC 3 code is a member.
+  let more = null, moreErr = "";
+  try { more = new Function(cpt + "; return typeof CMS_MORE === \"undefined\" ? null : CMS_MORE;")(); } catch (e) { moreErr = e.message; }
+  const byCode = {};
+  rows.forEach(r => { byCode[r[0]] = r; });
+  const moreBad = [];
+  const moreSeen = { addonAsOf: null, addon: { codes: 0, types: { "1": 0, "2": 0, "3": 0 }, tokens: 0, chars: 0 }, endo: { bases: 0, members: 0 } };
+  if (!more || typeof more !== "object") moreBad.push("CMS_MORE missing " + moreErr);
+  else {
+    if (Object.keys(more).sort().join() !== "addon,addonAsOf,endo,priorYear") moreBad.push("keys " + Object.keys(more).join());
+    if (typeof more.addonAsOf !== "string" || !/^(19|20)\d\d-\d\d-\d\d$/.test(more.addonAsOf)) moreBad.push("addonAsOf " + JSON.stringify(more.addonAsOf));
+    moreSeen.addonAsOf = more.addonAsOf;
+    prior.year = more.priorYear;
+    const TOK = /^[0-9A-Z]{5}(-[0-9A-Z]{5})?$/;
+    Object.keys(more.addon || {}).forEach(c => {
+      const v = more.addon[c], m = typeof v === "string" ? /^([123])(?::(.+))?$/.exec(v) : null;
+      if (!byCode[c] || !m) { moreBad.push("addon " + c + " " + JSON.stringify(v)); return; }
+      const toks = m[2] ? m[2].split(" ") : [];
+      if (toks.some(t => !TOK.test(t) || (t.length === 11 && !(t.slice(0, 5) < t.slice(6)))) || (m[1] === "1" && toks.length === 0) || (m[1] === "2" && toks.length > 0)) moreBad.push("addon " + c + " tokens " + JSON.stringify(v));
+      moreSeen.addon.codes++; moreSeen.addon.types[m[1]]++; moreSeen.addon.tokens += toks.length; moreSeen.addon.chars += v.length;
+    });
+    const memberOf = {};
+    Object.keys(more.endo || {}).forEach(base => {
+      const v = more.endo[base];
+      if (!byCode[base] || String(byCode[base][6]).charAt(0) !== "2" || typeof v !== "string" || !v) { moreBad.push("endo base " + base); return; }
+      moreSeen.endo.bases++;
+      v.split(" ").forEach(c => {
+        if (!byCode[c] || String(byCode[c][6]).charAt(0) !== "3" || memberOf[c] || more.endo[c]) moreBad.push("endo member " + c + " of " + base);
+        memberOf[c] = base; moreSeen.endo.members++;
+      });
+    });
+    rows.forEach(r => { if (String(r[6]).charAt(0) === "3" && !memberOf[r[0]]) moreBad.push("MULT PROC 3 code " + r[0] + " is in no endoscopy family"); });
+    moreSeen.addon.hash = tableHash(more.addon || {});
+    moreSeen.endo.hash = tableHash(more.endo || {});
+  }
+  check("cpt-data.js CMS_MORE: add-on and endoscopy tables well-formed, every key and member a database code, every MULT PROC 3 code in exactly one family", moreBad.length === 0, moreBad.slice(0, 6).join(" | "));
+  check("CMS_MORE tables == MORE_BASELINE", JSON.stringify(moreSeen) === JSON.stringify(MORE_BASELINE), JSON.stringify(moreSeen));
+  check("CMS prior-year work RVU == PRIOR_BASELINE", JSON.stringify(prior) === JSON.stringify(PRIOR_BASELINE), JSON.stringify(prior));
+  // The file is the builder's text and nothing else: the rows one per line,
+  // then CMS_MORE with one entry per line in code order - nothing before,
+  // between or after them, and no key written twice (a second copy of a key
+  // evaluates to the same object, so only the text can show it).
+  // A row line is held to the builder's own text for the row it evaluates
+  // to, comma included. A remark after a row, a number typed another way
+  // (1.00 for 1.0) or a space after a comma changes no value, so no baseline
+  // above moves - but the file is then no longer what the builder writes, and
+  // the next yearly run would rewrite those lines among CMS's real changes.
+  // jsStr, emitNum and emitRow are COPIES of the three functions of that name
+  // in scripts/build-cpt-data.js: change them there and here together.
+  const layout = /^const CMS_RAW=\[\n([\s\S]*)\n\];\nconst CMS_MORE=(\{[\s\S]*\});\n$/.exec(cpt.replace(/\r\n/g, "\n"));
+  const tbl = t => "{\n" + Object.keys(t || {}).sort().map(k => JSON.stringify(k) + ":" + JSON.stringify(t[k])).join(",\n") + "\n}";
+  const moreText = more ? "{\"addonAsOf\":" + JSON.stringify(more.addonAsOf) + ",\"priorYear\":" + more.priorYear + ",\"addon\":" + tbl(more.addon) + ",\"endo\":" + tbl(more.endo) + "}" : "";
+  const rowLines = layout ? layout[1].split("\n") : [];
+  const jsStr = s => { let out = ""; for (let i = 0; i < s.length; i++) { const ch = s[i], cc = s.charCodeAt(i); if (ch === "\\") out += "\\\\"; else if (ch === "\"") out += "\\\""; else if (ch === "<") out += "\\u003c"; else if (ch === ">") out += "\\u003e"; else if (cc < 32 || cc > 126) out += "\\u" + ("0000" + cc.toString(16)).slice(-4); else out += ch; } return "\"" + out + "\""; };
+  const emitNum = n => Number.isInteger(n) ? n.toFixed(1) : String(n);
+  const emitRow = r => "[" + jsStr(r[0]) + "," + jsStr(r[1]) + "," + emitNum(r[2]) + "," + jsStr(r[3]) + "," + jsStr(r[4] || "") + "," + jsStr(r[5]) + "," + jsStr(r[6]) + "," + String(r[7]) + "," + (r[8] === null ? "null" : String(r[8])) + "]";
+  // The copies are held to the builder's own three functions: those are cut
+  // out of its source by name and run beside the copies on every row of the
+  // file and on two made-up rows (a quote, a backslash, angle brackets, a
+  // tab and two other control characters, a tilde, a letter outside ASCII, a
+  // whole number, a facility total above 100, a missing and a zero prior
+  // value). A writer changed in one place only shows here, before it can
+  // rewrite the data file.
+  let writerOff = "";
+  try {
+    const bsrc = fs.readFileSync(path.join(__dirname, "build-cpt-data.js"), "utf8");
+    const bfns = parser.parse(bsrc, { sourceType: "script" }).program.body.filter(n => n.type === "FunctionDeclaration" && ["jsStr", "emitNum", "emitRow"].indexOf(n.id.name) !== -1);
+    if (bfns.length !== 3) writerOff = "jsStr, emitNum and emitRow were not found as three functions of scripts/build-cpt-data.js";
+    else {
+      const theirs = new Function(bfns.map(n => bsrc.slice(n.start, n.end)).join("\n") + "\nreturn emitRow;")();
+      const odd = [["Z0001", "a \"quoted\" \\ back <angle> ~ \t tab \u001f \u007f \u00e9", 4, "Other", "", "000", "2021", 23, null], ["Z0002", "", 0.5, "A/B", "key words", "ZZZ", "0000", 120.5, 0]];
+      // A throw of the builder's writer on a row the copy can write is a
+      // difference too: a writer that came to call a helper of its own cannot
+      // run here at all, and silence would void the whole comparison.
+      const theirText = r => { try { return theirs(r); } catch (e) { return "(it threw: " + e.message + ")"; } };
+      const off = rows.concat(odd).filter(r => { let mine; try { mine = emitRow(r); } catch (e) { return false; } return theirText(r) !== mine; })[0];
+      if (off) writerOff = "for row " + JSON.stringify(off[0]) + " the builder writes " + JSON.stringify(theirText(off)).slice(0, 140) + " and the copy here " + JSON.stringify(emitRow(off)).slice(0, 140);
+    }
+  } catch (e) { writerOff = "the builder's row writer could not be read: " + e.message; }
+  // A row the writer cannot take (an element missing) has no builder line:
+  // null, never a throw that would stop this run.
+  const builderLine = i => { try { return emitRow(rows[i]) + (i < rows.length - 1 ? "," : ""); } catch (e) { return null; } };
+  const offRow = layout && rowLines.length === rows.length ? rowLines.findIndex((l, i) => l !== builderLine(i)) : -1;
+  const offWhy = () => { const got = rowLines[offRow], want = builderLine(offRow); if (want === null) return "the builder cannot write this row (an element is missing)"; let k = 0; while (k < got.length && got[k] === want[k]) k++; const from = Math.max(0, k - 16); return "from column " + (k + 1) + " the file has " + JSON.stringify(got.slice(from, k + 24)) + " where the builder writes " + JSON.stringify(want.slice(from, k + 24)); };
+  check("cpt-data.js is the builder's text and nothing else: one row per line, each as the builder writes it (the row writer copied here is held to the builder's own), then CMS_MORE with one entry per line in code order, each key once",
+    !!layout && rowLines.length === rows.length && offRow === -1 && layout[2] === moreText && writerOff === "",
+    writerOff ? "the row writer copied into this check is no longer the builder's - " + writerOff + " - copy jsStr, emitNum and emitRow from scripts/build-cpt-data.js again" : !layout ? "the two-statement layout was not found" : rowLines.length !== rows.length ? rowLines.length + " row lines for " + rows.length + " rows" : offRow !== -1 ? "line " + (offRow + 2) + " of the file (row " + (offRow + 1) + ", " + JSON.stringify(rows[offRow] && rows[offRow][0]) + ") is not the builder's text: " + offWhy() + " - undo the hand edit or run the builder again (if its row writer changed, copy it here)" : "CMS_MORE is not the builder's text (a key twice, another order or extra text?)");
+}
+// 6-builder. scripts/build-cpt-data.js runs once a year, on files whose odd
+// corners the real ones rarely show. So its rules run here on MADE-UP files in
+// CMS's layouts: the candidate must equal text derived BY HAND from the
+// builder's header, the report must carry that candidate's baselines, its
+// source lines and its change lists, and each damaged or mislabelled input
+// must stop the run with its own message. Codes Z0001-Z0014, Y9999, Q0001 and
+// 40491 do not exist. 47562 stands for "a code the shipped data holds": what
+// is curated about it (descriptor, category, keywords) is READ from
+// cpt-data.js here, never typed, and its figures in the files are made up.
+// 86153 is the one code the builder leaves out. The files go to the OS temp
+// folder and are removed again.
+{
+  const os = require("os"), cp = require("child_process");
+  const H1 = ",,,STATUS,MEDICARE,WORK,NON-FAC,NA,FACILITY,NA,MP,NON-FACILITY,FACILITY,PCTC,GLOB,PRE,INTRA,POST,MULT,BILAT,ASST,CO-,TEAM,PRIC,ENDO";
+  const H2 = "HCPCS,MOD,DESCRIPTION,CODE,PAYMENT,RVU,PE RVU,INDICATOR,PE RVU,INDICATOR,RVU,TOTAL,TOTAL,IND,DAYS,OP,OP,OP,PROC,SURG,SURG,SURG,SURG,IND,BASE";
+  // code, modifier, status, work RVU, facility total, global, MULT PROC, BILAT SURG, ASST SURG, CO- SURG, endoscopy base, descriptor
+  const frow = (code, mod, st, work, fac, glob, mult, bil, asst, co, endo, desc) =>
+    [code, mod, desc || "Made-up " + code, st, "", work, "1.00", "", "1.00", "", "0.10", "99.00", fac, "0", glob, "0.10", "0.80", "0.10", mult, bil, asst, co, "0", "9", endo || ""].join(",");
+  // A title line names its year the way CMS's does; with the knob noYear it names none.
+  const title = y => y ? "made-up test file," + y + " National Physician Fee Schedule Relative Value File January Release" : "made-up test file,a title line that names no year";
+  const yearIn = (o, knob, usual) => o.noYear ? "" : o[knob] || usual;
+  const asFile = (o, lines) => lines.concat([""]).join(o.crlf ? "\r\n" : "\n");
+  const INPUT = o => asFile(o, [title(yearIn(o, "inYear", "2026")), o.h1 || H1, H2,
+    frow("Z0001", "", "A", "10.00", "18.50", "090", "2", "1", "2", "1"),
+    frow("Z0002", "", "A", "3.00", "4.50", "000", "2", "0", "1", "0"),
+    frow("Z0003", "", "A", "4.00", "6.00", "000", "3", "0", "1", "0", "Z0002"),
+    frow("Z0004", "", "A", "2.00", "3.00", "ZZZ", "0", "0", "2", "1"),
+    frow("Z0005", "", "A", "0.50", "1.15", "ZZZ", "0", "0", "0", "0"),
+    frow("Z0006", "", "A", "1.25", "2.25", "ZZZ", "0", "0", "2", "2"),
+    frow("Z0007", "", "A", o.blankWork ? "" : o.work7 || "7.50", "13.75", "010", o.mult7 || "2", "0", "2", "0"),   // the whole service ...
+    frow("Z0007", "26", "A", "7.50", o.fac26 || "9.00", "010", "2", "0", "2", "0"),              // ... and its professional row: the facility total comes from here
+    frow("Z0007", "TC", "A", "0.00", "4.75", "010", "0", "0", "2", "0"),                         // a modifier row with another MULT PROC: listed in the report, never used
+    frow("Z0008", "", "A", "0.75", "1.05", "XXX", "4", "0", "9", "9"),
+    frow("Z0009", "", "A", "1.50", "2.40", "XXX", "9", "9", "9", "9"),
+    frow("Z0010", "", "I", "5.00", "8.00", "090", "2", "0", "2", "0"),                           // not valid: not selected
+    frow("Z0011", "", "A", "0.00", "1.00", "XXX", "0", "0", "0", "0"),                           // no work RVU: not selected
+    frow("Z0012", "", "R", "2.50", "3.50", "YYY", "5", "2", "0", "0"),                           // status R, B and T are payable like A: selected
+    frow("Z0013", "", "B", "1.10", "1.60", "MMM", "6", "3", "0", "0"),
+    frow("Z0014", "", "T", "0.80", "1.20", "XXX", "7", "0", "0", "0"),
+    frow("47562", "", "A", "11.00", "20.00", "010", "2", "0", "1", "0"),                         // the code the shipped data holds, with made-up figures and CMS's "new" words
+    frow("40491", "", "A", "1.00", "1.50", "XXX", "0", "0", "0", "0"),                           // a new numeric code: its category is guessed from its shipped neighbours
+    frow("86153", "", "A", "1.00", "1.50", "XXX", "0", "0", "0", "0"),                           // payable and with work, but the one code the builder leaves out
+  ].concat(o.two26 ? [frow("Z0007", "26", "A", "7.50", "9.00", "010", "2", "0", "2", "0")] : []));
+  // The baseline is what CMS said before. It words 47562 in another way than
+  // the input does, and our own descriptor is a third wording: a conflict.
+  const BASE = o => asFile(o, [title(yearIn(o, "baseYear", "2025")), H1, H2,
+    frow("Z0001", "", "A", "10.00", "18.50", "090", "2", "1", "2", "1"),
+  ].concat(o.baseLacks ? [] : [frow("47562", "", "A", "10.00", "18.00", "090", "2", "0", "2", "1", "", "Made-up older words 47562")]));
+  const PRIOR = o => asFile(o, [title(yearIn(o, "priorYear", "2025")), H1, H2,
+    frow("Z0001", "", "A", "10.50", "19.00", "090", "2", "1", "2", "1"),
+    frow("Z0002", "", "A", "0.00", "4.50", "000", "2", "0", "1", "0"),      // a payable row that says 0.00: 0
+    frow("Z0003", "26", "A", "3.90", "6.00", "000", "3", "0", "1", "0"),    // only a professional row, payable: its work RVU
+    frow("Z0005", "", "A", "0.57", "1.15", "ZZZ", "0", "0", "0", "0"),      // (Z0004 is not in the file: null.) 0.57 x 100 is 56.99999999999999: the sum of cents must round it, not cut it
+    frow("Z0006", "", "A", "1.25", "2.25", "ZZZ", "0", "0", "2", "2"),
+    frow("Z0007", "", "A", "7.25", "13.75", "010", "2", "0", "2", "0"),     // a payable base row ...
+    frow("Z0007", "26", "A", "7.00", "9.00", "010", "2", "0", "2", "0"),    // ... beside a payable professional row that says otherwise: the base row's, 7.25
+    frow("Z0008", "", "C", "0.00", "1.05", "XXX", "4", "0", "9", "9"),      // base row priced by the carrier ...
+    frow("Z0008", "26", "A", "0.70", "1.00", "XXX", "4", "0", "9", "9"),    // ... its professional row payable: 0.7
+    frow("Z0009", "", "I", "1.45", "2.40", "XXX", "9", "9", "9", "9"),      // not valid that year ...
+    frow("Z0009", "26", "I", "1.40", "2.00", "XXX", "9", "9", "9", "9"),    // ... nor is its professional row: null, not 1.45 or 1.4
+    frow("Z0012", "", "R", "2.40", "3.50", "YYY", "5", "2", "0", "0"),      // status R, B and T are payable in the prior file too
+    frow("Z0013", "26", "B", "1.00", "1.60", "MMM", "6", "3", "0", "0"),
+    frow("Z0014", "", "T", "0.85", "1.20", "XXX", "7", "0", "0", "0"),
+    frow("47562", "", "A", "10.75", "19.50", "090", "2", "0", "2", "1"),    // (40491 is not in the file: null)
+  ].concat(o.prior2 ? [frow("Z0001", "", "A", "10.40", "19.00", "090", "2", "1", "2", "1")] : []));
+  // Add-on records: type, add-on code, its deletion date, primary, its deletion
+  // date, effective date, edit deletion date. 2026-10-01 is day 2026274.
+  const pad7 = s => (s + "       ").slice(0, 7);
+  const ao = (type, aoc, aocDel, prim, primDel, eff, del) => type + aoc + pad7(aocDel) + prim + pad7(primDel) + pad7(eff) + pad7(del) + "made-up";
+  const ADDON = o => {
+    const recs = [
+      ao("1", "Z0004", "", "Z0001", "", "2013091", ""),          // live
+      ao("1", "Z0004", "", "Z0002", "", "2013091", ""),          // live: with Z0001 a run of two neighbours
+      ao("1", "Z0004", "", "Z0003", "", "2013091", "2026273"),   // its last day in effect was the day before: gone
+      ao("1", "Z0004", "", "Z0007", "", "2013091", "2026274"),   // its last day in effect IS the day: live
+      ao("1", "Z0004", "", "Z0008", "", "2026274", ""),          // starts ON the day: live (a run with Z0007)
+      ao("1", "Z0004", "", "Z0009", "2026001", "2013091", ""),   // its primary was deleted before: gone
+      ao("1", "Z0004", "", "Z0012", "", "2026274", "2026274"),   // deleted on the day it started: withdrawn back to its start, never in effect - gone, on that very day too
+      ao("1", "Z0004", "", "Y9999", "", "2013091", ""),          // a primary the fee schedule does not hold: a single code, last
+      ao("2", "Z0005", "", "CCCCC", "", "2013091", ""),          // type 2: no list
+      ao("3", "Z0006", "", "Z0001", "", "2013091", ""),          // type 3: a partial list ...
+      ao("3", "Z0006", "", "Z0003", "", "2013091", ""),          // ... Z0002 between them is not listed: two single codes
+      ao("3", "Z0006", "2026001", "Z0002", "", "2013091", ""),   // on this record the ADD-ON code itself was deleted before: gone (with it the three would be one run)
+      ao("1", "Q0001", "", "Z0001", "", "2013091", ""),          // an add-on code the app does not select: left out
+    ].concat(o.late ? [ao("1", "Z0004", "", "Z0010", "", "2026275", "")] : [])                 // starts the day after 2026-10-01
+      .concat(o.cut ? [ao("1", "Z0004", "", "Z0007", "", "2013091", "2026274").slice(0, o.cut)] : [])   // a damaged line: 31 characters end inside its effective date, 38 inside its edit deletion date
+      .concat(o.type9 ? [ao("9", "Z0004", "", "Z0001", "", "2013091", "")] : []);              // an edit type CMS does not use
+    // trimmed: no notes and no trailing blanks, as an editor's trim-on-save leaves a record (32 characters where the edit deletion date is blank)
+    const text = asFile(o, o.trimmed ? recs.map(r => r.slice(0, 39).replace(/ +$/, "")) : recs);
+    return o.noFinalBreak ? text.replace(/\r?\n$/, "") : text;
+  };
+  // What the expected text takes from the shipped data: the kept code's own
+  // row, and the category that the two shipped codes around 40491 share.
+  const shipped = rows || [];
+  const ours = shipped.filter(r => r[0] === "47562")[0];
+  const numeric = shipped.map(r => r[0]).filter(c => /^\d{5}$/.test(c)).sort();
+  const below = numeric.filter(c => c < "40491").pop(), above = numeric.filter(c => c > "40491")[0];
+  const catOf = c => shipped.filter(r => r[0] === c)[0][3];
+  let shippedMore = null;
+  try { shippedMore = new Function(cpt + "; return CMS_MORE;")(); } catch (e) { /* said below */ }
+  const premise = !ours ? "47562 is no longer in cpt-data.js: put another shipped code in its place in the made-up files" :
+    !below || !above || numeric.indexOf("40491") !== -1 || catOf(below) !== catOf(above) ? "40491 no longer sits in a gap between two shipped codes of one category: put another made-up numeric code in its place" :
+    !shippedMore || !shippedMore.addon || !shippedMore.endo ? "cpt-data.js has no CMS_MORE tables to compare the made-up ones with" : "";
+  const q = s => JSON.stringify(s).replace(/</g, "\\u003c").replace(/>/g, "\\u003e");   // the builder writes no raw angle bracket
+  // BY HAND, from the header's rules. Selected: a base row with work above 0
+  // and status A, R, B or T, less 86153 - fourteen codes, in code order
+  // (digits sort before letters). wRVU prints "10.0" for a whole number; the
+  // facility total and the prior-year value print plain.
+  const EXPECT_ROWS = premise ? [] : [
+    '["40491","Made-up 40491",1.0,' + q(catOf(below)) + ',"","XXX","0000",1.5,null]',   // new: CMS's words, the neighbours' category, no keywords
+    '["47562",' + q(ours[1]) + ",11.0," + q(ours[3]) + "," + q(ours[4] || "") + ',"010","2010",20,10.75]',   // kept: OUR words (the conflict keeps them), category and keywords; every figure from the files
+    '["Z0001","Made-up Z0001",10.0,"Other","","090","2121",18.5,10.5]',
+    '["Z0002","Made-up Z0002",3.0,"Other","","000","2010",4.5,0]',
+    '["Z0003","Made-up Z0003",4.0,"Other","","000","3010",6,3.9]',
+    '["Z0004","Made-up Z0004",2.0,"Other","","ZZZ","0021",3,null]',
+    '["Z0005","Made-up Z0005",0.5,"Other","","ZZZ","0000",1.15,0.57]',
+    '["Z0006","Made-up Z0006",1.25,"Other","","ZZZ","0022",2.25,1.25]',
+    '["Z0007","Made-up Z0007",7.5,"Other","","010","2020",9,7.25]',
+    '["Z0008","Made-up Z0008",0.75,"Other","","XXX","4099",1.05,0.7]',
+    '["Z0009","Made-up Z0009",1.5,"Other","","XXX","9999",2.4,null]',
+    '["Z0012","Made-up Z0012",2.5,"Other","","YYY","5200",3.5,2.4]',
+    '["Z0013","Made-up Z0013",1.1,"Other","","MMM","6300",1.6,1]',
+    '["Z0014","Made-up Z0014",0.8,"Other","","XXX","7000",1.2,0.85]',
+  ];
+  // The tables. On 2026-10-01 Z0004's live primaries are Z0001, Z0002, Z0007
+  // and Z0008 (two runs: the two pairs are neighbours in the sorted list of
+  // all the input's codes) and Y9999, which the input does not hold. On
+  // 2026-10-02, the day of the second run, Z0007's pair is past its last day
+  // and the pair with Z0010 has started: Z0008 and Z0010 are no neighbours
+  // (Z0009 lies between), so they are two single codes.
+  const AO_FIRST = "1:Z0001-Z0002 Z0007-Z0008 Y9999", AO_SECOND = "1:Z0001-Z0002 Z0008 Z0010 Y9999";
+  const textOf = (date, z4) => "const CMS_RAW=[\n" + EXPECT_ROWS.join(",\n") + "\n];\n" +
+    'const CMS_MORE={"addonAsOf":"' + date + '","priorYear":2025,"addon":{\n"Z0004":"' + z4 + '",\n"Z0005":"2",\n"Z0006":"3:Z0001 Z0003"\n},"endo":{\n"Z0002":"Z0003"\n}};\n';
+  const EXPECT = textOf("2026-10-01", AO_FIRST), EXPECT_SECOND = textOf("2026-10-02", AO_SECOND);
+  // The baselines of those fourteen rows, by hand. Facility totals in cents:
+  // 150 + 2000 + 1850 + 450 + 600 + 300 + 115 + 225 + 900 + 105 + 240 + 350 +
+  // 160 + 120 = 7565. Prior-year values: 1075 + 1050 + 0 + 390 + 57 + 125 +
+  // 725 + 70 + 240 + 100 + 85 = 3917 cents (0.57 is 57 cents: rounded), three
+  // rows without a value (40491, Z0004, Z0009), one real 0 (Z0002). Globals
+  // and indicator digits are counted off the rows. The add-on table has
+  // three codes, one of each type; 3 + 0 + 2 = 5 tokens on the first day and
+  // 4 + 0 + 2 = 6 on the second; 31 + 1 + 13 = 45 characters on both.
+  const EXPECT_FAC = 7565, EXPECT_PRIOR = { year: 2025, cents: 3917, none: 3, zero: 1 };
+  const EXPECT_GLOB = { "000": 2, "010": 2, "090": 1, "XXX": 4, "YYY": 1, "ZZZ": 3, "MMM": 1 };
+  const EXPECT_IND = { mult: { "0": 4, "2": 4, "3": 1, "4": 1, "5": 1, "6": 1, "7": 1, "9": 1 }, bilat: { "0": 10, "1": 1, "2": 1, "3": 1, "9": 1 }, asst: { "0": 5, "1": 3, "2": 4, "9": 2 }, co: { "0": 9, "1": 2, "2": 1, "9": 2 } };
+  const fnv = s => { let h = 0x811c9dc5; for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 0x01000193) >>> 0; } return ("0000000" + h.toString(16)).slice(-8); };
+  const EXPECT_MORE = (date, z4, tokens) => ({ addonAsOf: date, addon: { codes: 3, types: { "1": 1, "2": 1, "3": 1 }, tokens: tokens, chars: 45, hash: fnv("Z0004:" + z4 + "\nZ0005:2\nZ0006:3:Z0001 Z0003") }, endo: { bases: 1, members: 1, hash: fnv("Z0002:Z0003") } });
+  // The fingerprint is taken from the hand-derived text, never from what the builder wrote.
+  const EXPECT_HASH = premise ? "" : fnv(new Function(EXPECT + "; return CMS_RAW;")().map(r => r[0] + "|" + r[2] + "|" + r[5] + "|" + r[6] + "|" + r[7] + "|" + r[8] + "\n").join(""));
+  const errorOf = out => out.split(/\r?\n/).filter(l => /^\w*Error: /.test(l))[0] || out.slice(-200);
+  // The second accepted run: another day of the file's quarter (the name is
+  // held to the quarter, not to its first day), title lines that name no
+  // year (noted in the report, not refused), every file with CRLF line ends
+  // (CMS's own have them) and the add-on records without notes or trailing
+  // blanks (what an editor's trim-on-save leaves).
+  const SECOND = { noYear: true, crlf: true, trimmed: true, late: true, addonName: "AOC_V2026Q4-made-up.txt", date: "2026-10-02" };
+  let dirFx = null, good = null, second = null;
+  const refused = [];
+  let fxErr = "";
+  try {
+    if (premise) throw new Error(premise);
+    dirFx = fs.mkdtempSync(path.join(os.tmpdir(), "rvu-check-builder-"));
+    const BAD = [["an indicator value CMS does not document", { mult7: "8" }, /CMS indicator mult is "8"/],
+      ["an --input file of another year", { inYear: "2025" }, /its title line says 2025, but it was passed as the 2026 file/],
+      ["a --prior file of another year", { priorYear: "2024", baseYear: "2026" }, /its title line says 2024, but it was passed as the 2025 file/],   // its baseline says 2026, the year itself (a refresh): the run must get past the baseline to stop here
+      ["a --baseline file of a year that is neither --year nor the year before", { baseYear: "2024" }, /its title line says 2024, but --baseline must be the file the current data was built from - the 2026 file in a refresh, the 2025 file at a yearly swap/],
+      ["a --baseline file without a code that is kept from the current data", { baseLacks: true }, /47562: the current data holds this code, but --baseline has no row for it/],
+      ["a column name that occurs twice", { h1: H1.replace("NON-FACILITY", "FACILITY") }, /a required column name occurs more than once \(FACILITY TOTAL\)/],
+      ["a work RVU that is not a number", { work7: "n/a" }, /Z0007 WORK RVU is not a number: "n\/a"/],
+      ["a blank work RVU", { blankWork: true }, /Z0007 has a blank WORK RVU cell/],
+      ["two blank-modifier rows for one code in --prior", { prior2: true }, /Z0001: the --prior file has more than one blank-modifier row for it/],
+      ["two -26 rows for one code", { two26: true }, /Z0007 has more than one -26 row/],
+      ["a -26 facility total that only starts with a number", { fac26: "9.00x" }, /Z0007 \(-26 row\): FACILITY TOTAL is not an amount above zero: "9\.00x"/],
+      ["a -26 facility total below the work RVU", { fac26: "5.00" }, /Z0007 \(-26 row\): FACILITY TOTAL 5 is below its work RVU 7\.5/],
+      ["an add-on edit that starts after the date", { late: true }, /an edit that starts on day 2026275, after --addon-date 2026-10-01/],
+      ["an add-on record that ends inside its effective date (31 characters)", { cut: 31 }, /line 14: a record that ends before its effective date is complete/],
+      ["an add-on record that ends inside its edit deletion date (38 characters)", { cut: 38 }, /line 14: not an add-on code edit record \(layout changed\?\): "1Z0004       Z0007       2013091202627"/],
+      ["an add-on record of an edit type CMS does not use", { type9: true }, /line 14: not an add-on code edit record \(layout changed\?\)/],
+      ["an add-on file whose name says another quarter", { addonName: "AOC_V2026Q3-made-up.txt" }, /its name says 2026Q3, but --addon-date 2026-10-01 is in 2026Q4/],
+      ["an add-on file named for the same quarter of another year", { addonName: "AOC_V2025Q4-made-up.txt" }, /its name says 2025Q4, but --addon-date 2026-10-01 is in 2026Q4/],
+      ["an add-on file with no live record", { emptyAddon: true }, /no add-on record is live on 2026-10-01/],
+      ["an add-on file that does not end with a line break", { noFinalBreak: true }, /the file does not end with a line break \(its last characters are "[^"]*made-up"\)/]];
+    // Every run has its own folder and its own --input (the outputs land
+    // beside it, so "no candidate" is seen per run). The other three files are
+    // written once, in "usual"; a run gets a copy of its own only of a file
+    // that its knobs change. (Writing all four for every run took longer than
+    // the runs themselves.)
+    const usual = path.join(dirFx, "usual");
+    fs.mkdirSync(usual);
+    const USUAL = { "base.csv": BASE({}), "prior.csv": PRIOR({}), "addon.txt": ADDON({}) };
+    Object.keys(USUAL).forEach(n => fs.writeFileSync(path.join(usual, n), USUAL[n]));
+    const runs = [{}, SECOND].concat(BAD.map(b => b[1]));
+    const jobs = runs.map((o, i) => {
+      const d = path.join(dirFx, "run" + i);
+      fs.mkdirSync(d);
+      fs.writeFileSync(path.join(d, "in.csv"), INPUT(o));
+      const own = (name, text) => { if (text === USUAL[name]) return path.join(usual, name); fs.writeFileSync(path.join(d, name), text); return path.join(d, name); };
+      return [path.join(__dirname, "build-cpt-data.js"), "--input", path.join(d, "in.csv"), "--baseline", own("base.csv", BASE(o)), "--prior", own("prior.csv", PRIOR(o)), "--prior-year", "2025",
+        "--addon", own(o.addonName || "addon.txt", o.emptyAddon ? "" : ADDON(o)), "--addon-date", o.date || "2026-10-01", "--year", "2026"];
+    });
+    // The runs go side by side: one helper process starts them all and hands
+    // back each exit code and output.
+    const RUNNER = "const cp = require('child_process'); let s = ''; process.stdin.on('data', d => { s += d; }).on('end', () => { const jobs = JSON.parse(s), out = []; let left = jobs.length; " +
+      "jobs.forEach((a, i) => { const c = cp.spawn(process.execPath, a); let o = ''; c.stdout.on('data', d => { o += d; }); c.stderr.on('data', d => { o += d; }); " +
+      "c.on('close', code => { out[i] = { code: code, out: o }; if (--left === 0) process.stdout.write(JSON.stringify(out)); }); }); });";
+    const helper = cp.spawnSync(process.execPath, ["-e", RUNNER], { input: JSON.stringify(jobs), encoding: "utf8", maxBuffer: 1 << 27 });
+    // A helper that died, or whose answer is cut, is said with what it left behind - not as a bare JSON error.
+    let ran = null;
+    try { ran = JSON.parse(helper.stdout); } catch (e) { /* said in the next line */ }
+    if (!Array.isArray(ran) || ran.length !== jobs.length || ran.some(r => !r)) throw new Error("the helper process that runs the builder " + jobs.length + " times gave no whole answer: exit status " + helper.status + (helper.signal ? ", signal " + helper.signal : "") + (helper.error ? ", " + helper.error.message : "") + ", " + String(helper.stdout || "").length + " characters of output; its stderr begins: " + JSON.stringify(String(helper.stderr || "").slice(0, 300)));
+    const fileOf = (j, n) => { const f = path.join(path.dirname(j[2]), n); return fs.existsSync(f) ? fs.readFileSync(f, "utf8") : ""; };   // beside the run's --input
+    const results = ran.map((r, i) => ({ code: r.code, out: String(r.out), job: jobs[i], cand: fileOf(jobs[i], "cpt-data.2026.js"), report: fileOf(jobs[i], "cpt-update-REPORT.2026.md") }));
+    good = results[0]; second = results[1];
+    BAD.forEach((b, i) => { const r = results[i + 2]; if (!(r.code !== 0 && b[2].test(r.out) && r.cand === "")) refused.push(b[0] + " (" + (r.code === 0 ? "exit 0, the run went through" : "exit " + r.code + ": " + errorOf(r.out) + (r.cand === "" ? "" : " - and a candidate was written before the stop")) + ")"); });
+  } catch (e) { fxErr = e.message; }
+  try { if (dirFx) fs.rmSync(dirFx, { recursive: true, force: true }); } catch (e) { /* the OS clears its temp folder */ }
+  // An accepted run must end with exit 0, the hand-derived candidate, every
+  // expected line of the report (a text with a line break in it is a run of
+  // lines) and every baseline cell: the text between backticks on the one
+  // line that starts with its label, a JSON cell compared whatever the order
+  // of its keys.
+  const canon = v => v !== null && typeof v === "object" ? "{" + Object.keys(v).sort().map(k => JSON.stringify(k) + ":" + canon(v[k])).join(",") + "}" : JSON.stringify(v);
+  const judge = (r, cand, lines, cells) => {
+    if (r.code !== 0) return "the builder stops on the made-up files: " + errorOf(r.out);
+    if (r.cand !== cand) { const x = r.cand.split("\n"), y = cand.split("\n"); let k = 0; while (k < y.length && x[k] === y[k]) k++; return "candidate line " + (k + 1) + ": got " + JSON.stringify(x[k]) + ", want " + JSON.stringify(y[k]); }
+    const rep = r.report.split("\n");
+    const miss = lines.filter(w => w.indexOf("\n") === -1 ? rep.indexOf(w) === -1 : r.report.indexOf(w) === -1);
+    if (miss.length) return "the report lacks " + miss.length + " expected line(s): " + miss.slice(0, 4).map(w => JSON.stringify(w)).join(", ");
+    const off = cells.map(c => {
+      const l = rep.filter(x => x.indexOf("| " + c[0] + " | ") === 0), m = l.length === 1 ? /`([^`]*)`/.exec(l[0]) : null;
+      let same = false;
+      try { same = !!m && (typeof c[1] === "string" ? m[1] === c[1] : canon(JSON.parse(m[1])) === canon(c[1])); } catch (e) { same = false; }
+      return same ? "" : c[0] + ": the report says " + (m ? m[1] : "nothing (no such line, or more than one)") + ", by hand it is " + (typeof c[1] === "string" ? c[1] : JSON.stringify(c[1]));
+    }).filter(Boolean);
+    return off.length ? "a baseline in the report is not the hand-derived one - " + off.join(" | ") : "";
+  };
+  let fxWhy = fxErr;
+  if (!fxWhy && good && second) {
+    const at = (r, flag) => path.resolve(r.job[r.job.indexOf(flag) + 1]);   // the path the run was given after that flag
+    // A figure of the kept code that the made-up file changes is listed with the shipped value it had.
+    const moved = (head, from, to) => from === to ? [head + " (0)"] : [head + " (1)", "- 47562: " + from + " -> " + to + " (" + ours[1] + ")"];
+    // Every shipped table entry is gone from the made-up tables, and their four entries are new.
+    const tableChanges = 4 + Object.keys(shippedMore.addon).length + Object.keys(shippedMore.endo).reduce((n, b) => n + String(shippedMore.endo[b]).split(" ").length, 0);
+    const MORE_LABEL = "Add-on and endoscopy tables (the new MORE_BASELINE)";
+    const why1 = judge(good, EXPECT, [
+      "Input: " + at(good, "--input") + " (its title line says 2026)", "Baseline: " + at(good, "--baseline") + " (its title line says 2025)", "Prior: " + at(good, "--prior") + " (passed as 2025; its title line says 2025)", "Add-on: " + at(good, "--addon") + " (as of 2026-10-01)",
+      "| Candidate rows | **14** (this is the new CMS_ROW_BASELINE for check.js) |", "| Kept from current set | 1 |", "| Added | 13 |", "| Removed | " + (shipped.length - 1) + " |",
+      "| Descriptors: took CMS update | 0 |", "| Descriptors: kept our curation | 0 |", "| Descriptors: CONFLICTS to review | **1** |",
+      "- **47562**\n  - ours (kept): " + ours[1] + "\n  - CMS 2025: Made-up older words 47562\n  - CMS 2026: Made-up 47562",
+      "## New codes - category worklist (13)", "- 40491 -> \"" + catOf(below) + "\" [high (neighbors agree: " + parseInt(below, 10) + "/" + parseInt(above, 10) + ")] Made-up 40491",
+      "## Add-on and endoscopy changes (" + tableChanges + ")", "- add-on Z0004: new entry " + AO_FIRST, "- add-on Z0005: new entry 2", "- add-on Z0006: new entry 3:Z0001 Z0003", "- endoscopy Z0003: now in the family of Z0002",
+      "- Z0007-TC: 0020 (base row 2020)", "- Z0007: 9 (base row 13.75)",   // the report's two lists of modifier rows
+    ].concat(moved("## Indicator changes", ours[6], "2010"), moved("## Global period changes", ours[5], "010")),
+    [["Global period distribution (the new GLOB_BASELINE for check.js)", EXPECT_GLOB], ["Indicator distributions (the new IND_BASELINE for check.js)", EXPECT_IND], ["Facility totals, summed in cents (the new FAC_SUM_BASELINE)", EXPECT_FAC],
+      ["Fingerprint of every row's wRVU, global, indicators, facility total and prior-year value (the new POLICY_HASH_BASELINE)", EXPECT_HASH], ["Prior-year (2025) work RVU (the new PRIOR_BASELINE)", EXPECT_PRIOR], [MORE_LABEL, EXPECT_MORE("2026-10-01", AO_FIRST, 5)]]);
+    const NO_YEAR = "**its title line names no year - check it by hand**";
+    const why2 = why1 ? "" : judge(second, EXPECT_SECOND, ["Input: " + at(second, "--input") + " (" + NO_YEAR + ")", "Baseline: " + at(second, "--baseline") + " (" + NO_YEAR + ")", "Prior: " + at(second, "--prior") + " (passed as 2025; " + NO_YEAR + ")",
+      "Add-on: " + at(second, "--addon") + " (as of 2026-10-02)", "- add-on Z0004: new entry " + AO_SECOND], [[MORE_LABEL, EXPECT_MORE("2026-10-02", AO_SECOND, 6)]]);
+    fxWhy = why1 ? "the first run - " + why1 : why2 ? "the second run (another day of the quarter, no year in the title lines, CRLF line ends, trimmed add-on records) - " + why2 : "";
+  }
+  check("build-cpt-data.js on made-up files: the candidate is the hand-derived text (codes of status A, R, B and T with work, less the one excluded code; a code the shipped data holds keeps its curated descriptor, category and keywords and takes the file's figures; a new numeric code takes the category its shipped neighbours share; the facility total from the -26 row where there is one; the prior-year value from a payable base row, else a payable -26 row, else null; an add-on pair live through its last day and from its first, gone when its add-on code or its primary was deleted or when it was withdrawn back to its start; runs, single codes and unknown primaries as tokens), the report names its four source files, carries the candidate's seven baselines, and lists the descriptor conflict, the new code's category, the changes and the modifier rows that differ from the base row; and a second run on another day of the quarter, from files whose title lines name no year, with CRLF line ends and trimmed add-on records, is judged on that day and says so",
+    !!good && !!second && fxWhy === "", fxWhy);
+  check("build-cpt-data.js stops, with its own message and no candidate, on: an indicator value CMS does not document, an --input or --prior file of another year, a --baseline file of a year that is neither --year nor the year before, a --baseline file without a code kept from the current data, a column name that occurs twice, a work RVU that is blank or not a number, two blank-modifier rows for one code in --prior, two -26 rows for one code, a -26 facility total that is not an amount or is below the work RVU, an add-on edit that starts after the date, an add-on record that ends inside its effective date or inside its edit deletion date or has an edit type CMS does not use, an add-on file named for another quarter or for the same quarter of another year, an add-on file with no live record, an add-on file that does not end with a line break",
+    !fxErr && refused.length === 0, fxErr || refused.join(" | "));
 }
 check("cpt-data.js has no raw < or > characters", !/[<>]/.test(cpt), "descriptors must escape angle brackets as unicode escapes");
-// 6a. Global periods have ONE source (CMS_RAW[5]): no CPT code may be typed
-// into utils.js between "var GLOBAL_DAYS" and "var COMPANION_CODES" again
-// (a hand list there drifted from CMS on 399 codes). Self-tested so the gate
-// can never silently become a no-op.
+// 6a. Global periods and the CMS policy lookups have ONE source (CMS_RAW and
+// CMS_MORE): no CPT code may be typed into utils.js between "var GLOBAL_DAYS"
+// and "var COMPANION_CODES" again (a hand list there drifted from CMS on 399
+// codes). Each marker must occur exactly ONCE in the file, comments included -
+// a second "var COMPANION_CODES" above a typed list would end the scanned
+// stretch early. Self-tested so the gate can never silently become a no-op.
 const CODE_TOKEN = /(^|[^0-9A-Za-z_])(\d{5}|\d{4}[A-Z]|[A-Z]\d{4})(?![0-9A-Za-z_])/;
 const gdStart = utils.indexOf("var GLOBAL_DAYS"), gdEnd = utils.indexOf("var COMPANION_CODES");
-check("global-days gate self-test (catches a hand list)", CODE_TOKEN.test("15734,15733") && CODE_TOKEN.test("\"49591\": 90") && CODE_TOKEN.test("G2211") && !CODE_TOKEN.test("\"000\" \"ZZZ\" CMS_RAW[5]"));
-check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_RAW)", gdStart !== -1 && gdEnd > gdStart && !CODE_TOKEN.test(utils.slice(gdStart, gdEnd)),
-  gdStart === -1 || gdEnd <= gdStart ? "markers missing or out of order" : (utils.slice(gdStart, gdEnd).match(CODE_TOKEN) || [""])[0]);
+const gdOnce = utils.split("var GLOBAL_DAYS").length === 2 && utils.split("var COMPANION_CODES").length === 2;
+check("global-days gate self-test (catches a hand list)", CODE_TOKEN.test("15734,15733") && CODE_TOKEN.test("\"49591\": 90") && CODE_TOKEN.test("G2211") && !CODE_TOKEN.test("\"000\" \"ZZZ\" CMS_RAW[5]") && !CODE_TOKEN.test("r[6] \"2021\" /^[0-9]{4}$/ CMS_MORE"));
+check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_RAW and CMS_MORE; each marker exactly once)", gdOnce && gdStart !== -1 && gdEnd > gdStart && !CODE_TOKEN.test(utils.slice(gdStart, gdEnd)),
+  !gdOnce ? "a marker is missing or occurs more than once" : gdStart === -1 || gdEnd <= gdStart ? "markers missing or out of order" : (utils.slice(gdStart, gdEnd).match(CODE_TOKEN) || [""])[0]);
+// The gate above reads one stretch of one file for one shape of token. Three
+// pins close the ways past it (each was shown to pass): the nine CMS lookups
+// sit INSIDE the stretch (a marker cannot be moved around them); every text,
+// number and pattern literal in the stretch is one of today's (a code built
+// from pieces, a pattern or arithmetic is a new literal); and the code-shaped
+// tokens of utils.js OUTSIDE its three curated tables, and per other file, are
+// today's (a typed code in proposeCaseModifiers, or a typed list in a view,
+// moves a pin). Move a pin only for a code that is curated on purpose.
+// The scan reads each file as plain text: a token is five characters SHAPED
+// like a code (five digits, four digits and a capital, a capital and four
+// digits), so a plain five-digit number and a word in a comment count too.
+// Of the fifteen pinned tokens of utils.js none is a code typed in code: nine
+// are codes named in comments, the others timeouts and plain numbers. So the
+// failure line names each token that moved, with its line, and says how to
+// write a new number that is no code: as a product (15 * 1000), which has no
+// such shape and moves no pin.
+{
+  const utilsLf = utils.replace(/\r\n/g, "\n");
+  const gA = utilsLf.indexOf("var GLOBAL_DAYS"), gB = utilsLf.indexOf("var COMPANION_CODES");
+  const outside = ["var CMS_POLICY", "var CMS_TABLES", "var CMS_ADDON", "var CMS_ENDO", "function cmsOwn(", "function cmsPolicy(", "function addOnRule(", "function addOnAllows(", "function endoFamily("]
+    .filter(s => { const i = utilsLf.indexOf(s); return !(i > gA && i < gB) || utilsLf.split(s).length !== 2; });
+  const lits = [];
+  try {
+    walk(parser.parse(utilsLf, { sourceType: "script" }).program, n => {
+      if (typeof n.start !== "number" || n.start < gA || n.end > gB) return;
+      if (n.type === "StringLiteral") lits.push("s:" + n.value);
+      else if (n.type === "NumericLiteral") lits.push("n:" + (n.extra && n.extra.raw ? n.extra.raw : n.value));
+      else if (n.type === "BigIntLiteral") lits.push("b:" + n.value);
+      else if (n.type === "RegExpLiteral") lits.push("r:/" + n.pattern + "/" + n.flags);
+      else if (n.type === "TemplateElement") lits.push("t:" + n.value.raw);
+      else if (n.type === "Identifier" && /[0-9]{4}/.test(n.name)) lits.push("i:" + n.name);
+    });
+  } catch (e) { lits.push("parse: " + e.message); }
+  const litsSeen = Array.from(new Set(lits)).sort();
+  const LITS_PIN = ["n:0", "n:1", "n:2", "n:3", "n:5", "n:6", "n:7", "n:8", "r:/^[0-9]{4}$/", "r:/^[123](:.+)?$/", "s:", "s: ", "s:-", "s:0-day", "s:000", "s:010", "s:090", "s:10-day", "s:2", "s:90-day", "s:ZZZ", "s:add-on", "s:number", "s:object", "s:string", "s:undefined",
+    "s:var(--global-0)", "s:var(--global-10)", "s:var(--global-90)"];
+  const TOKEN_G = new RegExp(CODE_TOKEN.source, "g");
+  const cut = name => { const a = utilsLf.indexOf("var " + name + " = {"), b = utilsLf.indexOf("\n};", a); return a === -1 || b === -1 ? null : [a, b]; };
+  const tabs = ["KEYWORD_SUPPLEMENT", "FRIENDLY_DESC", "COMPANION_CODES"].map(cut);
+  // Every token is kept with its line ([token, line]), so the failure line
+  // can name it.
+  const tokensOf = (text, skip) => { const out = []; let m; TOKEN_G.lastIndex = 0; while ((m = TOKEN_G.exec(text))) { if (!skip || !skip(m.index)) out.push([m[2], text.slice(0, m.index + m[1].length).split("\n").length]); } return out; };
+  const tabsOk = tabs.every(t => !!t);
+  const looseAt = tabsOk ? tokensOf(utilsLf, at => tabs.some(t => at >= t[0] && at < t[1])) : [];
+  // Sorted HERE, before the check call: sorted inside the condition, a
+  // failure of an earlier part left the list unsorted, and the failure line
+  // then showed all fifteen unchanged tokens as a difference.
+  const loose = looseAt.map(t => t[0]).sort();
+  const LOOSE_PIN = ["15000", "15000", "19301", "19303", "38525", "38525", "38525", "38900", "44005", "47562", "47562", "52803", "60000", "64931", "99999"];
+  const perFileTokens = {}, perFileAt = {};
+  jsFiles.filter(f => f !== "utils.js" && f !== "cpt-data.js").forEach(f => { const at = tokensOf(fs.readFileSync(path.join(JS_DIR, f), "utf8")); if (at.length) { perFileTokens[f] = at.length; perFileAt[f] = at; } });
+  const FILE_TOKENS_PIN = { "compare.js": 3, "crypto.js": 2, "history.js": 1, "log.js": 81 };
+  // The failure line: what moved, in words, and only what moved. utils.js is
+  // pinned token by token, so its new and gone tokens are named. Another file
+  // is pinned by its count alone, so a file whose count moved prints every
+  // token it holds, by line - the new one is among them.
+  const without = (a, b) => { const left = b.slice(); return a.filter(x => { const i = left.indexOf(x); if (i === -1) return true; left.splice(i, 1); return false; }); };
+  const linesOf = tok => looseAt.filter(t => t[0] === tok).map(t => t[1]).join(", ");
+  const byLine = at => Array.from(new Set(at.map(t => t[1]))).map(n => "line " + n + ": " + at.filter(t => t[1] === n).map(t => t[0]).join(" ")).join(", ");
+  const tokenWhy = (tabsOk ? Array.from(new Set(without(loose, LOOSE_PIN))).map(t => "utils.js: new " + t + " (line " + linesOf(t) + ")") : [])
+    .concat(tabsOk ? Array.from(new Set(without(LOOSE_PIN, loose))).map(t => "utils.js: gone " + t + (linesOf(t) ? " (still on line " + linesOf(t) + ")" : "")) : [])
+    .concat(Object.keys(Object.assign({}, FILE_TOKENS_PIN, perFileTokens)).sort().filter(f => (perFileTokens[f] || 0) !== (FILE_TOKENS_PIN[f] || 0)).map(f => f + ": " + (perFileTokens[f] || 0) + " found, " + (FILE_TOKENS_PIN[f] || 0) + " pinned" + (perFileAt[f] ? " (" + byLine(perFileAt[f]) + ")" : "")));
+  const newLits = litsSeen.filter(x => LITS_PIN.indexOf(x) === -1), goneLits = LITS_PIN.filter(x => litsSeen.indexOf(x) === -1);
+  const typedWhy = (outside.length ? ["not between the two markers exactly once: " + outside.join(", ")] : [])
+    .concat(newLits.length || goneLits.length ? ["literals between the markers (s: text, n: number, r: pattern) - new: " + (newLits.join(", ") || "none") + "; gone: " + (goneLits.join(", ") || "none") + " - a code must not be typed there; anything else goes into LITS_PIN"] : [])
+    .concat(tabsOk ? [] : ["a curated table of utils.js (KEYWORD_SUPPLEMENT, FRIENDLY_DESC or COMPANION_CODES) was not found as `var NAME = {` ... `};`, so the tokens outside the three could not be read"])
+    .concat(tokenWhy.length ? ["code-shaped tokens - " + tokenWhy.join("; ") + " - any five characters shaped like a code count, a plain five-digit number and a word in a comment too. A new number that is no code: write it as a product (15 * 1000) and no pin moves. A token that is gone: take it out of its pin (LOOSE_PIN lists utils.js token by token, FILE_TOKENS_PIN counts per file). Add to a pin only for a code typed on purpose"] : []);
+  check("typed codes: the nine CMS lookups sit between the two markers, once each; the literals between the markers are the pinned ones; the code-shaped tokens of utils.js outside its three curated tables, and of every other file, are the pinned ones",
+    outside.length === 0 && JSON.stringify(litsSeen) === JSON.stringify(LITS_PIN) && tabsOk && JSON.stringify(loose) === JSON.stringify(LOOSE_PIN) && JSON.stringify(perFileTokens) === JSON.stringify(FILE_TOKENS_PIN),
+    typedWhy.join(" | ") || "a pin holds today's values in another order: keep each pin sorted");
+}
 
 // 6b. CPT search ranking (rankCPTMatches) on the REAL CPT database: same
 // match set as matchesCPTQuery, reordered - exact code, prefix, usage,
@@ -2872,6 +3483,57 @@ try {
   vm.runInContext(utils, sb, { filename: "utils.js" });
 } catch (e) { sbErr = e.message; sb = null; }
 check("utils.js loads in a vm sandbox", !!sb, sbErr);
+// For a moment after an update a phone can hold this utils.js beside an OLDER
+// cpt-data.js (six elements a row, no CMS_MORE), and a phone whose data file
+// failed to load has an empty CMS_RAW (crypto.js). utils.js must still load,
+// build its database, and have NO CMS policy: nothing is proposed, nothing
+// throws.
+if (rows) {
+  const mixed = (label, dataText) => {
+    try {
+      const noop = () => {};
+      const c2 = vm.createContext({ console, React: {}, localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+        document: { createElement: () => ({ style: {}, appendChild: noop, setAttribute: noop }), head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+      vm.runInContext(dataText, c2, { filename: "cpt-data-older.js" });
+      vm.runInContext(utils, c2, { filename: "utils.js" });
+      const p = c2.proposeCaseModifiers([{ code: "47562", modifiers: [], baseRVU: 10.21 }, { code: "44970", modifiers: ["-51"], baseRVU: 9.21 }, { code: "44121", modifiers: ["-51"], baseRVU: 4.33 }]);
+      return { label: label, db: vm.runInContext("CPT_DATABASE_DEFAULT.length", c2), glob: Object.keys(c2.GLOBAL_DAYS).length, policy: Object.keys(c2.CMS_POLICY).length, pol: c2.cmsPolicy("47562"), addOn: c2.addOnRule("44121"), allows: c2.addOnAllows("44121", "44120"), fam: c2.endoFamily("45380"),
+        changed: p.changed, alt: p.alt, flags: p.lines.map(l => l.flags.map(f => f.kind).join("+")).join(" | "), calc: c2.calcAdj(10, ["-51"]) };
+    } catch (e) { return { label: label, threw: e.message }; }
+  };
+  const six = mixed("six-element rows, no CMS_MORE", "const CMS_RAW=" + JSON.stringify(rows.map(r => r.slice(0, 6))) + ";\n");
+  const none = mixed("no data file", "var CMS_RAW=[];\n");
+  const okMixed = m => !m.threw && m.policy === 0 && m.pol === null && m.addOn === null && m.allows === null && m.fam === "" && m.changed === false && m.alt === null && m.flags === "no-cms-data | no-cms-data | no-cms-data" && m.calc === 5;
+  check("utils.js beside an older cpt-data.js (six elements a row, no CMS_MORE) or none at all: it loads, the database and the global chips are as before, there is no CMS policy and nothing is proposed",
+    okMixed(six) && six.db === rows.length && six.glob === rows.length && okMixed(none) && none.db === 0 && none.glob === 0, JSON.stringify([six, none]));
+  // A CMS_MORE this build cannot read (another build's, or a damaged one) is
+  // no table: a value it does not understand is NO rule - no pairing answer,
+  // no add-on flag, no endoscopy family - and nothing throws. The rows' own
+  // policy still loads.
+  const oddMore = (label, moreText) => {
+    try {
+      const noop = () => {};
+      const c2 = vm.createContext({ console, React: {}, localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+        document: { createElement: () => ({ style: {}, appendChild: noop, setAttribute: noop }), head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+      vm.runInContext("const CMS_RAW=" + JSON.stringify(rows) + ";\n" + moreText, c2, { filename: "cpt-data-odd.js" });
+      vm.runInContext(utils, c2, { filename: "utils.js" });
+      const codes = ["44121", "44213", "49623", "38900", "49327", "76937", "77001", "constructor"];
+      const fl = lines => c2.proposeCaseModifiers(lines).lines.map(l => l.flags.map(f => f.kind).join("+")).join(" | ");
+      return { label: label, policy: Object.keys(c2.CMS_POLICY).length, rules: codes.filter(c => c2.addOnRule(c) !== null), allows: codes.filter(c => c2.addOnAllows(c, "44120") !== null),
+        fam: ["45378", "45380", "45385", "constructor"].filter(c => c2.endoFamily(c) !== ""),
+        a: fl([{ code: "44120", modifiers: [], baseRVU: 20 }, { code: "44121", modifiers: ["-51"], baseRVU: 4 }]), b: fl([{ code: "44227", modifiers: [], baseRVU: 28 }, { code: "44213", modifiers: [], baseRVU: 3.5 }]) };
+    } catch (e) { return { label: label, threw: e.message }; }
+  };
+  const odds = [
+    oddMore("CMS_MORE is null", "const CMS_MORE=null;\n"),
+    oddMore("CMS_MORE is text", "const CMS_MORE=\"1:44120\";\n"),
+    oddMore("its tables are not tables", "const CMS_MORE={\"addon\":\"1:44120\",\"endo\":7};\n"),
+    oddMore("values of another shape", "const CMS_MORE=" + JSON.stringify({ addonAsOf: "2026-10-01", priorYear: 2025,
+      addon: { "44121": "4:44120", "44213": "x:44204-44208", "49623": 7, "38900": "", "49327": "1:", "76937": ":44120", "77001": "12:36561" }, endo: { "45378": 5, "45380": null } }) + ";\n"),
+  ];
+  check("utils.js beside a CMS_MORE it cannot read (null, text, tables that are not tables, values of another shape): it loads, every row keeps its policy, and an unreadable value is no rule - no pairing answer, no add-on flag, no endoscopy family",
+    odds.every(m => !m.threw && m.policy === rows.length && m.rules.length === 0 && m.allows.length === 0 && m.fam.length === 0 && m.a === " | 51-never" && m.b === " | "), JSON.stringify(odds));
+}
 if (sb) {
   const ymdOf = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   const holidaysIn = y => { const out = []; for (let d = new Date(y, 0, 1); d.getFullYear() === y; d.setDate(d.getDate() + 1)) { if (sb.payHolidayName(ymdOf(d))) out.push(ymdOf(d)); } return out; };
@@ -3012,41 +3674,589 @@ if (sb) {
   const stylesSrc = fs.readFileSync(path.join(JS_DIR, "styles.js"), "utf8");
   check("global chip color tokens defined for dark AND light mode (each exactly twice in styles.js)",
     ["--global-90:", "--global-10:", "--global-0:"].every(t => stylesSrc.split(t).length - 1 === 2));
+  // CMS policy lookups (utils.js cmsPolicy / addOnRule / addOnAllows /
+  // endoFamily), derived from CMS_RAW[6..8] and CMS_MORE like GLOBAL_DAYS:
+  // every database code's policy equals its own row; an unknown code, a
+  // non-string and an inherited property name have none.
+  {
+    const polBad = [];
+    rows.forEach(r => { const p = sb.cmsPolicy(r[0]); if (!p || p.mult + p.bilat + p.asst + p.co !== r[6] || p.facTotal !== r[7] || p.priorWork !== r[8] || Object.keys(p).join() !== "mult,bilat,asst,co,facTotal,priorWork") polBad.push(r[0]); });
+    const none = ["ZZZZZ", "", null, undefined, 47562, "constructor", "toString", "__proto__", "hasOwnProperty"];
+    check("CMS policy lookups: all " + rows.length + " database codes match their own row (four indicators, facility total, prior-year work RVU); unknown codes, non-strings and inherited names have none",
+      polBad.length === 0 && Object.keys(sb.CMS_POLICY).length === rows.length && none.every(c => sb.cmsPolicy(c) === null && sb.addOnRule(c) === null && sb.addOnAllows(c, "47562") === null && sb.endoFamily(c) === ""),
+      polBad.slice(0, 5).join(", ") + " " + JSON.stringify(none.filter(c => sb.cmsPolicy(c) !== null || sb.addOnRule(c) !== null || sb.endoFamily(c) !== "")));
+    // The add-on table decodes: a single primary, a range (string order), a
+    // list with gaps, a type 2 code (no list: nothing to test against), a
+    // type 3 code (a partial list), a code that is no add-on at all.
+    const AO = [ // [add-on, primary, CMS lists it?]
+      ["44121", "44120", true], ["44121", "44140", false], ["49623", "49618", true], ["49623", "49591", true], ["49623", "49650", false],
+      ["44213", "44204", true], ["44213", "44208", true], ["44213", "44227", false], ["38900", "38525", true], ["38900", "19302", true], ["38900", "19301", false],
+      ["11008", "10180", true], ["11008", "11005", true], ["11008", "49618", false], ["49327", "47562", true], ["49327", "44120", false],
+      ["76937", "36561", null], ["77001", "36561", null], ["47562", "44120", null], ["44121", "", false], ["44121", null, false], ["44213", "4420", false], ["44213", "442050", false],
+    ];
+    const aoBad = AO.filter(t => sb.addOnAllows(t[0], t[1]) !== t[2]).map(t => t[0] + "+" + t[1] + " -> " + sb.addOnAllows(t[0], t[1]));
+    const rule = c => { const x = sb.addOnRule(c); return x ? x.type + ":" + x.tokens.join(" ") : "none"; };
+    const ruleCount = rows.filter(r => sb.addOnRule(r[0]) !== null).length;
+    check("add-on table lookups: single primaries, ranges, gaps, type 2 (no list) and type 3 (partial list) decode; " + MORE_BASELINE.addon.codes + " database codes have a rule",
+      aoBad.length === 0 && rule("44121") === "1:44120" && rule("44213") === "1:44204-44208" && rule("76937") === "2:" && rule("49327").indexOf("3:") === 0 && rule("47562") === "none" && ruleCount === MORE_BASELINE.addon.codes,
+      aoBad.join(", ") + " " + rule("44121") + " " + rule("44213") + " " + rule("76937") + " rules " + ruleCount);
+    const famCount = rows.filter(r => sb.endoFamily(r[0]) !== "").length;
+    const FAM = [["45380", "45378"], ["45385", "45378"], ["45378", "45378"], ["46601", "46600"], ["46600", "46600"], ["43239", "43235"], ["49321", "49320"], ["47562", ""], ["44970", ""], ["99213", ""]];
+    const famBad = FAM.filter(t => sb.endoFamily(t[0]) !== t[1]).map(t => t[0] + " -> " + sb.endoFamily(t[0]));
+    check("endoscopy family lookups: a member and its base name the same family, other codes none; " + (MORE_BASELINE.endo.members + MORE_BASELINE.endo.bases) + " database codes are in a family",
+      famBad.length === 0 && famCount === MORE_BASELINE.endo.members + MORE_BASELINE.endo.bases, famBad.join(", ") + " in a family: " + famCount);
+  }
+  // Lead code and modifier proposal (utils.js proposeCaseModifiers): the ONE
+  // rule the Log card and the review will call. It proposes and flags; it
+  // writes nothing. Cases are code combinations only. The figures and the
+  // leaders are CY2026 facts (work RVU, indicators, facility totals of these
+  // codes): the yearly swap re-reads them, like the global spot checks.
+  // A throw in here - inside the function, or on a data row these cases cannot
+  // read - must be ONE red line with the rest of the run still to come, never
+  // the end of the run (the checks after it would not be seen at all).
+  try {
+    const J = x => JSON.stringify(x);
+    const W = c => { const r = rows.filter(x => x[0] === c)[0]; return r ? r[2] : 0; };
+    const ln = (code, mods, base) => ({ code: code, modifiers: mods || [], baseRVU: base === undefined ? W(code) : base });
+    const P = lines => sb.proposeCaseModifiers(lines);
+    const near = (a, b) => Math.abs(a - b) < 1e-9;
+    // A modifier that is no text is printed as JSON, so a case that holds one
+    // can still print its own failure (Array.join would throw on some).
+    const mt = m => typeof m === "string" ? m : JSON.stringify(m);
+    const prop = r => r.lines.map(l => l.proposed.map(mt).join(" ")).join(" | ");
+    const altProp = r => r.alt ? r.alt.lines.map(l => l.proposed.map(mt).join(" ")).join(" | ") : "none";
+    const kinds = r => r.lines.map(l => l.flags.map(f => f.kind).join("+")).join(" | ");
+    const noteKinds = r => r.notes.map(n => n.kind).join("+");
+    const leads = r => r.lines.map((l, i) => l.lead ? i : "").join("");
+    const altLeads = r => r.alt ? r.alt.lines.map((l, i) => l.lead ? i : "").join("") : "none";
+    const pol = c => sb.cmsPolicy(c) || {};
+    const show = r => J({ prop: prop(r), flags: kinds(r), notes: noteKinds(r), lead: leads(r), before: r.totalBefore, after: r.totalAfter, alt: altProp(r), altAfter: r.alt ? r.alt.totalAfter : null });
+    const bad = [];
+    const want = (label, r, o) => {
+      const why = [];
+      if (o.prop !== undefined && prop(r) !== o.prop) why.push("proposed " + prop(r));
+      if (o.flags !== undefined && kinds(r) !== o.flags) why.push("flags " + kinds(r));
+      if (o.notes !== undefined && noteKinds(r) !== o.notes) why.push("notes " + noteKinds(r));
+      if (o.lead !== undefined && leads(r) !== o.lead) why.push("lead " + leads(r));
+      if (o.before !== undefined && !near(r.totalBefore, o.before)) why.push("before " + r.totalBefore);
+      if (o.after !== undefined && !near(r.totalAfter, o.after)) why.push("after " + r.totalAfter);
+      if (o.alt !== undefined && altProp(r) !== o.alt) why.push("alt " + altProp(r));
+      if (o.altAfter !== undefined && !(r.alt && near(r.alt.totalAfter, o.altAfter))) why.push("alt total " + (r.alt ? r.alt.totalAfter : "none"));
+      if (o.changed !== undefined && r.changed !== o.changed) why.push("changed " + r.changed);
+      if (o.altChanged !== undefined && !(r.alt && r.alt.changed === o.altChanged && r.alt.changed === r.alt.lines.some(l => l.changed))) why.push("alt changed " + (r.alt ? r.alt.changed : "none"));
+      if (o.altLead !== undefined && altLeads(r) !== o.altLead) why.push("alt lead " + altLeads(r));
+      if (o.settled !== undefined && r.settled !== o.settled) why.push("settled " + r.settled);
+      if (why.length) bad.push(label + " -> " + why.join(", "));
+    };
+    // The four worked cases.
+    const c1 = P([ln("49618"), ln("44120"), ln("44121"), ln("44121"), ln("44121"), ln("49623")]);
+    want("hernia + small-bowel resection + 3 add-ons + mesh add-on: the higher work RVU leads; the facility total names the other code, so both orders come back", c1,
+      { prop: " | -51 |  |  |  | ", flags: " |  |  |  |  | ", notes: "measures-disagree", lead: "0", before: 59.05, after: 48.90, alt: "-51 |  |  |  |  | ", altAfter: 48.00, changed: true, altChanged: true, altLead: "1", settled: false });
+    const c2 = P([ln("15734", ["-50"]), ln("49618")]);
+    want("flap with -50 + hernia: the flap leads, its -50 is flagged (CMS allows no bilateral adjustment) and still counts as entered", c2,
+      { prop: "-50 | -51", flags: "bilateral | ", notes: "", lead: "0", before: 55.745, after: 44.695, alt: "none", changed: true });
+    const c3 = P([ln("19301"), ln("38525"), ln("38900"), ln("36561"), ln("76937"), ln("77001")]);
+    want("lumpectomy + node excision + port + three add-ons: one leader, two -51, add-ons untouched and unflagged", c3,
+      { prop: " | -51 |  | -51 |  | ", flags: " |  |  |  |  | ", notes: "", lead: "0", before: 24.90, after: 18.94, alt: "none", changed: true });
+    const c4 = P([ln("44227"), ln("44213")]);
+    want("ostomy closure + an add-on whose primaries are other codes: nothing proposed, the add-on is flagged", c4,
+      { prop: " | ", flags: " | add-on-primary", notes: "", lead: "0", before: 31.31, after: 31.31, alt: "none", changed: false });
+    check("CONTRACT: proposeCaseModifiers - the four worked cases (CY2026): exact proposed modifiers, flags, leader, both totals, and the facility-total order where it names another leader",
+      bad.length === 0 && c4.lines[1].flags[0].text.indexOf("44204 to 44208") !== -1 && c2.lines[0].flags[0].text.indexOf("15734") === 0 && c1.notes[0].text === "By work RVU 49618 leads; by CMS's facility total 44120 would lead" &&
+        J(c1.alt.lines.map(l => l.changed)) === "[true,false,false,false,false,false]",
+      bad.join(" || ") + " " + show(c1) + " " + show(c4));
+
+    // One check per rule and per situation the rule covers.
+    const bad2 = bad.length;
+    want("a -51 on the leader moves to the other line; the facility-total order is the case as entered", P([ln("49618", ["-51"]), ln("44120")]),
+      { prop: " | -51", flags: "51-on-lead | ", notes: "measures-disagree", lead: "0", alt: "-51 | ", changed: true, altChanged: false, altLead: "1", settled: true });
+    want("entered in the work-RVU order: nothing to change, and the other order still comes back", P([ln("49618"), ln("44120", ["-51"]), ln("44121")]),
+      { prop: " | -51 | ", notes: "measures-disagree", lead: "0", alt: "-51 |  | ", changed: false, altChanged: true, altLead: "1", settled: true });
+    want("already sequenced by work RVU: nothing to change", P([ln("47562"), ln("44970", ["-51"])]), { prop: " | -51", flags: " | ", notes: "", lead: "0", alt: "none", changed: false });
+    want("the same code twice: the earlier line leads when neither carries -51", P([ln("47562"), ln("47562")]), { prop: " | -51", lead: "0", alt: "none", notes: "" });
+    want("...and a copy that already carries -51 does not lead: a sequenced pair is left as it is", P([ln("47562", ["-51"]), ln("47562")]), { prop: "-51 | ", lead: "1", alt: "none", notes: "", changed: false });
+    // Ties, on codes found in the data (so the cases survive a yearly update):
+    // two codes with one work RVU and different facility totals, and a pair
+    // that ties only on paper (x1.5 with -50) where floating point differs.
+    const m2 = rows.filter(r => String(r[6]).charAt(0) === "2" && sb.endoFamily(r[0]) === "");
+    const byW = {}; m2.forEach(r => { (byW[r[2]] = byW[r[2]] || []).push(r); });
+    const tw = Object.keys(byW).map(k => byW[k]).filter(g => g.length > 1 && g[0][7] !== g[1][7])[0];
+    let ft = null;
+    for (let i = 0; i < m2.length && !ft; i++) {
+      const a = m2[i]; if (String(a[6]).charAt(1) !== "1") continue;
+      for (let j = 0; j < m2.length; j++) { const b = m2[j]; if (a[2] * 1.5 !== b[2] && Math.round(a[2] * 15000) === Math.round(b[2] * 10000) && Math.round(a[7] * 15000) !== Math.round(b[7] * 10000)) { ft = [a, b]; break; } }
+    }
+    // ...and the same for the facility total: a bilateral code whose total
+    // x1.5 equals another code's on paper but not in floating point.
+    let ff = null;
+    for (let i = 0; i < m2.length && !ff; i++) {
+      const a = m2[i]; if (String(a[6]).charAt(1) !== "1") continue;
+      for (let j = 0; j < m2.length; j++) { const b = m2[j]; if (a[7] * 1.5 !== b[7] && Math.round(a[7] * 15000) === Math.round(b[7] * 10000)) { ff = [a, b]; break; } }
+    }
+    if (!ff) bad.push("the data holds no facility-total tie that floating point misses (a bilateral code x1.5 against another code)");
+    else {
+      want("a tie in facility total that floating point misses is still a tie: with equal work the earlier line leads", P([ln(ff[1][0], [], 3), ln(ff[0][0], ["-50"], 2)]), { lead: "0", alt: "none" });
+      want("...in either order", P([ln(ff[0][0], ["-50"], 2), ln(ff[1][0], [], 3)]), { lead: "0", alt: "none" });
+    }
+    // ...and a facility total x1.5 that is half a cent away from another
+    // code's (two decimals would call it a tie): the higher one leads, here
+    // always the LATER line.
+    let fd = null;
+    for (let i = 0; i < m2.length && !fd; i++) {
+      const a = m2[i]; if (String(a[6]).charAt(1) !== "1" || Math.round(a[7] * 15000) % 100 !== 50) continue;
+      for (let j = 0; j < m2.length; j++) { const b = m2[j], d = Math.round(b[7] * 10000) - Math.round(a[7] * 15000); if ((d === 50 || d === -50) && Math.round(a[7] * 1.5 * 100) === Math.round(b[7] * 100)) { fd = [a, b, d]; break; } }
+    }
+    if (!fd) bad.push("the data holds no facility total x1.5 that is half a cent away from another code's");
+    else want("half a cent between two facility totals is a difference, not a tie: with equal work the higher total leads", fd[2] > 0 ? P([ln(fd[0][0], ["-50"], 2), ln(fd[1][0], [], 3)]) : P([ln(fd[1][0], [], 3), ln(fd[0][0], ["-50"], 2)]), { lead: "1", alt: "none" });
+    want("a difference at the third decimal is not a tie (ranks are compared to four decimals): 7.77 x 1.5 = 11.655 is below 11.66", P([ln("49505", ["-50"], 7.77), ln("47562", [], 11.66)]), { lead: "1" });
+    want("...and above 11.65", P([ln("49505", ["-50"], 7.77), ln("47562", [], 11.65)]), { lead: "0" });
+    want("four decimals, not three: 10.0001 against 10.0004 is a difference", P([ln("47562", [], 10.0001), ln("44970", [], 10.0004)]), { lead: "1" });
+    want("...and not six: 10.00001 against 10.00004 is a tie, so the facility total decides", P([ln("47562", [], 10.00001), ln("44970", [], 10.00004)]), { lead: "0" });
+    if (!(pol("47562").facTotal > pol("44970").facTotal)) bad.push("fixture: 47562 no longer has a higher facility total than 44970");
+    if (!tw || !ft) bad.push("the data holds no tie to test (two codes with one work RVU, and a x1.5 tie floating point misses)");
+    else {
+      const lo = tw[0][7] < tw[1][7] ? tw[0] : tw[1], hi = lo === tw[0] ? tw[1] : tw[0];
+      want("a tie in work RVU where neither line carries -51 goes to the higher facility total, with no second order", P([ln(lo[0]), ln(hi[0])]), { prop: "-51 | ", lead: "1", alt: "none", notes: "" });
+      want("...in either order", P([ln(hi[0]), ln(lo[0])]), { prop: " | -51", lead: "0", alt: "none", notes: "" });
+      want("...but a pair entered in order is left alone: in a tie the line without -51 leads, whatever the facility totals", P([ln(lo[0]), ln(hi[0], ["-51"])]),
+        { prop: " | -51", flags: " | ", notes: "", lead: "0", alt: "none", changed: false, settled: true });
+      want("...in either order", P([ln(hi[0], ["-51"]), ln(lo[0])]), { prop: "-51 | ", flags: " | ", notes: "", lead: "1", alt: "none", changed: false, settled: true });
+      want("...and when both tied lines carry -51 the facility total picks the one that loses it", P([ln(lo[0], ["-51"], 5), ln(hi[0], ["-51"], 5), ln(lo[0], [], 1)]),
+        { prop: "-51 |  | -51", flags: " | 51-on-lead | ", lead: "1", alt: "none", notes: "" });
+      const aLeads = Math.round(ft[0][7] * 15000) > Math.round(ft[1][7] * 10000);
+      want("a tie on paper that floating point misses (x1.5 with -50) is still a tie: the facility total decides", P([ln(ft[0][0], ["-50"]), ln(ft[1][0])]),
+        aLeads ? { prop: "-50 | -51", lead: "0", alt: "none", notes: "" } : { prop: "-50 -51 | ", lead: "1", alt: "none", notes: "" });
+      want("...in either order", P([ln(ft[1][0]), ln(ft[0][0], ["-50"])]), aLeads ? { prop: "-51 | -50", lead: "1", alt: "none", notes: "" } : { prop: " | -50 -51", lead: "0", alt: "none", notes: "" });
+    }
+    want("every ranked line carries -51: nothing proposed (the leader may be logged elsewhere)", P([ln("47562", ["-51"]), ln("44970", ["-51"])]), { prop: "-51 | -51", flags: " | ", notes: "all-51", lead: "", changed: false });
+    want("one line with -51 and nothing else: nothing proposed", P([ln("47562", ["-51"])]), { prop: "-51", notes: "all-51", lead: "", changed: false });
+    want("one line, no modifier: nothing to do", P([ln("47562")]), { prop: "", flags: "", notes: "", lead: "0", changed: false, alt: "none" });
+    want("-51 on an add-on code is flagged and proposed away; the add-on never takes part", P([ln("44120"), ln("44121", ["-51"])]), { prop: " | ", flags: " | 51-never", lead: "0", changed: true });
+    want("-51 on a code CMS exempts without its being an add-on", P([ln("47562"), ln("36556", ["-51"])]), { prop: " | ", flags: " | 51-never", lead: "0", changed: true });
+    want("-51 on imaging, therapy, cardiac and eye tests and on a code the rule does not apply to", P([ln("70450", ["-51"]), ln("92507", ["-51"]), ln("75600", ["-51"]), ln("76510", ["-51"]), ln("36000", ["-51"])]),
+      { prop: " |  |  |  | ", flags: "51-never | 51-never | 51-never | 51-never | 51-never", lead: "", notes: "", changed: true });
+    want("bilateral: -50 where CMS allows it multiplies the rank by 1.5, so the smaller code leads", P([ln("49650", ["-50"]), ln("49505")]), { prop: "-50 | -51", flags: " | ", lead: "0", alt: "none" });
+    want("...and without -50 the larger code leads", P([ln("49650"), ln("49505")]), { prop: "-51 | ", lead: "1", alt: "none" });
+    want("...and a -50 CMS does not allow multiplies no rank: the larger code still leads, the -50 is flagged and stays", P([ln("15734"), ln("49618", ["-50"])]), { prop: " | -50 -51", flags: " | bilateral", lead: "0", alt: "none", notes: "" });
+    want("-50 flags: already bilateral, each side in full, no bilateral rule; none where CMS allows it", P([ln("11010", ["-50"]), ln("70030", ["-50"]), ln("10030", ["-50"]), ln("49650", ["-50"])]), { flags: "bilateral | bilateral | bilateral | " });
+    want("lines where the user assisted are sequenced apart from their own lines", P([ln("47562"), ln("44140", ["-80"])]), { prop: " | -80", flags: " | ", lead: "01", changed: false });
+    want("...and among themselves", P([ln("47562"), ln("44140", ["-80"]), ln("44970", ["-82"])]), { prop: " | -80 | -82 -51", lead: "01", changed: true });
+    want("an assistant modifier is recognised without its dash and as the old AS code (grouping only; both are flagged as unknown)", P([ln("47562"), ln("44140", ["-AS"]), ln("44970", ["80"])]),
+      { prop: " | -AS | 80 -51", flags: " | unknown-modifier | unknown-modifier", lead: "01" });
+    want("assistant flags: paid only with documentation, never paid; none where CMS pays an assistant", P([ln("19301", ["-80"]), ln("38525", ["-82"]), ln("47562", ["-80"])]), { flags: "assistant | assistant | " });
+    want("an assistant modifier is flagged by the modifier, also on a line that is co-surgeon too", P([ln("38525", ["-82", "-62"]), ln("12007", ["-80", "-62"])]), { flags: "assistant+co-surgeon | assistant" });
+    if (!(pol("38525").asst === "1" && pol("38525").co === "0" && pol("12007").asst === "1" && pol("12007").co === "1")) bad.push("fixture: 38525 or 12007 no longer has the assistant / co-surgeon indicators this case needs");
+    want("co-surgeon lines are their own group; -62 is flagged where CMS does not permit it or has no rule", P([ln("47562"), ln("44970", ["-62"]), ln("19301", ["-62"]), ln("36000", ["-62"])]),
+      { prop: " | -62 -51 | -62 | -62", flags: " |  | co-surgeon | co-surgeon", lead: "02" });
+    want("-79 lines are sequenced among themselves; -76, -77 and -78 lines are left alone", P([ln("47562"), ln("44970", ["-79"]), ln("49650", ["-79"]), ln("49505", ["-78"]), ln("44140", ["-76"]), ln("44120", ["-77", "-51"])]),
+      { prop: " | -79 | -79 -51 | -78 | -76 | -77 -51", flags: " |  |  |  |  | ", lead: "01", notes: "left-alone" });
+    want("two scopes of one family are left as entered", P([ln("45380"), ln("45385")]), { prop: " | ", notes: "endoscopy-family", changed: false });
+    want("a scope with its base code: the family is left as entered, and a -51 on its leader is flagged", P([ln("45378"), ln("45380", ["-51"])]), { prop: " | -51", flags: " | 51-on-family-lead", notes: "endoscopy-family", lead: "1", changed: false, alt: "none", settled: true });
+    const famLead = P([ln("43239"), ln("45385", ["-51"]), ln("45380", ["-51"])]);
+    want("the leader is in a family and carries -51: it is flagged and NOTHING is proposed around it (no case with every line at half)", famLead,
+      { prop: " | -51 | -51", flags: " | 51-on-family-lead | ", notes: "endoscopy-family+family-lead", lead: "1", changed: false, alt: "none", settled: true });
+    want("settled says only that no tap is offered: of two flags on a settled case, the 51-on-lead is the other order's and the family leader's stands", P([ln("49618", ["-51"]), ln("44120"), ln("45385", ["-79", "-51"]), ln("45380", ["-79"]), ln("46221", ["-79"])]),
+      { prop: " | -51 | -79 -51 | -79 | -79", flags: "51-on-lead |  | 51-on-family-lead |  | ", notes: "measures-disagree+endoscopy-family+family-lead", lead: "02", altLead: "12", altChanged: false, settled: true });
+    if (!(sb.endoFamily("46221") === "" && W("45385") > W("46221") && W("45385") > W("45380"))) bad.push("fixture: 45385 no longer leads 45380 and 46221, or 46221 is now an endoscopy code");
+    want("no second order when the WORK leader is a family line (it could not take -51)", P([ln("45385"), ln("45380"), ln("46505")]), { prop: " |  | -51", lead: "0", notes: "endoscopy-family", alt: "none" });
+    want("the second order IS offered when only the facility leader is a family line and it is plain: a case entered that way is settled", P([ln("44392"), ln("44389"), ln("45380", ["-51"])]),
+      { prop: " |  | ", flags: " |  | 51-on-lead", notes: "endoscopy-family+measures-disagree", lead: "2", alt: " |  | -51", altLead: "0", changed: true, altChanged: false, settled: true });
+    want("...the same case with nothing entered: both orders, each with one -51 or none", P([ln("44392"), ln("44389"), ln("45380")]),
+      { prop: " |  | ", notes: "endoscopy-family+measures-disagree", lead: "2", alt: " |  | -51", altLead: "0", changed: false, altChanged: true, settled: true });
+    want("...but not when that family line carries -51 (a family line is never changed)", P([ln("44392", ["-51"]), ln("44389"), ln("45380")]),
+      { prop: "-51 |  | ", flags: " |  | ", notes: "endoscopy-family", lead: "2", alt: "none", changed: false, settled: true });
+    if (!(W("45380") > W("44392") && W("44392") > W("44389") && pol("44392").facTotal > pol("45380").facTotal && sb.endoFamily("44392") !== "" && sb.endoFamily("44392") === sb.endoFamily("44389") && sb.endoFamily("45380") !== sb.endoFamily("44392")))
+      bad.push("fixture: 44392 / 44389 / 45380 no longer show a family whose top line leads by facility total only");
+    want("no second order when a family line has the leader's work RVU (it would lead as soon as the leader took -51)", P([ln("47562", [], 5), ln("45385", [], 5), ln("45380", [], 2), ln("19301", [], 4)]),
+      { prop: " |  |  | -51", lead: "0", notes: "endoscopy-family", alt: "none" });
+    want("...and with that line a little lower the second order is back", P([ln("47562", [], 5), ln("45385", [], 4.9), ln("45380", [], 2), ln("19301", [], 4)]),
+      { prop: " |  |  | -51", lead: "0", notes: "endoscopy-family+measures-disagree", alt: "-51 |  |  | ", altLead: "3" });
+    if (!(pol("19301").facTotal > pol("47562").facTotal && pol("47562").facTotal > pol("45385").facTotal)) bad.push("fixture: the facility totals of 19301, 47562 and 45385 are no longer in that order");
+    want("two scopes of one family whose two measures disagree: no note, no second order", P([ln("46601"), ln("46612")]), { prop: " | ", notes: "endoscopy-family", alt: "none", changed: false });
+    if (!(pol("46505").facTotal > pol("45385").facTotal && W("45385") > W("46505") && W("46601") > W("46612") && pol("46601").facTotal < pol("46612").facTotal)) bad.push("fixture: the scope cases no longer show two measures that disagree");
+    want("one scope beside another operation is ranked like any other code", P([ln("45380"), ln("47562")]), { prop: "-51 | ", lead: "1", notes: "" });
+    want("a family still counts when the leader is found: the other code takes -51, the family is untouched", P([ln("45385"), ln("45380"), ln("11042")]), { prop: " |  | -51", lead: "0", notes: "endoscopy-family" });
+    want("scopes of two different families are ranked against each other", P([ln("45380"), ln("43239")]), { prop: " | -51", lead: "0", notes: "" });
+    want("a code the app has no CMS data for: flagged, and no -51 is proposed around it", P([ln("47562"), ln("ZZZZZ", [], 30), ln("44970")]), { prop: " |  | ", flags: " | no-cms-data | ", notes: "not-sequenced", lead: "", changed: false });
+    want("...but a -51 on an add-on beside it is still proposed away", P([ln("ZZZZZ", [], 30), ln("44121", ["-51"])]), { prop: " | ", flags: "no-cms-data | add-on-primary+51-never", changed: true });
+    want("-51 on an add-on on a line that is never changed (-78): flagged, not proposed away; the note says the lines are left as entered", P([ln("44120", ["-78"]), ln("44121", ["-78", "-51"])]),
+      { prop: "-78 | -78 -51", flags: " | 51-never", lead: "", notes: "left-alone", changed: false, settled: true });
+    want("a -78 line keeps its other flags, and an add-on on it is still checked for its primary", P([ln("15734", ["-78", "-50"]), ln("44121", ["-78"])]), { flags: "bilateral | add-on-primary" });
+    want("a row with no code yet takes no part and blocks nothing", P([ln("47562"), ln("44970"), { code: "", modifiers: [], baseRVU: 0 }, { code: null }]), { prop: " | -51 |  | ", flags: " |  |  | ", notes: "", lead: "0", changed: true });
+    want("a row that is an empty object takes no part either", P([ln("47562"), ln("44970"), {}]), { prop: " | -51 | ", flags: " |  | ", notes: "", lead: "0" });
+    want("...nor does a stored case whose cptCode is empty or null", P([ln("47562"), ln("44970"), { cptCode: "" }, { code: "", cptCode: null }]), { prop: " | -51 |  | ", flags: " |  |  | ", notes: "", lead: "0" });
+    want("a code of 0 is a code the app cannot read, not a missing one: its cptCode is not read", P([{ code: 0, cptCode: "44970", modifiers: [], baseRVU: 1 }]), { flags: "no-cms-data", lead: "" });
+    want("a code that is not text is not an empty row: flagged, and nothing is proposed around it", P([ln("47562"), ln("44970"), { code: 47562, modifiers: [], baseRVU: 10 }]), { prop: " |  | ", flags: " |  | no-cms-data", notes: "not-sequenced", lead: "", changed: false });
+    want("a modifier listed twice is flagged, not removed", P([ln("47562"), ln("44970", ["-51", "-51"])]), { prop: " | -51 -51", flags: " | repeated-modifier", changed: false });
+    want("...and flagged once however often it is listed", P([ln("47562"), ln("44970", ["-51", "-51", "-51"])]), { flags: " | repeated-modifier" });
+    const rn = P([ln("47562"), { code: "44970", modifiers: [-51], baseRVU: "9.21" }]);
+    if (!(rn.changed === false && kinds(rn) === " | " && rn.lines[1].before === sb.calcAdj("9.21", [-51]) && near(rn.lines[1].before, 4.605))) bad.push("a numeric -51 and a wRVU given as text are read the way calcAdj reads them -> " + show(rn) + " " + rn.lines[1].before);
+    want("a modifier the app does not know is flagged once and left on the line; a dashless 51 is not a -51", P([ln("47562"), ln("44970", ["51", "51", "XX"])]), { prop: " | 51 51 XX -51", flags: " | unknown-modifier+unknown-modifier", lead: "0" });
+    want("an add-on with a partial list (softer flag) and with one of its listed primaries (none)", P([ln("44120"), ln("49327")]), { flags: " | add-on-partial" });
+    want("...listed primary present", P([ln("47562"), ln("49327")]), { flags: " | " });
+    want("an add-on is not its own primary, and a second copy does not satisfy it", P([ln("44213"), ln("44213")]), { flags: "add-on-primary | add-on-primary", prop: " | " });
+    want("work RVU and facility total disagree on another pair: both orders", P([ln("19301"), ln("47562")]), { prop: "-51 | ", lead: "1", notes: "measures-disagree", alt: " | -51", altLead: "0", altChanged: true });
+    want("the facility order takes as its leader the one of two fully tied lines that does not carry -51: a case entered that way is settled", P([ln("47562", ["-51"], 9), ln("19301", ["-51"], 4), ln("19301", [], 4)]),
+      { prop: " | -51 | -51", flags: "51-on-lead |  | ", lead: "0", alt: "-51 | -51 | ", altLead: "2", altChanged: false, settled: true, notes: "measures-disagree" });
+    want("two groups, one disagrees: the second order flips that group and is the main proposal elsewhere", P([ln("49618"), ln("44120"), ln("47562", ["-80"]), ln("44970", ["-80"])]),
+      { prop: " | -51 | -80 | -80 -51", lead: "02", notes: "measures-disagree", alt: "-51 |  | -80 | -80 -51", altLead: "12", altChanged: true });
+    want("two groups, both disagree: ONE second order flips both", P([ln("49618"), ln("44120"), ln("19301", ["-80"]), ln("47562", ["-80"])]),
+      { prop: " | -51 | -80 -51 | -80", lead: "03", notes: "measures-disagree+measures-disagree", alt: "-51 |  | -80 | -80 -51", altLead: "12" });
+    want("the line's own base wRVU ranks, not the database value", P([ln("47562", [], 5), ln("44970", [], 9.45)]), { prop: "-51 | ", lead: "1" });
+    want("a stored case's cptCode is read where a line has no code", P([{ cptCode: "47562", modifiers: [], baseRVU: W("47562") }, { cptCode: "44970", modifiers: [], baseRVU: W("44970") }]), { prop: " | -51", flags: " | ", lead: "0", changed: true });
+    want("the code is read first, a stored case's cptCode only where the code is missing, null or empty", P([{ code: "", cptCode: "47562", modifiers: [], baseRVU: W("47562") }, { code: null, cptCode: "44970", modifiers: [], baseRVU: W("44970") }]), { prop: " | -51", flags: " | ", lead: "0", changed: true });
+    if (P([{ code: "47562", cptCode: "44970", modifiers: [], baseRVU: 1 }]).lines[0].code !== "47562") bad.push("a line with both a code and a cptCode is read by its code");
+    want("-80 together with -82 on one line is flagged: each is counted", P([ln("47562", ["-80", "-82"])]), { flags: "repeated-modifier", prop: "-80 -82" });
+    want("the old AS code is flagged as an assistant modifier too (and as unknown)", P([ln("38525", ["-AS"])]), { flags: "unknown-modifier+assistant" });
+    want("a dashless 62 is flagged as co-surgeon too (and as unknown)", P([ln("19301", ["62"])]), { flags: "unknown-modifier+co-surgeon" });
+    want("a line with -78 is left alone even when it also carries -79", P([ln("47562", ["-79", "-78"]), ln("44970", ["-79"])]), { prop: "-79 -78 | -79", lead: "1", notes: "left-alone" });
+    want("the left-alone note names no line whose code cannot be read, and no empty row", P([ln("47562"), { code: 47562, modifiers: ["-78"], baseRVU: 1 }, { code: "", modifiers: ["-78"], baseRVU: 0 }]), { notes: "", lead: "0" });
+    // A -50 that CMS already counts as bilateral (BILAT SURG 2) multiplies no
+    // rank; the code is found in the data.
+    const b2 = m2.filter(r => String(r[6]).charAt(1) === "2")[0];
+    if (!b2) bad.push("the data holds no ranked code with BILAT SURG 2");
+    else want("a -50 on a code CMS already values as bilateral multiplies no rank", P([ln(b2[0], ["-50"], 10), ln("47562", [], 14.9)]), { lead: "1", flags: "bilateral | " });
+    const wrapped = P([{ code: "47562", modifiers: [["-51"], { toString: 1 }, true], baseRVU: 10 }]);
+    if (!(kinds(wrapped) === "unknown-modifier+unknown-modifier+unknown-modifier" && wrapped.lines[0].before === 10 && wrapped.changed === false)) bad.push("a modifier that is neither text nor a number is unknown and counts nothing -> " + show(wrapped));
+    want("settled: one line needs no tap", P([ln("47562")]), { settled: true });
+    want("...not settled while a -51 is still to be added", P([ln("47562"), ln("44970")]), { settled: false, alt: "none" });
+    want("...decided group by group: one group follows the proposal, the other the second order", P([ln("49618"), ln("44120", ["-51"]), ln("19301", ["-80"]), ln("47562", ["-80", "-51"])]),
+      { settled: true, changed: true, altChanged: true, notes: "measures-disagree+measures-disagree" });
+    want("...not settled when one of those groups follows neither order", P([ln("49618"), ln("44120", ["-51"]), ln("19301", ["-80"]), ln("47562", ["-80"])]), { settled: false });
+    want("...not settled while a -51 sits on an add-on, whichever order the rest follows", P([ln("49618", ["-51"]), ln("44120"), ln("44121", ["-51"])]), { settled: false, altChanged: true });
+    want("-50 multiplies the rank by exactly 1.5: 10 x 1.5 leads 14.9", P([ln("49650", ["-50"], 10), ln("49505", [], 14.9)]), { lead: "0" });
+    want("...and not 15.1", P([ln("49650", ["-50"], 10), ln("49505", [], 15.1)]), { lead: "1" });
+    want("a dashless 50 is not a -50", P([ln("49650", ["50"]), ln("49505")]), { lead: "1", flags: "unknown-modifier | " });
+    want("a line with -62 and -80 is a co-surgeon line", P([ln("47562", ["-62", "-80"]), ln("44970", ["-62"])]), { prop: "-62 -80 | -62 -51" });
+    want("a lower-case assistant modifier is recognised for grouping", P([ln("47562"), ln("44140", ["-as"])]), { prop: " | -as", lead: "01" });
+    want("a code without CMS data stops only its own group", P([ln("47562"), ln("44970"), ln("ZZZZZ", ["-80"], 30)]), { prop: " | -51 | -80", notes: "" });
+    want("-62 where CMS asks for documentation (CO- SURG 1) and an assistant where the idea does not apply (ASST SURG 9) are not flagged", P([ln("47562", ["-62"]), ln("36000", ["-80"])]), { flags: " | " });
+    if (!(pol("47562").co === "1" && pol("36000").asst === "9")) bad.push("fixture: 47562 is no longer CO- SURG 1, or 36000 no longer ASST SURG 9");
+    want("a modifier that is a number the table does not hold is flagged as unknown", P([{ code: "47562", modifiers: [51], baseRVU: 10 }]), { flags: "unknown-modifier" });
+    want("an add-on's primary counts wherever it is in the case", P([ln("44120"), ln("44121", ["-80"])]), { flags: " | " });
+    want("both -51 of a doubled -51 come off the leader", P([ln("47562", ["-51", "-51"]), ln("44970")]), { prop: " | -51" });
+    want("the all-51 stop looks at the ranked lines only", P([ln("47562", ["-51"]), ln("44121")]), { notes: "all-51", changed: false });
+    want("...and a code without CMS data is named before it", P([ln("47562", ["-51"]), ln("ZZZZZ", [], 5)]), { notes: "not-sequenced" });
+    want("a -79 assistant line is apart from the other assistant lines", P([ln("44140", ["-80"]), ln("44970", ["-80", "-79"])]), { prop: "-80 | -80 -79", lead: "01" });
+    want("the second order keeps a -51 proposed off an add-on", P([ln("49618"), ln("44120"), ln("44121", ["-51"])]), { prop: " | -51 | ", alt: "-51 |  | " });
+    want("the second order leaves an endoscopy family as entered when both leaders are outside it", P([ln("45385"), ln("45380"), ln("19301"), ln("47562")]),
+      { prop: " |  | -51 | ", alt: " |  |  | -51", lead: "3", altLead: "2", notes: "endoscopy-family+measures-disagree" });
+    if (!(W("47562") > W("19301") && pol("19301").facTotal > pol("47562").facTotal)) bad.push("fixture: 47562 and 19301 no longer disagree by the two measures");
+    // A tie in facility total, found in the data: it names no other leader.
+    const byF = {}; m2.forEach(r => { (byF[r[7]] = byF[r[7]] || []).push(r); });
+    const tf = Object.keys(byF).map(k => byF[k]).filter(g => g.length > 1 && g[0][2] !== g[1][2])[0];
+    if (!tf) bad.push("the data holds no two codes with one facility total and different work RVUs");
+    else {
+      const loW = tf[0][2] < tf[1][2] ? tf[0] : tf[1], hiW = loW === tf[0] ? tf[1] : tf[0];
+      want("a tie in facility total names no other leader, whichever line comes first", P([ln(loW[0]), ln(hiW[0])]), { prop: "-51 | ", lead: "1", alt: "none", notes: "" });
+      want("...the other way round", P([ln(hiW[0]), ln(loW[0])]), { prop: " | -51", lead: "0", alt: "none", notes: "" });
+      want("...and it goes to the higher work RVU even when that line carries -51: still no other leader", P([ln(loW[0]), ln(hiW[0], ["-51"])]), { prop: "-51 | ", flags: " | 51-on-lead", lead: "1", alt: "none", notes: "" });
+    }
+    const nb = P([{ code: "47562", modifiers: [], baseRVU: NaN }, { code: "44970", modifiers: ["-51"], baseRVU: Infinity }]);
+    if (!(nb.totalBefore === 0 && nb.totalAfter === 0)) bad.push("a base wRVU that is not a finite number counts 0 -> " + nb.totalBefore + " " + nb.totalAfter);
+    // A row whose indicators are not four digits, or whose facility total is
+    // not a number, has no policy (a damaged data row is "no CMS data").
+    try {
+      const noop = () => {};
+      const c3 = vm.createContext({ console, React: {}, localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+        document: { createElement: () => ({ style: {}, appendChild: noop, setAttribute: noop }), head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+      vm.runInContext("const CMS_RAW=" + J([["Z0001", "x", 1, "Other", "", "000", "202", 2, null], ["Z0002", "x", 1, "Other", "", "000", "20211", 2, null], ["Z0003", "x", 1, "Other", "", "000", "2021", "2", null], ["Z0004", "x", 1, "Other", "", "000", "2021", 2, null]]) + ";", c3);
+      vm.runInContext(utils, c3);
+      const has = ["Z0001", "Z0002", "Z0003", "Z0004"].map(c => c3.cmsPolicy(c) !== null);
+      if (J(has) !== "[false,false,false,true]") bad.push("a damaged data row has a policy -> " + J(has));
+    } catch (e) { bad.push("the damaged-row case threw: " + e.message); }
+    check("CONTRACT: proposeCaseModifiers - one check per rule: -51 moved off the leader, ties (the line without -51, then the facility total, then the earlier line; both ranks to four decimals), all-51, add-ons and exempt codes on any line, tests, -50 and the 1.5 rank, assistant / co-surgeon / -79 groups, -76/-77/-78 never sequenced, endoscopy families, a family leader with -51 and when a family allows a second order, a code without CMS data, an empty row, code before cptCode, unknown, repeated and non-text modifiers, add-on pairing, the two measures and the second order's own marks, settled, the line's own base",
+      bad.length === bad2, bad.slice(bad2).join(" || "));
+
+    // Every text the function can print, word for word: they are what the
+    // user reads, and each must be true of the indicator value that reaches it.
+    const T = (r, i, kind) => { const f = r.lines[i].flags.filter(x => x.kind === kind)[0]; return f ? f.text : "(no " + kind + " flag)"; };
+    // An add-on code (global ZZZ) that the add-on table does not list: the
+    // never -51 text goes by the global period, not by the table.
+    const zNo = rows.filter(r => r[5] === "ZZZ" && sb.addOnRule(r[0]) === null)[0];
+    const N1 = (r, kind) => { const n = r.notes.filter(x => x.kind === kind)[0]; return n ? n.text : "(no " + kind + " note)"; };
+    const texts = [
+      [T(P([ln("15734", ["-50"])]), 0, "bilateral"), "15734: CMS does not allow the 150% bilateral adjustment for this code (the line still counts 150% here)"],
+      [T(P([ln("11010", ["-50"])]), 0, "bilateral"), "11010: CMS already values this code as bilateral, so -50 does not apply (the line still counts 150% here)"],
+      [T(P([ln("70030", ["-50"])]), 0, "bilateral"), "70030: CMS pays each side of this code in full instead of 150% (the line still counts 150% here)"],
+      [T(P([ln("10030", ["-50"])]), 0, "bilateral"), "10030: CMS has no bilateral rule for this code (the line still counts 150% here)"],
+      [T(P([ln("19301", ["-80"])]), 0, "assistant"), "19301: CMS pays an assistant for this code only with documentation of medical need"],
+      [T(P([ln("38525", ["-82"])]), 0, "assistant"), "38525: CMS does not pay an assistant for this code"],
+      [T(P([ln("19301", ["-62"])]), 0, "co-surgeon"), "19301: CMS does not permit co-surgeons for this code"],
+      [T(P([ln("36000", ["-62"])]), 0, "co-surgeon"), "36000: CMS has no co-surgeon rule for this code"],
+      [T(P([ln("44121", ["-51"])]), 0, "51-never"), "44121 is an add-on code, so -51 does not apply to it"],
+      [T(P([ln("36556", ["-51"])]), 0, "51-never"), "CMS applies no multiple-procedure reduction to 36556, so -51 does not apply to it"],
+      [T(P([ln("36000", ["-51"])]), 0, "51-never"), "CMS's multiple-procedure rule does not apply to 36000, so -51 does not apply to it"],
+      [T(P([ln("70450", ["-51"])]), 0, "51-never"), "CMS reduces 70450 by a rule of its own when several tests or therapy services are done together, so -51 does not apply to it"],
+      [T(P([ln("92507", ["-51"])]), 0, "51-never"), "CMS reduces 92507 by a rule of its own when several tests or therapy services are done together, so -51 does not apply to it"],
+      [T(P([ln("49618", ["-51"]), ln("44120")]), 0, "51-on-lead"), "49618 has the highest work RVU here, so it leads and should not carry -51"],
+      [T(P([ln("49505", ["-50", "-51"]), ln("47562")]), 0, "51-on-lead"), "49505 leads here (with -50 its work RVU counts 1.5 times), so it should not carry -51"],
+      [T(P([ln("45378"), ln("45380", ["-51"])]), 1, "51-on-family-lead"), "45380 has the highest work RVU here, so it leads and should not carry -51 (it is in an endoscopy family, so it is left as entered)"],
+      [T(P([ln("47562", ["XX"])]), 0, "unknown-modifier"), "\"XX\" is not a modifier the app knows, so it changes no wRVU"],
+      [T(P([{ code: "47562", modifiers: [["-51"]], baseRVU: 10 }]), 0, "unknown-modifier"), "\"[\"-51\"]\" is not a modifier the app knows, so it changes no wRVU"],
+      [T(P([{ code: "47562", modifiers: [null], baseRVU: 10 }]), 0, "unknown-modifier"), "\"null\" is not a modifier the app knows, so it changes no wRVU"],
+      [zNo ? T(P([ln(zNo[0], ["-51"])]), 0, "51-never") : "(the data holds no add-on code without an add-on entry)", (zNo ? zNo[0] : "?") + " is an add-on code, so -51 does not apply to it"],
+      [N1(P(["47562", "44970", "49505", "49650", "44120", "44140", "19301"].map(c => ln(c, ["-51"]))), "all-51"), "47562, 44970, 49505, 49650, 44120, 44140 and more all carry -51: the leading procedure may be logged elsewhere, so they are left as entered"],
+      [T(P([ln("44970", ["-51", "-51"])]), 0, "repeated-modifier"), "-51 is on this line more than once and is counted each time"],
+      [T(P([ln("47562", ["-80", "-82"])]), 0, "repeated-modifier"), "-80 and -82 are both on this line: one assistant modifier is enough, and each is counted"],
+      [T(P([ln("ZZZZZ")]), 0, "no-cms-data"), "ZZZZZ: the app has no CMS data for this code"],
+      [T(P([{ code: 47562 }]), 0, "no-cms-data"), "A line has a code the app cannot read"],
+      [T(c4, 1, "add-on-primary"), "44213 is an add-on code and none of its primary codes is in this case (CMS lists 44204 to 44208)"],
+      [T(P([ln("38900")]), 0, "add-on-primary"), "38900 is an add-on code and none of its primary codes is in this case (CMS lists 19302, 19307, 38500, 38510 to 38542, 38562 to 38572, 38740 to 38745 and more)"],
+      [T(P([ln("49327")]), 0, "add-on-partial"), "49327 is an add-on code and none of the primary codes CMS names for it is in this case (its list is not complete)"],
+      [N1(P([ln("47562", ["-51"])]), "all-51"), "47562 carries -51 and no other procedure here can lead: the leading procedure may be logged elsewhere, so its -51 is left as entered"],
+      [N1(P([ln("47562", ["-51"]), ln("44970", ["-51"])]), "all-51"), "47562, 44970 all carry -51: the leading procedure may be logged elsewhere, so they are left as entered"],
+      [N1(P([ln("47562"), ln("ZZZZZ", [], 30)]), "not-sequenced"), "ZZZZZ has no CMS data and may be the leading procedure, so no -51 is proposed here"],
+      [N1(P([ln("47562"), ln("ZZZZZ", [], 30), ln("YYYYY", [], 3)]), "not-sequenced"), "ZZZZZ, YYYYY have no CMS data and may be the leading procedure, so no -51 is proposed here"],
+      [N1(P([ln("47562"), { code: 47562, modifiers: [], baseRVU: 10 }]), "not-sequenced"), "A line the app cannot read may be the leading procedure, so no -51 is proposed here"],
+      [N1(P([ln("45380"), ln("45385")]), "endoscopy-family"), "45380, 45385 are one endoscopy family (base 45378): CMS pays the highest in full and each other one less the base code's value. No modifier here counts that, so their modifiers are left as entered"],
+      [N1(P([ln("47562"), ln("44970", ["-78"])]), "left-alone"), "44970 carries -76, -77 or -78 (a repeat procedure or a return to the operating room), so that line is left as entered"],
+      [N1(P([ln("49002", ["-78"]), ln("44120", ["-76"])]), "left-alone"), "49002, 44120 carry -76, -77 or -78 (a repeat procedure or a return to the operating room), so those lines are left as entered"],
+      [N1(famLead, "family-lead"), "The leading procedure 45385 carries -51 and is in an endoscopy family, so no -51 is proposed for the other procedures here"],
+      [N1(P([ln("47562"), ln("49650", ["-50"])]), "measures-disagree"), "By work RVU 47562 leads; by CMS's facility total 49650 (with -50, counted 1.5 times) would lead"],
+    ];
+    const wrongText = texts.filter(t => t[0] !== t[1]);
+    const twoGroups = P([ln("47562", ["-51"]), ln("44970", ["-51"]), ln("44140", ["-80", "-51"]), ln("44120", ["-80", "-51"])]);
+    const sameTwice = P([ln("47562", ["-51"]), ln("47562", ["-80", "-51"])]);
+    check("proposeCaseModifiers: every flag and note text, word for word - one per indicator value that reaches it (bilateral 0/2/3/9, assistant 0/1, co-surgeon 0/9, the four never -51 reasons, the leader with and without -50 and in a family, unknown, non-text and repeated modifiers, -80 with -82, no CMS data, an add-on by its global period, the lists with 'and more', all-51, not-sequenced, the family notes, the lines left as entered, the two measures with -50) - a note names its codes, and the same note is never printed twice",
+      wrongText.length === 0 && twoGroups.notes.length === 2 && twoGroups.notes[0].text !== twoGroups.notes[1].text && sameTwice.notes.length === 1,
+      wrongText.map(t => "got: " + t[0] + " | want: " + t[1]).join(" || ") + " " + J(twoGroups.notes) + " " + J(sameTwice.notes));
+
+    // Shape, purity and odd input.
+    const inp = [ln("49618", ["-51"]), ln("44120", []), ln("44121", ["-51"])], inpJ = J(inp);
+    const r0 = P(inp), r1 = P(inp);
+    const shapeOk = Object.keys(r0).join() === "lines,totalBefore,totalAfter,changed,notes,alt,settled" && r0.settled === false && r0.lines.every(l => Object.keys(l).join() === "code,modifiers,proposed,before,after,changed,lead,flags") &&
+      !!r0.alt && Object.keys(r0.alt).join() === "lines,totalAfter,changed" && r0.alt.lines.every(l => Object.keys(l).join() === "proposed,after,changed,lead") &&
+      r0.lines.every(l => l.flags.every(f => Object.keys(f).join() === "kind,text" && typeof f.text === "string" && !/[^\x20-\x7e]/.test(f.text))) && r0.notes.every(n => Object.keys(n).join() === "kind,text" && !/[^\x20-\x7e]/.test(n.text));
+    const rSame = P([ln("47562"), ln("44970", ["-51"])]);
+    const pure = J(inp) === inpJ && J(r0) === J(r1) && !!r0.alt && rSame.changed === false && rSame.lines.every(l => l.proposed !== l.modifiers) && r0.lines.every((l, i) => l.modifiers !== inp[i].modifiers && l.proposed !== inp[i].modifiers && l.modifiers !== l.proposed && r0.alt.lines[i].proposed !== l.proposed && r0.alt.lines[i].proposed !== inp[i].modifiers) &&
+      near(r0.totalBefore, r0.lines.reduce((s, l) => s + l.before, 0)) && near(r0.totalAfter, r0.lines.reduce((s, l) => s + l.after, 0)) &&
+      r0.lines.every((l, i) => l.before === sb.calcAdj(inp[i].baseRVU, inp[i].modifiers) && l.after === sb.calcAdj(inp[i].baseRVU, l.proposed) && l.changed === (J(l.proposed) !== J(inp[i].modifiers)));
+    const odd = [null, undefined, 5, "x", [], [null], [5, "x", {}], [{ code: 47562 }], [{ code: "47562", modifiers: "51", baseRVU: "x" }], [{ code: "47562", modifiers: [51, null, "-51"], baseRVU: 10 }], [{ code: "constructor" }, { code: "__proto__", modifiers: ["constructor"] }],
+      JSON.parse('[{"code":"47562","modifiers":[{"toString":1}],"baseRVU":10.21}]'), JSON.parse('[{"code":"47562","modifiers":[[{"toString":null}],{"toString":"x","valueOf":"y"},true,[],{"length":2}],"baseRVU":1},{"cptCode":{"toString":1},"modifiers":{"0":"-51"},"baseRVU":{"valueOf":1}}]')];
+    const oddBad = odd.filter(x => { try { const r = P(x); return !(r && Array.isArray(r.lines) && r.lines.length === (Array.isArray(x) ? x.length : 0) && typeof r.totalBefore === "number" && !isNaN(r.totalBefore) && !isNaN(r.totalAfter)); } catch (e) { return true; } });
+    check("proposeCaseModifiers: fixed result shape, ASCII texts, input untouched and never shared, no list shared inside the result either, the same answer twice, totals are the lines' sums priced by calcAdj; odd input (not a list, empty lines, non-string codes and modifiers, inherited names, values whose own toString is not a function) gives a result and never throws",
+      shapeOk && pure && oddBad.length === 0, J({ shapeOk: shapeOk, pure: pure, odd: oddBad.map(x => J(x)) }));
+  } catch (e) { check("proposeCaseModifiers: its tests ran to their end (a throw here hides every case after it in this group)", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
   // CSV import never reads the exports' Credit column back into a mark - it
-  // warns FIRST instead (the preview shows only the first messages).
+  // warns instead - and never takes a wRVU from the file's own adjusted
+  // column: when a row will come in at another figure than the file shows,
+  // or has more cells than the file's header, that note is FIRST and the
+  // credit note right after it (the preview shows only the first messages).
   const impMap = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", sb);
-  // Row 2 (no valid CPT) errors BEFORE the note is added, so errors[0] tells
-  // unshift from push; the RVU Wallet fixture does the same for its branch.
-  const setCsv = "Date,CPT,Description,Category,Base wRVU,Modifiers,Adjusted wRVU,Compensation,Notes,Credit\n" +
+  // The header rows of the app's own exports are READ OUT of the files that
+  // write them (by syntax tree: the array h in Settings' expCSV and in
+  // History's exportFiltered, procHeaders in the Excel export), not typed
+  // again here: a typed copy stays green while an export column is renamed
+  // to a header import does not read, and the app's own files then lose the
+  // notes below in silence. The rows under them are typed by position, in
+  // today's column order.
+  let impHistAst = null;
+  try { impHistAst = parser.parse(fs.readFileSync(path.join(JS_DIR, "history.js"), "utf8"), AST_OPTS); } catch (e) {}
+  const headRow = (ast, fn, name) => { let h = null; const f = ast ? findDeclared(ast, fn) : null; if (f) walk(f, n => { if (!h && n.type === "VariableDeclarator" && n.id && n.id.name === name && n.init && n.init.type === "ArrayExpression" && n.init.elements.length > 0 && n.init.elements.every(x => x && x.type === "StringLiteral")) h = n.init.elements.map(x => x.value); }); return h || []; };
+  const SET_HEAD = headRow(settingsAst, "expCSV", "h"), HIST_HEAD = headRow(impHistAst, "exportFiltered", "h"), XL_HEAD = headRow(settingsAst, "doExcelExport", "procHeaders");
+  const headsRead = "the export header rows as read from the app (a renamed column must be one CSV import still reads - ADJ_HEADS and detectCols in utils.js - or the app's own files lose these notes): Settings CSV [" + (SET_HEAD.join(",") || "NOT FOUND: const h in expCSV") + "], History CSV [" + (HIST_HEAD.join(",") || "NOT FOUND: var h in exportFiltered") + "], Excel Procedures sheet [" + (XL_HEAD.join(",") || "NOT FOUND: var procHeaders in doExcelExport") + "]";
+  // Row 2 (no valid CPT) errors BEFORE the notes are added, so its position
+  // tells unshift from push; the RVU Wallet fixture does the same for its
+  // branch. The 49650 rows carry 6.36, not the database's value today, so
+  // those files come with the wRVU note; the Wallet file has no adjusted
+  // column, so it never does.
+  const setCsv = SET_HEAD.join(",") + "\n" +
     "2026-10-04,xx,Acute,Acute,0,,0,0.00,,Credited\n" +
     "2026-10-05,47562,Lap chole,General,10.21,,10.21,0.00,AB,No credit\n2026-10-06,49650,Lap hernia,Hernia,6.36,,6.36,350.00,CD,Credited\n";
-  const histCsv = "Date,CPT,Description,Category,Type,Base wRVU,Modifiers,Adjusted wRVU,Compensation,Patient,Notes,Credit\n" +
+  const histCsv = HIST_HEAD.join(",") + "\n" +
     "2026-10-06,49650,Lap hernia,Hernia,Private,6.36,,6.36,350.00,CD,x,Credited\n";
   const walCsv = "Date,Codes,Total Work RVUs,Credit\n2026-10-05,99999,1,Credited\n2026-10-06,47562,10.21,No credit\n";
   const impA = sb.parseImport(setCsv, impMap), impB = sb.parseImport(histCsv, impMap), impW = sb.parseImport(walCsv, impMap);
   const noFlag = r => r.entries.every(e => !Object.prototype.hasOwnProperty.call(e, "noCredit"));
-  check("CSV import: a Credit column warns first and never sets a no-credit mark",
-    impA.entries.length === 2 && /^1 row is marked No credit and will import as CREDITED/.test(impA.errors[0] || "") &&
-    impA.errors[1] === "Row 2: No valid CPT code" && noFlag(impA) &&
-    impB.entries.length === 1 && impB.errors.every(m => !/No credit/.test(m)) && noFlag(impB) &&
-    impW.entries.length === 2 && /^1 row is marked No credit/.test(impW.errors[0] || "") && /not in database/.test(impW.errors[1] || "") && noFlag(impW) &&
+  // The note's two halves: N rows that differ (always followed by how import
+  // prices), and N rows set apart for their extra cells, alone or after "; ".
+  const RE_WRVU = /^(\d+) rows? will import at a different wRVU than the file shows - import prices every row with /;
+  const RE_UNREAD = /(^|; )(\d+) (more )?rows? (has|have) more cells than the file's header \(a comma inside a cell\?\) and may import with the wrong modifiers or wRVU - check (it|them) before importing\.$/;
+  // Each export header row must stay one CSV import reads in full: a Date,
+  // CPT, Description, Modifiers and Notes column under a name detectCols
+  // knows; an adjusted-wRVU column the note compares (probed: a row with a
+  // far-off figure of its own in every cell must be counted); no column
+  // import would take for a wRVU column of the file's own (the app's exports
+  // have none - the note's ending rests on it); and Credit LAST (the credit
+  // warning reads a shifted row's last cell).
+  const headGaps = [["Settings CSV", SET_HEAD], ["History CSV", HIST_HEAD], ["Excel Procedures sheet", XL_HEAD]].map(x => {
+    const h = x[1], m = sb.detectCols(h), gaps = [["date", "Date"], ["cpt", "CPT"], ["desc", "Description"], ["modifier", "Modifiers"], ["notes", "Notes"]].filter(k => m[k[0]] < 0).map(k => "no " + k[1] + " column under a name detectCols knows");
+    if (!h.length) return x[0] + " - not found in the app's file";
+    if (m.rvu >= 0) gaps.push("\"" + h[m.rvu] + "\" would be read as a wRVU column of the file's own");
+    if (h[h.length - 1] !== "Credit") gaps.push("Credit is not its last column");
+    if (!RE_WRVU.test(sb.parseImport(h.join(",") + "\n" + h.map((c, i) => i === (m.cpt >= 0 ? m.cpt : 1) ? "47562" : (900 + i) + ".5").join(",") + "\n", impMap).errors[0] || "")) gaps.push("no adjusted-wRVU column the note compares");
+    return gaps.length ? x[0] + " - " + gaps.join(", ") : "";
+  }).filter(s => s);
+  check("CSV import of the app's own exports (their header rows are read out of settings.js and history.js): each header row is one import reads in full; the wRVU note comes first, the Credit note right after it (first where there is no wRVU note), and no no-credit mark is ever set",
+    headGaps.length === 0 && impA.entries.length === 2 && /^1 row will import at a different wRVU than the file shows - /.test(impA.errors[0] || "") && /^1 row is marked No credit and will import as CREDITED/.test(impA.errors[1] || "") &&
+    impA.errors[2] === "Row 2: No valid CPT code" && impA.errors.length === 3 && noFlag(impA) &&
+    impB.entries.length === 1 && impB.errors.length === 1 && RE_WRVU.test(impB.errors[0]) && impB.errors.every(m => !/No credit/.test(m)) && noFlag(impB) &&
+    impW.entries.length === 2 && /^1 row is marked No credit/.test(impW.errors[0] || "") && /not in database/.test(impW.errors[1] || "") && impW.errors.every(m => !RE_WRVU.test(m)) && noFlag(impW) &&
     JSON.stringify(sb.detectCols(["Credit"])) === JSON.stringify({ date: -1, cpt: -1, desc: -1, rvu: -1, modifier: -1, notes: -1 }),
-    JSON.stringify({ a: impA.errors, b: impB.errors, w: impW.errors }));
+    (headGaps.length ? "AN EXPORT HEADER ROW CSV IMPORT NO LONGER READS IN FULL: " + headGaps.join("; ") + " | " : "") + JSON.stringify({ settingsCsv: impA.errors, historyCsv: impB.errors, wallet: impW.errors }) + " | " + headsRead);
   // A quoted note with a line break spans physical lines (CRLF too); an Excel
   // tab paste shifts cells when a description or modifier list holds a comma.
-  const nlCsv = "Date,CPT,Description,Category,Base wRVU,Modifiers,Adjusted wRVU,Compensation,Notes,Credit\r\n" +
+  const nlCsv = SET_HEAD.join(",") + "\r\n" +
     "2026-10-05,47562,Lap chole,General,10.21,,10.21,0.00," + sb.csvField("AB \"x\"\nhard, case") + ",No credit\r\n" +
     "2026-10-07,49650,Lap hernia,Hernia,6.36,,6.36,0.00,EF,No credit\r\n2026-10-08,49650,Lap hernia,Hernia,6.36,,6.36,350.00," + sb.csvField("no\ncredit") + ",Credited\r\n";
-  const tabCsv = ["Date", "CPT Code", "Description", "Category", "Type", "Base wRVU", "Modifiers", "Adjusted wRVU", "Compensation", "Patient", "Notes", "Credit"].join("\t") + "\n" +
+  const tabCsv = XL_HEAD.join("\t") + "\n" +
     ["2026-10-05", "11042", "Debridement, subcutaneous tissue, first 20 sq cm", "Wound", "Call", "1.01", "-22, -51", "1.4", "0", "AB", "x", "No credit"].join("\t") + "\n";
   // A bare '"' (Excel leaves it unquoted in a tab paste) never closes a record;
   // the per-line count keeps the warning from collapsing to 1.
   const quoteCsv = "Date\tCPT\tNotes\tCredit\n2026-10-05\t49650\t2\" incision\tCredited\n2026-10-06\t47562\tAB\tNo credit\n2026-10-07\t47562\tCD\tNo credit\n";
   const impC = sb.parseImport(nlCsv, impMap), impD = sb.parseImport(tabCsv, impMap), impQ = sb.parseImport(quoteCsv, impMap);
-  check("CSV import: the credit warning counts whole records (multi-line notes), comma-shifted and bare-quote tab pastes",
-    /^2 rows are marked No credit/.test(impC.errors[0] || "") && noFlag(impC) && /^1 row is marked No credit/.test(impD.errors[0] || "") && noFlag(impD) &&
-    /^2 rows are marked No credit/.test(impQ.errors[0] || "") && noFlag(impQ),
-    JSON.stringify({ c: impC.errors, d: impD.errors, q: impQ.errors }));
+  // The comma-shifted tab paste (impD: the Excel export's Procedures sheet,
+  // pasted) has more cells than its header, so its adjusted column cannot be
+  // trusted: it is never counted as a row that differs, and the first message
+  // says it has more cells than the header and asks to check it.
+  check("CSV import: the credit warning counts whole records (multi-line notes), comma-shifted and bare-quote tab pastes; a row shifted by a comma (the Excel export's own sheet, pasted) is never counted as differing - the first message says it has more cells than the header and asks to check it before importing",
+    /^2 rows will import at a different wRVU/.test(impC.errors[0] || "") && /^2 rows are marked No credit/.test(impC.errors[1] || "") && noFlag(impC) &&
+    impD.errors[0] === "1 row has more cells than the file's header (a comma inside a cell?) and may import with the wrong modifiers or wRVU - check it before importing." && /^1 row is marked No credit/.test(impD.errors[1] || "") && impD.errors.every(m => !RE_WRVU.test(m)) && noFlag(impD) &&
+    /^2 rows are marked No credit/.test(impQ.errors[0] || "") && impQ.errors.every(m => !RE_WRVU.test(m)) && noFlag(impQ),
+    JSON.stringify({ settingsCsvMultiLine: impC.errors, excelSheetTabPaste: impD.errors, bareQuoteTabPaste: impQ.errors }) + " | " + headsRead);
+  // The wRVU note by itself. Made-up rows in the shape of the app's two CSV
+  // exports and of an RVU Wallet file. W = the database's wRVU today.
+  {
+    const Wv = c => impMap[c].wRVU;
+    const SET_H = SET_HEAD.join(",") + "\n";
+    const row = (code, mods, adj) => "2026-10-05," + code + ",x,General," + (impMap[code] ? Wv(code) : 4) + "," + mods + "," + adj + ",0.00,AB,Credited\n";
+    const msgs = t => sb.parseImport(t, impMap).errors;
+    // count: the rows the note says differ. apart: the rows it sets apart for
+    // their extra cells. (-1: more than one message says so.)
+    const count = t => { const n = msgs(t).filter(m => RE_WRVU.test(m)); return n.length === 0 ? 0 : n.length === 1 ? parseInt(RE_WRVU.exec(n[0])[1], 10) : -1; };
+    const apart = t => { const n = msgs(t).filter(m => RE_UNREAD.test(m)); return n.length === 0 ? 0 : n.length === 1 ? parseInt(RE_UNREAD.exec(n[0])[2], 10) : -1; };
+    const first = t => { const e = msgs(t); return e.length ? e[0] : ""; };
+    const same = SET_H + row("47562", "", Wv("47562").toFixed(2)) + row("44970", "-51", (Wv("44970") * 0.5).toFixed(2)) + row("49650", "-50;-51", (Wv("49650") * 1.5 * 0.5).toFixed(2));
+    const old22 = SET_H + row("47562", "-22", (Wv("47562") * 1.2).toFixed(2)) + row("44970", "", Wv("44970").toFixed(2));
+    const otherYear = SET_H + row("47562", "", (Wv("47562") + 0.26).toFixed(2)) + row("44970", "-51", ((Wv("44970") + 0.24) * 0.5).toFixed(2)) + row("49650", "", Wv("49650").toFixed(2));
+    const unknown = SET_H + row("99999", "-22", "5.00");
+    const blank = SET_H + row("47562", "-22", "") + row("44970", "", "n/a");
+    // A code whose wRVU has an odd number of cents: half of it ends in half a
+    // cent, and a file may show either neighbouring cent.
+    const oddCode = (rows.filter(r => Math.round(r[2] * 100) % 2 === 1 && impMap[r[0]])[0] || [""])[0], halfV = oddCode ? Wv(oddCode) * 0.5 : 0;
+    const halfCent = SET_H + row(oddCode, "-51", (Math.floor(halfV * 100 + 1e-6) / 100).toFixed(2)) + row(oddCode, "-51", (Math.ceil(halfV * 100 - 1e-6) / 100).toFixed(2));
+    const noAdjCol = "Date,CPT,Modifiers,Notes\n2026-10-05,47562,-22,AB\n";
+    const wal = "Date,Codes,Total Work RVUs,Total Adjusted Work RVUs\n2026-10-05,\"47562, 44970-51\"," + (Wv("47562") + Wv("44970")).toFixed(2) + "," + (Wv("47562") + Wv("44970") * 0.5).toFixed(2) + "\n" +
+      "2026-10-06,47562-22," + Wv("47562").toFixed(2) + "," + (Wv("47562") * 1.2).toFixed(2) + "\n";
+    const both = SET_H + row("47562", "-22", (Wv("47562") * 1.2).toFixed(2)).replace(",Credited\n", ",No credit\n");
+    // One cent away counts; a row that is skipped for an error does not;
+    // every header the adjusted column goes by is read.
+    const cent = SET_H + row("47562", "", (Wv("47562") + 0.01).toFixed(2));
+    const errRow = SET_H + "2026-10-05,xx,x,General,1,,9.99,0.00,AB,Credited\n" + row("47562", "", Wv("47562").toFixed(2));
+    const heads = ["Adjusted wRVU", "Adjusted wRVUs", "Adjusted RVU", "Adjusted RVUs", "Adj wRVU", "Adj wRVUs", "Adj RVU", "Adj RVUs", "Adjusted Work RVU", "Adjusted Work RVUs", "Total Adjusted Work RVUs", "Total Adjusted wRVUs"]
+      .map(h => count("Date,CPT,Modifiers," + h + "\n2026-10-05,47562,," + (Wv("47562") + 1).toFixed(2) + "\n")).join("");
+    // One cent BELOW counts too; a cell that only starts with a number is not
+    // compared; three decimals are read; of two adjusted columns the first is
+    // the one compared; an "82" in a file is -82 in both importers.
+    const centBelow = SET_H + row("47562", "", (Wv("47562") - 0.01).toFixed(2));
+    const junkCell = SET_H + row("47562", "", "12abc");
+    const threeDec = SET_H + row("47562", "-51", (Wv("47562") * 0.5 + 0.2).toFixed(3));
+    const twoCols = "Date,CPT,Modifiers,Adjusted wRVU,Adj RVU\n2026-10-05,47562,," + Wv("47562").toFixed(2) + ",99\n";
+    const e82 = sb.parseImport("Date,CPT,Modifiers\n2026-10-05,47562,82\n", impMap).entries[0], w82 = sb.parseImport("Date,Codes,Total Work RVUs\n2026-10-05,47562-82," + Wv("47562").toFixed(2) + "\n", impMap).entries[0];
+    const is82 = e => !!e && JSON.stringify(e.modifiers) === "[\"-82\"]" && Math.abs(e.adjustedRVU - Wv("47562") * 0.16) < 1e-9;
+    // A file with a wRVU column of its own (the Paste box's own example
+    // layout): that column is the base, and the note says so.
+    const ownBase = "Date,CPT,Description,wRVU,Modifier,Adjusted wRVU\n01/15/2025,47562,Lap cholecystectomy,9.95,22,11.94\n01/16/2025,44970,Lap appendectomy,9.45,,9.45\n";
+    // RVU Wallet prints ONE total for a row's codes: a total added up from
+    // each code's own cents is the file's figure, not a difference; a row is
+    // one row however many codes it holds; a row with no usable code and an
+    // error row are not counted; the notes keep their order in this branch too.
+    const WAL_H = "Date,Codes,Total Work RVUs,Total Adjusted Work RVUs\n";
+    const perCode = [Wv("19303"), Wv("47562") * 0.5, Wv("44970") * 0.5].reduce((s, v) => s + Number(v.toFixed(2)), 0);
+    const wal3 = t => WAL_H + "2026-10-05,\"19303, 47562-51, 44970-51\",1," + t.toFixed(2) + "\n";
+    const walJunk = WAL_H + "2026-10-05,\"12, ab\",1,5.00\n2026-10-06,47562," + Wv("47562").toFixed(2) + "," + Wv("47562").toFixed(2) + "\n";
+    const walBoth = "Date,Codes,Total Work RVUs,Total Adjusted Work RVUs,Credit\n2026-10-04,,1,1,Credited\n2026-10-06,47562-22," + Wv("47562").toFixed(2) + "," + (Wv("47562") * 1.2).toFixed(2) + ",No credit\n";
+    // A tab paste with a comma inside a cell: that row has more cells than
+    // the header, so its figure cannot be read - it is counted apart.
+    const TAB_H = ["Date", "CPT", "Description", "Modifiers", "Adjusted wRVU", "Notes"].join("\t") + "\n";
+    const tabRow = (code, desc, adj) => ["2026-10-05", code, desc, "", adj, "AB"].join("\t") + "\n";
+    const unreadOnly = TAB_H + tabRow("47562", "Lap chole, hard", "99.00") + tabRow("44970", "x", Wv("44970").toFixed(2));
+    const unreadAndDiff = TAB_H + tabRow("47562", "Lap chole, hard", "99.00") + tabRow("44970", "x", (Wv("44970") + 1).toFixed(2));
+    // Two rows set apart; one that differs beside two set apart; two that
+    // differ beside one - each count takes its own singular or plural.
+    const unreadTwo = TAB_H + tabRow("47562", "Lap chole, hard", "99.00") + tabRow("47562", "Lap chole, easy", "99.00") + tabRow("44970", "x", Wv("44970").toFixed(2));
+    const diffAndTwo = TAB_H + tabRow("47562", "Lap chole, hard", "99.00") + tabRow("47562", "Lap chole, easy", "99.00") + tabRow("44970", "x", (Wv("44970") + 1).toFixed(2));
+    const twoDiffAndOne = TAB_H + tabRow("47562", "Lap chole, hard", "99.00") + tabRow("44970", "x", (Wv("44970") + 1).toFixed(2)) + tabRow("47562", "y", (Wv("47562") + 1).toFixed(2));
+    // A negative figure in the file is a figure: it is compared, and counts.
+    const negSame = SET_H + row("47562", "", "-" + Wv("47562").toFixed(2)), negFive = SET_H + row("47562", "", "-5.00");
+    // Without an adjusted column there is nothing to compare and the note is
+    // never said - not of a row with more cells than the header either (a
+    // limit of today's rule: when import learns to say that of any file, this
+    // case moves with it).
+    const noAdjExtra = "Date\tCPT\tNotes\n2026-10-05\t47562\tAB - hard one, redo\n";
+    // An RVU Wallet row's half cent is per CODE read, not per item typed: an
+    // item too short to be a code is skipped and brings no allowance, so a
+    // total one cent off still counts. A Wallet row with more cells than the
+    // header is set apart like any other - once, however many codes it holds,
+    // and never compared: a CSV row with a stray cell, and a tab paste, whose
+    // Codes cell splits at its own commas.
+    const walShort = WAL_H + "2026-10-05,\"47562, 475\",1," + (Wv("47562") + 0.01).toFixed(2) + "\n";
+    const walExtra = WAL_H + "2026-10-05,\"19303, 47562-51\",1,99.00,extra\n";
+    const walTab = WAL_H.split(",").join("\t") + ["2026-10-05", "19303, 47562-51, 44970-51", "1", "99.00"].join("\t") + "\n";
+    // An RVU Wallet file is priced from the database even when its header has
+    // a wRVU-named column (that branch never reads one), so its note must not
+    // name "the file's own wRVU column".
+    const walOwn = "Date,Code,wRVU,Adj RVUs\n2026-10-05,47562-22," + (Wv("47562") + 0.26).toFixed(2) + "," + (Wv("47562") * 1.2).toFixed(2) + "\n";
+    // A wRVU column of the file's own is the base only where the row's cell
+    // holds a figure: blank, 0 or not a number means today's database value
+    // (0 for a code the database lacks) - the note's "today's value where a
+    // row has none". With a figure there, a code the database lacks is stored
+    // at the file's own value too.
+    const ownNone = "Date,CPT,wRVU,Adjusted wRVU\n2026-10-05,47562,,99.00\n2026-10-06,44970,0,99.00\n2026-10-07,49650,x,99.00\n2026-10-08,99999,,5.00\n2026-10-09,99999,x,5.00\n";
+    const ownUnknown = "Date,CPT,wRVU\n2026-10-05,99999,3.5\n";
+    // The Paste box's layout pasted with tabs: one row that differs, two
+    // whose description holds a comma.
+    const ownAndTwo = ["Date", "CPT", "Description", "wRVU", "Modifier", "Adjusted wRVU"].join("\t") + "\n" + ["01/15/2025", "47562", "Lap cholecystectomy", "9.95", "22", "11.94"].join("\t") + "\n" +
+      ["01/16/2025", "44970", "Appendectomy, lap", "9.45", "", "9.45"].join("\t") + "\n" + ["01/17/2025", "49650", "Hernia repair, lap", "6.27", "", "6.27"].join("\t") + "\n";
+    // What moved, in words: each case whose answer is not the expected one.
+    const offOf = (g, w) => Object.keys(Object.assign({}, w, g)).filter(k => JSON.stringify(g[k]) !== JSON.stringify(w[k])).map(k => k + ": got " + JSON.stringify(g[k]) + ", want " + JSON.stringify(w[k]));
+    const got = { same: count(same), old22: count(old22), otherYear: count(otherYear), unknown: count(unknown), blank: count(blank), halfCent: count(halfCent), noAdjCol: count(noAdjCol), wal: count(wal),
+      cent: count(cent), centBelow: count(centBelow), junkCell: count(junkCell), threeDec: count(threeDec), twoCols: count(twoCols), errRow: count(errRow), heads: heads,
+      wal3same: count(wal3(perCode)), wal3off: count(wal3(perCode + 0.03)), walJunk: count(walJunk), unreadOnly: count(unreadOnly), unreadAndDiff: count(unreadAndDiff),
+      negSame: count(negSame), negFive: count(negFive), walShort: count(walShort), walExtra: count(walExtra), walTab: count(walTab), noAdjExtra: count(noAdjExtra) };
+    const gotApart = { same: apart(same), old22: apart(old22), unreadOnly: apart(unreadOnly), unreadAndDiff: apart(unreadAndDiff), unreadTwo: apart(unreadTwo), walExtra: apart(walExtra), walTab: apart(walTab), noAdjExtra: apart(noAdjExtra) };
+    const offCount = offOf(got, { same: 0, old22: 1, otherYear: 2, unknown: 1, blank: 0, halfCent: 0, noAdjCol: 0, wal: 1, cent: 1, centBelow: 1, junkCell: 0, threeDec: 1, twoCols: 0, errRow: 0, heads: "111111111111",
+      wal3same: 0, wal3off: 1, walJunk: 0, unreadOnly: 0, unreadAndDiff: 1, negSame: 1, negFive: 1, walShort: 1, walExtra: 0, walTab: 0, noAdjExtra: 0 }).map(s => "rows that differ, case " + s)
+      .concat(offOf(gotApart, { same: 0, old22: 0, unreadOnly: 1, unreadAndDiff: 1, unreadTwo: 2, walExtra: 1, walTab: 1, noAdjExtra: 0 }).map(s => "rows set apart, case " + s))
+      .concat(msgs(noAdjExtra).length === 0 ? [] : ["a file with no adjusted column was given a message: " + JSON.stringify(msgs(noAdjExtra))]);
+    // The pattern that tells a figure from other text in the file's adjusted
+    // cell is pinned as text, once: its answers cannot tell it from the
+    // earlier /^-?\d*\.?\d+$/, which gave the same ones but backtracks (about
+    // two seconds on a cell of 60,000 digits and a letter; this one reads the
+    // cell once).
+    const CELL_TEST = "/^-?(\\d+(\\.\\d+)?|\\.\\d+)$/.test(cell || \"\")", cellTests = String(sb.parseImport).split(CELL_TEST).length - 1;
+    if (!oddCode) offCount.push("fixture: the data holds no code whose wRVU has an odd number of cents (the half-cent case needs one)");
+    check("CSV import wRVU note, which rows count: none when every row comes in at the file's figure (half a cent of rounding is the same figure; in an RVU Wallet row's total, half a cent per CODE read - an item too short to be a code brings none); one row for a -22 case exported at 1.2, for another year's values, for a code not in the database, for one cent above or below, for a three-decimal figure, for a negative figure; blank or non-numeric cells, skipped rows and files with no adjusted column never count; all twelve adjusted headers are read and the first of two is compared; a row with more cells than the header is set apart and never compared, once per row in both branches, and only in a file with an adjusted column; the cell pattern is the linear one",
+      offCount.length === 0 && cellTests === 1,
+      offCount.concat(cellTests === 1 ? [] : ["parseImport holds the linear cell test " + CELL_TEST + " " + cellTests + " times, want once (a pattern that backtracks gives the same answers, slowly)"]).join("; "));
+    // The words. The three sentences typed whole are the owner-facing texts
+    // as decided; the others are the same parts put together.
+    const DIFFERS = " will import at a different wRVU than the file shows - import prices every row with ", BY_DB = "today's wRVU values and modifier rules", BY_FILE = "the file's own wRVU column (today's value where a row has none) and today's modifier rules";
+    const CELLS = " more cells than the file's header (a comma inside a cell?) and may import with the wrong modifiers or wRVU - check ", HAS = " has" + CELLS + "it before importing.", HAVE = " have" + CELLS + "them before importing.";
+    const SAID = [["one row differs", old22, "1 row" + DIFFERS + BY_DB + "."],
+      ["two rows differ", otherYear, "2 rows will import at a different wRVU than the file shows - import prices every row with today's wRVU values and modifier rules."],
+      ["one row set apart", unreadOnly, "1 row has more cells than the file's header (a comma inside a cell?) and may import with the wrong modifiers or wRVU - check it before importing."],
+      ["two rows set apart", unreadTwo, "2 rows" + HAVE], ["one differs, one set apart", unreadAndDiff, "1 row" + DIFFERS + BY_DB + "; 1 more row" + HAS],
+      ["one differs, two set apart", diffAndTwo, "1 row" + DIFFERS + BY_DB + "; 2 more rows" + HAVE], ["two differ, one set apart", twoDiffAndOne, "2 rows" + DIFFERS + BY_DB + "; 1 more row" + HAS],
+      ["a wRVU column of the file's own", ownBase, "1 row" + DIFFERS + BY_FILE + "."], ["a wRVU column of its own, rows with no figure there", ownNone, "5 rows" + DIFFERS + BY_FILE + "."],
+      ["a wRVU column of its own, one differs, two set apart", ownAndTwo, "1 row will import at a different wRVU than the file shows - import prices every row with the file's own wRVU column (today's value where a row has none) and today's modifier rules; 2 more rows have more cells than the file's header (a comma inside a cell?) and may import with the wrong modifiers or wRVU - check them before importing."],
+      ["RVU Wallet", wal, "1 row" + DIFFERS + BY_DB + "."], ["RVU Wallet with a wRVU-named column", walOwn, "1 row" + DIFFERS + BY_DB + "."], ["RVU Wallet row with more cells than its header", walExtra, "1 row" + HAS]];
+    const offSaid = SAID.filter(c => first(c[1]) !== c[2]).map(c => c[0] + ": got \"" + first(c[1]) + "\", want \"" + c[2] + "\"");
+    const eBoth = msgs(both), eWalBoth = msgs(walBoth);
+    check("CSV import wRVU note, its words: one row or several that differ, one or several set apart for their extra cells, both together ('N more', each count with its own singular or plural), ending on today's values or - a generic file with a wRVU column of its own - on the file's own column 'where a row has none', never so for an RVU Wallet file; it is the first message, with the credit note second, in both branches",
+      offSaid.length === 0 && eBoth.length === 2 && RE_WRVU.test(eBoth[0]) && /^1 row is marked No credit/.test(eBoth[1]) &&
+      eWalBoth.length === 3 && RE_WRVU.test(eWalBoth[0]) && /^1 row is marked No credit/.test(eWalBoth[1]) && eWalBoth[2] === "Row 2: No codes",
+      offSaid.join(" || ") + " | with a Credit column: " + JSON.stringify(eBoth) + " " + JSON.stringify(eWalBoth));
+    // What import stores. 9.95 / 9.45 and 3.5 are the fixtures' own figures;
+    // the database's are read, so next year's values need no edit here.
+    const bases = t => sb.parseImport(t, impMap).entries.map(e => e.baseRVU), adjs = t => sb.parseImport(t, impMap).entries.map(e => e.adjustedRVU);
+    const offStored = offOf({ old22: adjs(old22), ownBase: [bases(ownBase), adjs(ownBase)[0]], ownUnknown: [bases(ownUnknown), adjs(ownUnknown)], ownNone: bases(ownNone), walOwn: bases(walOwn), madeUpCodeIsInDatabase: !!impMap["99999"] },
+      { old22: [Wv("47562"), Wv("44970")], ownBase: [[9.95, 9.45], 9.95], ownUnknown: [[3.5], [3.5]], ownNone: [Wv("47562"), Wv("44970"), Wv("49650"), 0, 0], walOwn: [Wv("47562")], madeUpCodeIsInDatabase: false });
+    check("CSV import, what is stored: never the file's adjusted figure (a -22 row exported at 1.2 comes in at 1.0); a wRVU column of the file's own is the base where the row's cell holds a figure - also for a code not in the database - and today's database value where the cell is blank, 0 or not a number (0 for a code not in the database); an RVU Wallet row is priced from the database even beside a wRVU-named column; an 82 in a file is -82 in both importers",
+      offStored.length === 0 && is82(e82) && is82(w82),
+      offStored.join("; ") + " | an 82 in a generic file: " + JSON.stringify(e82 ? [e82.modifiers, e82.adjustedRVU] : null) + ", in an RVU Wallet file: " + JSON.stringify(w82 ? [w82.modifiers, w82.adjustedRVU] : null));
+  }
 
   // Shift-entry helpers (call pay form). Local-parts date math only.
   const ADD = [["2026-01-31", 1, "2026-02-01"], ["2026-12-31", 1, "2027-01-01"], ["2028-02-28", 1, "2028-02-29"],
@@ -4667,15 +5877,31 @@ if (sb) {
     // returns for an existing list is allowed only as its own, later deploy on
     // top of History's keep rule (CLAUDE.md "Deploy rules") - read that
     // first, then move the pins and the figures in the same commit.
-    const MODS_PIN = "-22:1.2,-26:1,-50:1.5,-51:0.5,-62:0.625,-80:0.16,-59:1,-78:0.7,-79:1,-76:1,-77:1";
+    // ASSET_V 67 moved it once, as its own deploy after 66: -22 from 1.2 to 1.0
+    // (its chip reads "no wRVU change" - cases saved at 1.2 keep their stored
+    // figure, the KEPT rows below) and -82 added at 0.16 beside -80.
+    // Every row's code, label and desc - what the chips print - a "% of
+    // base" desc that says what its factor does, and the two guide sentences
+    // this table's change rests on.
+    const MOD_ROWS = ["-22|Increased Complexity|no wRVU change", "-26|Professional Component|100% wRVU (PC only)", "-50|Bilateral Procedure|150% of base", "-51|Multiple Procedures|50% (2nd+ proc)", "-62|Co-Surgeon|62.5% of base", "-80|Assistant Surgeon|16% of base",
+      "-82|Assistant, No Resident|16% of base", "-59|Distinct Procedural Service|100% (unbundle)", "-78|Return to OR, Related|70% of base", "-79|Unrelated Proc, Postop|100% of base", "-76|Repeat Procedure, Same MD|100% of base", "-77|Repeat Procedure, Diff MD|100% of base"];
+    const modRows = Array.from(vm.runInContext("MODIFIERS.map(function(m) { return m.code + '|' + m.label + '|' + m.desc; })", sb));
+    const descOff = Array.from(vm.runInContext("MODIFIERS.filter(function(m) { var x = /^([0-9.]+)% of base$/.exec(m.desc); return x && Math.abs(parseFloat(x[1]) - m.factor * 100) > 1e-9; }).map(function(m) { return m.code; })", sb));
+    const guide22 = String(vm.runInContext("MOD_MAP['-22'] ? MOD_MAP['-22'].guide : ''", sb)), guide82 = String(vm.runInContext("MOD_MAP['-82'] ? MOD_MAP['-82'].guide : ''", sb));
+    check("MODIFIERS rows: every code, label and desc as the chips print them; a '% of base' desc equals its factor; the -22 guide ends 'The wRVU counted here does not change.' and promises no 20%; the -82 guide says it is counted like -80",
+      JSON.stringify(modRows) === JSON.stringify(MOD_ROWS) && descOff.length === 0 && /The wRVU counted here does not change\.$/.test(guide22) && !/20%/.test(guide22) && /Counted like -80\.$/.test(guide82),
+      JSON.stringify(modRows.filter((x, i) => x !== MOD_ROWS[i])) + " " + JSON.stringify(descOff) + " " + JSON.stringify(guide22.slice(-60)) + " " + JSON.stringify(guide82.slice(-30)));
+    const MODS_PIN = "-22:1,-26:1,-50:1.5,-51:0.5,-62:0.625,-80:0.16,-82:0.16,-59:1,-78:0.7,-79:1,-76:1,-77:1";
+    const mod22Text = vm.runInContext("MOD_MAP[\"-22\"] ? MOD_MAP[\"-22\"].desc : \"\"", sb);
     const CALC_SRC = "function calcAdj(base, mods) { if (!mods || mods.length === 0) return base; if (mods.length === 1) { const m = MOD_MAP[mods[0]]; return m ? base * m.factor : base; } let r = base; mods.forEach(mc => { const m = MOD_MAP[mc]; if (m) r *= m.factor; }); return r; }";
     const modsNow = vm.runInContext("MODIFIERS.map(function(m) { return m.code + \":\" + m.factor; }).join(\",\")", sb);
     const mapIsTable = vm.runInContext("Object.keys(MOD_MAP).join() === MODIFIERS.map(function(m) { return m.code; }).join() && MODIFIERS.every(function(m) { return MOD_MAP[m.code] === m; })", sb) === true;
     const calcSrcNow = String(sb.calcAdj).replace(/\s+/g, " ");
-    const CALC_LIT = [[10.21, [], 10.21], [10.21, ["-51"], 5.105], [10, ["-50", "-51"], 7.5], [10.21, ["-22"], 12.252], [10.21, ["-22", "-51"], 6.126], [10.21, ["-78"], 7.147], [10.21, ["-AS"], 10.21], [10.21, ["51"], 10.21], [10.21, ["51", "-22"], 12.252], [10, ["-50", "-51", "-78"], 5.25]];
+    const CALC_LIT = [[10.21, [], 10.21], [10.21, ["-51"], 5.105], [10, ["-50", "-51"], 7.5], [10.21, ["-22"], 10.21], [10.21, ["-22", "-51"], 5.105], [10.21, ["-78"], 7.147], [10, ["-80"], 1.6], [10, ["-82"], 1.6], [10, ["-82", "-51"], 0.8],
+      [10.21, ["-AS"], 10.21], [10.21, ["51"], 10.21], [10.21, ["51", "-22"], 10.21], [10, ["-50", "-51", "-78"], 5.25]];
     const badLit = CALC_LIT.filter(t => sb.calcAdj(t[0], t[1]) !== t[2]).map(t => J(t[1]) + " -> " + sb.calcAdj(t[0], t[1]));
-    check("MODIFIERS pin: the modifier table's codes and factors, MOD_MAP (exactly the table's rows) and calcAdj's text are the shipped ones, and calcAdj gives the literal figures (a code the table does not hold changes nothing). Anything that changes what calcAdj returns for an existing list ships only as its own, later deploy on top of History's keep rule - CLAUDE.md Deploy rules",
-      modsNow === MODS_PIN && mapIsTable && calcSrcNow === CALC_SRC && badLit.length === 0, modsNow + " | MOD_MAP is the table: " + mapIsTable + " | " + (calcSrcNow === CALC_SRC ? "" : calcSrcNow) + " " + badLit.join(" | "));
+    check("MODIFIERS pin: the modifier table's codes and factors, MOD_MAP (exactly the table's rows) and calcAdj's text are the shipped ones, -22 reads \"no wRVU change\", and calcAdj gives the literal figures (a code the table does not hold changes nothing). Anything that changes what calcAdj returns for an existing list ships only as its own, later deploy on top of History's keep rule - CLAUDE.md Deploy rules",
+      modsNow === MODS_PIN && mod22Text === "no wRVU change" && mapIsTable && calcSrcNow === CALC_SRC && badLit.length === 0, modsNow + " | -22 text: " + J(mod22Text) + " | MOD_MAP is the table: " + mapIsTable + " | " + (calcSrcNow === CALC_SRC ? "" : calcSrcNow) + " " + badLit.join(" | "));
 
     const SAME = [ // [a, b, same set?]
       [["-51"], ["-51"], true], [["-51", "-59"], ["-59", "-51"], true], [["-51", "-51"], ["-51"], true], [[], [], true], [undefined, [], true], [null, undefined, true], ["51", [], true], ["51", "51", true],
@@ -4707,6 +5933,7 @@ if (sb) {
       ["in-shape case, note edited", inShape, { notes: "AB - edited" }],
       ["in-shape case with no modifier, date edited", mk("k0b", [], 10.21), { date: "2026-09-22" }],
       ["stored value the table would not produce today (12.7625 on 10.21 with -22), note edited", mk("k1", ["-22"], 12.7625), { notes: "AB - typo fixed" }],
+      ["a -22 case saved while -22 counted 1.2 (12.252 on 10.21), note edited", mk("k1b", ["-22"], 12.252), { notes: "AB - typo fixed" }],
       ["a modifier the table no longer holds, stored at 0.135 of the base", mk("k2", ["-AS"], 10.21 * 0.135), { date: "2026-09-21" }],
       ["a dashless modifier the table never held, stored at the full value", mk("k3", ["51"], 10.21), { patient: "CD" }],
       ["a repeated modifier, toggled off and on again in the panel", mk("k4", ["-51", "-51"], 10.21 * 0.25), { modifiers: ["-51"] }],
@@ -4875,6 +6102,8 @@ if (sb) {
       const KEPT = [ // [label, stored case, taps] - none changes the code or the SET of modifiers
         ["a note edit on an in-shape -51 case", mk("a1", ["-51"], 5.105), [["notes", "AB - typo fixed"]]],
         ["a note edit on a case stored under an older -22 factor", mk("a2", ["-22"], 12.7625), [["notes", "AB - typo fixed"]]],
+        ["a note edit on a -22 case saved while -22 counted 1.2", mk("a2b", ["-22"], 12.252), [["notes", "AB - typo fixed"]]],
+        ["-22 tapped off and on again on a case saved while -22 counted 1.2", mk("a2c", ["-22"], 12.252), [["mod", "-22"], ["mod", "-22"], ["notes", "AB - n1"]]],
         ["a note edit on a case whose modifier the table no longer holds", mk("a3", ["-AS"], 1.37835), [["notes", "AB - typo fixed"]]],
         ["a note edit on a case with a dashless modifier", mk("a4", ["51"], 10.21), [["notes", "AB - typo fixed"]]],
         ["-22 tapped off and on again on an older-factor case", mk("a5", ["-22", "-51"], 6.38125), [["mod", "-22"], ["mod", "-22"], ["notes", "AB - n2"]]],
@@ -4897,7 +6126,9 @@ if (sb) {
       }));
 
       const MOVED = [ // [label, stored case, taps, the line the panel must show, what Save must store over the case]
-        ["-51 added to a case stored under an older -22 factor", mk("b1", ["-22"], 12.7625), [["mod", "-51"]], "Saved 12.76 wRVU, after save 6.13", { modifiers: ["-22", "-51"], adjustedRVU: 6.126 }],
+        ["-51 added to a case stored under an older -22 factor", mk("b1", ["-22"], 12.7625), [["mod", "-51"]], "Saved 12.76 wRVU, after save 5.11", { modifiers: ["-22", "-51"], adjustedRVU: 5.105 }],
+        ["-51 added to a -22 case saved while -22 counted 1.2: today's table prices the whole list", mk("b1b", ["-22"], 12.252), [["mod", "-51"]], "Saved 12.25 wRVU, after save 5.11", { modifiers: ["-22", "-51"], adjustedRVU: 5.105 }],
+        ["-82 added to a plain case", mk("b1c", [], 10, { baseRVU: 10 }), [["mod", "-82"]], "Saved 10.00 wRVU, after save 1.60", { modifiers: ["-82"], adjustedRVU: 1.6 }],
         ["-51 added to a plain case", mk("b2", [], 10.21), [["mod", "-51"]], "Saved 10.21 wRVU, after save 5.11", { modifiers: ["-51"], adjustedRVU: 5.105 }],
         ["-22 removed from an older-factor case", mk("b3", ["-22"], 12.7625), [["mod", "-22"]], "Saved 12.76 wRVU, after save 10.21", { modifiers: [], adjustedRVU: 10.21 }],
         ["-59 added beside a modifier the table does not hold", mk("b4", ["-AS"], 1.37835), [["mod", "-59"]], "Saved 1.38 wRVU, after save 10.21", { modifiers: ["-AS", "-59"], adjustedRVU: 10.21 }],

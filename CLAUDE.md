@@ -56,7 +56,8 @@ flash on every cold launch).
 
 `scripts/check.js` (`npm run check`) enforces this structure: both arrays
 parsed, disk<->array set equality, pinned plain-set membership, ASSET_V
-presence, store-field parity (defState = loadData = finishRestore),
+presence (its floor, and the three stamped script URL lines as texts),
+store-field parity (defState = loadData = finishRestore),
 call-pay math tests (the REAL utils.js run in a Node vm sandbox), plus
 the per-file gates below. Run it after EVERY file change.
 
@@ -91,7 +92,8 @@ the per-file gates below. Run it after EVERY file change.
   first. Back out a later modifier-table change by shipping a forward build
   that keeps this rule - never by reverting to a build older than 66.
 - Commit and push from `RVU App Split/` (the repo root). Never commit
-  billing data (`RVU Wallet Data/`), CMS source files (`CMS 2026/`), or
+  billing data (`RVU Wallet Data/`), CMS source files (the `CMS 2026/`, `CMS 2025/` and `CMS NCCI/` folders
+  beside the repo), or
   any partner name — the repo is public and the roster is runtime user
   data only. The same goes for call-pay site names and rates (paySites),
   with ONE exception the owner chose on 2026-10-11: the built-in preset
@@ -311,7 +313,7 @@ the per-file gates below. Run it after EVERY file change.
   the grey S.ncTag "no credit" tag and a dimmed wRVU; a partly flagged
   encounter card is "mixed". Exports keep every row and append a Credit
   column (Credited / No credit) LAST; CSV import never reads it back - it
-  warns first instead. Remove Duplicates (utils.js entryDuplicateScan)
+  warns instead (first, or second when the wRVU note below is there). Remove Duplicates (utils.js entryDuplicateScan)
   keys on the call fields - Call/Private, call site and credit
   (entryCallKey) - and reports same-case copies that differ only in
   them. Each "Logged, no credit"
@@ -412,20 +414,26 @@ the per-file gates below. Run it after EVERY file change.
   it. saveEdit passes the stored case as found, never calls calcAdj, never
   writes an adjustedRVU or modifiers key itself and stores entryWithCall's
   result as it is; + Add (saveAdd) and Log price a NEW case with the current
-  table. The panel's modifier state IS the stored list (startEdit), codes
-  the table does not hold included: such a code has no chip, stays on the
-  case and keeps its stored figure until the user changes the set - never
-  filter, de-duplicate or normalise that seed or the stored case before the
-  rule (a note edit would then re-price the case). Nothing else prices a
-  STORED case: loading, saving, restore, Undo, the encounter plan and the
-  call-site fix-up copy a case's modifiers and adjusted wRVU as they are.
+  table (5f-18 pins both: in Log's save the figure is calcAdj(info.wRVU,
+  p.mods), stored as it is). The panel's modifier state IS the stored list
+  (startEdit), codes the table does not hold included: such a code has no
+  chip, stays on the case and keeps its stored figure until the user changes
+  the set - never filter, de-duplicate or normalise that seed or the stored
+  case before the rule (a note edit would then re-price the case). Nothing
+  else prices a STORED case: loading, saving, restore, Undo, the encounter
+  plan and the call-site fix-up copy a case's modifiers and adjusted wRVU as
+  they are.
   check.js: 5f-18 pins the shapes of all of this and counts, per file, every
   calcAdj call, every mention of its name and every `.factor` read (a new
-  one must price NEW cases only; the count is syntactic); 5f-19 runs
-  History's real startEdit / toggle / saveEdit / saveAdd text on made-up
-  cases and compares the store; a stale-priced store goes through loadData
-  and saveData byte for byte; the entryEditFields contract tests pin the
-  rule's values. Any change to what calcAdj returns for an existing list
+  one must price NEW cases only, or only show a figure and write nothing, as
+  proposeCaseModifiers does; the count is syntactic) and, since ASSET_V 67,
+  every object-literal adjustedRVU key, every mention of the name factor, of
+  MOD_MAP and of proposeCaseModifiers, and no string or template that holds
+  calcAdj or proposeCaseModifiers as part of its text (a name put together
+  from pieces is not seen); 5f-19 runs History's real startEdit / toggle /
+  saveEdit / saveAdd text on made-up cases and compares the store; a
+  stale-priced store goes through loadData and saveData byte for byte; the
+  entryEditFields contract tests pin the rule's values. Any change to what calcAdj returns for an existing list
   ships ON TOP of this rule, as its own later deploy (Deploy rules; check.js
   MODIFIERS pin).
 - wRVU overrides (rvuOverrides, { code: number }): getDB applies one only
@@ -850,20 +858,168 @@ the per-file gates below. Run it after EVERY file change.
     DIR_REMIND_KEY ("rvu-dir-reminder"), OUTSIDE the store; only the
     utils.js helpers touch it (check.js G12, the BACKUP_STAMP_KEY rule).
 - cpt-data.js is built by scripts/build-cpt-data.js. Row contract `[code,
-  desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS]`. wRVU (r[2])
-  and the global (r[5]) always come from the CMS nonQPP PPRRVU file - never
-  hand-edit them. The curated fields - descriptor (r[1]), category (r[3]),
-  keywords (r[4]) - may be edited in place; the generator carries them
-  forward on its next run (and its swap checklist edits them in the
-  candidate). CMS_ROW_BASELINE and GLOB_BASELINE live in check.js and change
-  together, deliberately, in the yearly swap commit.
+  desc, wRVU, category, keywords ("" if none), CMS GLOB DAYS, "MBAC" (four
+  indicator digits: MULT PROC, BILAT SURG, ASST SURG, CO- SURG), FACILITY
+  TOTAL, prior-year work RVU or null]`, one row per line. wRVU (r[2]), the
+  global (r[5]), the indicators (r[6]) and the facility total (r[7]) always
+  come from the CMS nonQPP PPRRVU file - the code's base row, except r[7],
+  which is the professional (-26) row's FACILITY TOTAL where CMS prints one
+  for the code (what a physician is paid in a facility; the base row then
+  holds the whole service, and 25 ranked codes would otherwise lead on an
+  office figure). r[8] is the WORK RVU of the same code in the builder's
+  --prior file (CY2025 today; which year that is is decided at each swap,
+  never "last year" by default): its base row's when that row is payable,
+  else its -26 row's when that one is payable, else null - so a 0 there is a
+  real 0.00. Never hand-edit any of them.
+  The curated fields - descriptor (r[1]), category (r[3]), keywords (r[4]) -
+  may be edited in place; the generator carries them forward on its next run
+  (and its swap checklist edits them in the candidate). A second constant,
+  CMS_MORE, follows the rows: `addon` (CMS's NCCI add-on code edits for the
+  app's codes, "<type>" or "<type>:<tokens>", a token being one primary code
+  or a range A-B in string order), `endo` (endoscopy families by base code),
+  `addonAsOf` (--addon-date as typed: a day in the quarter of the add-on
+  file's name, normally its first day) and `priorYear`. To add or refresh a
+  CMS column without changing the year, run the builder with the current
+  file as both --input and --baseline (its header says how). --baseline is
+  always the file the data was built from: the run stops when its title
+  names another year than --year or the year before, or when a code it
+  keeps has no row there. CMS_ROW_BASELINE, GLOB_BASELINE,
+  IND_BASELINE, FAC_SUM_BASELINE, POLICY_HASH_BASELINE, PRIOR_BASELINE and
+  MORE_BASELINE live in check.js and change together with the data file,
+  deliberately. The row fingerprint covers every CMS element of every row -
+  wRVU, global, indicators, facility total, prior-year value - and the two
+  table fingerprints every table entry, so a hand edit of any of them fails;
+  check.js also holds the file to the builder's exact text: every row line
+  as the builder's row writer prints it, each table key once. For that it
+  carries a COPY of the writer (jsStr, emitNum, emitRow) and holds the copy
+  to the builder's own functions - change them in both files together. The
+  builder itself is tested by check.js on made-up files: which codes it
+  selects (status A, R, B, T; the one excluded code), what it keeps of a
+  code the data already holds (the curated descriptor, category and
+  keywords; a descriptor conflict), a new code's category, the -26 row, the
+  prior-year value, the add-on dates and tokens, its report (sources, row
+  count, baselines, change lists) and the inputs it must refuse. Change a
+  rule there and that test together. The test types two real codes - 47562 as
+  "a code the data holds" (its row is read from the data file) and 86153,
+  the one code the builder leaves out - and a made-up 40491 in a gap between
+  two shipped codes, whose category it reads. Every check.js test that names a code's
+  figures or indicators carries that year's values - the worked cases, the
+  per-rule cases and pinned texts, the lookup cases, the import fixtures -
+  so the yearly swap re-reads them all.
 - Global period has ONE source: CMS_RAW[5]. utils.js derives GLOBAL_DAYS;
   getGlobalDays/getGlobalColor are the only label and color source (000
   0-day, 010 10-day, 090 90-day, ZZZ add-on, anything else no chip; colors
   are the styles.js --global-90/10/0 theme tokens). Never type codes between
-  `var GLOBAL_DAYS` and `var COMPANION_CODES` (check.js refuses). Chips are
-  looked up at render time, not stored on entries, so a CMS change relabels
-  past rows.
+  `var GLOBAL_DAYS` and `var COMPANION_CODES` (check.js refuses, and each of
+  the two markers must occur exactly once in utils.js, comments included).
+  Chips are looked up at render time, not stored on entries, so a CMS change
+  relabels past rows.
+- CMS payment policy has ONE source too: CMS_RAW[6..8] and CMS_MORE. utils.js
+  derives CMS_POLICY, CMS_ADDON and CMS_ENDO in the same section as
+  GLOBAL_DAYS (so the no-typed-codes gate covers them) and everything reads
+  them through cmsPolicy, addOnRule, addOnAllows and endoFamily only. A row
+  without the new elements has no policy and CMS_MORE is read behind
+  `typeof`: for a moment after an update a phone can hold this utils.js
+  beside an older cpt-data.js, and only CMS_RAW has a fallback when the data
+  file fails to load. Every reader then gets "no CMS data" and proposes
+  nothing (check.js runs both mixes). Beside a CMS_MORE it cannot read the
+  rows keep their policy and only the add-on and family lookups answer
+  nothing (check.js runs that too). Typed
+  codes are held out by three pins beside the gate: the lookups sit between
+  the two markers, the literals of that stretch are the pinned ones, and the
+  code-shaped tokens of utils.js outside its three curated tables, and of
+  every other file, are the pinned ones. A token is any five characters
+  shaped like a code, so a code typed WHOLE anywhere moves a pin - and so
+  does a plain five-digit number or a word in a comment (write a new number
+  that is no code as a product, 15 * 1000; the failure line names the token
+  and its line). A prefix test or a code put together from pieces is not
+  seen: review those by eye.
+- Lead code and -51 have ONE rule, utils.js proposeCaseModifiers. It is pure:
+  it proposes and flags, writes nothing and leaves its input untouched, and
+  a caller applies a proposal only on the user's tap (nothing calls it until
+  Log's card does; check.js pins that). Lines are { code, modifiers,
+  baseRVU }: a stored case's cptCode is read where the code is missing, null
+  or empty, and a line without a usable baseRVU ranks and prices as 0, so a
+  caller passes the wRVU itself. Its `before` / `after` and totals are
+  TODAY's prices of the modifiers entered and proposed, never a saved case's
+  stored figure: a caller that shows saved cases puts the stored adjustedRVU
+  beside them, and what a save then writes is History's keep rule. The
+  owner's choice of 2026-11-13: the LEADER is the ranked line with the
+  highest WORK RVU - the line's own base, x1.5 for -50 where BILAT SURG is
+  1 - not CMS's facility total. A tie in work RVU goes to a line without -51
+  (a case entered in order is never re-sequenced for no gain), then to the
+  higher facility total, then to the earlier line; both ranks are compared
+  to four decimals. When the facility total would name another leader, the
+  result carries that order too (`alt`, with its own lead marks) and a note:
+  a caller shows both and never picks silently. No other order is offered
+  when the two leaders tie in work RVU, when a line of an endoscopy family
+  of two or more has the leader's work RVU (the leader itself included), or
+  when the facility leader is such a line and carries -51. In those three
+  cases nothing says that the facility total names another leader: the one
+  place where an order is passed over in silence (a note of its own is
+  planned with the card).
+  `settled` says that nothing NEEDS a tap: every line is as the proposal has
+  it, except that a group where the other order is offered may follow that
+  order instead (decided group by group). A tap may still be on offer: where
+  `alt` exists, `changed` or `alt.changed` stays true, and what the card
+  does with that is decided with the card. Nor does it say that nothing is
+  wrong - show flags whatever it says, with one exception: while it is true,
+  a 51-on-lead flag belongs to the order the user did not choose and is not
+  an error (while it is false the result cannot say which group a flag
+  belongs to). A family leader that carries -51 has a flag kind of its own,
+  51-on-family-lead: an error by the work-RVU order, with nothing to tap.
+  Ranked lines are MULT PROC 2 and 3; every other code never takes -51
+  (flagged on any line; proposed away except on a -76 / -77 / -78 line).
+  Groups never mix: the user's own lines, assistant lines (-80, -82, AS),
+  co-surgeon lines (-62), and -79 lines apart within each; -76, -77 and -78
+  lines are never sequenced or changed, and a row with no code takes no
+  part. Two or more lines of one endoscopy family in a group are left as
+  entered (the app has no modifier for CMS's family rule; the note says so):
+  they still count when the leader is found, and a family leader that
+  carries -51 is flagged and nothing is then proposed around it. A group
+  with a code that has no CMS data, or whose ranked lines all carry -51,
+  gets no sequencing proposal (a -51 on a code that never takes it is still
+  proposed away). Flags (bilateral, assistant, co-surgeon, add-on pairing,
+  unknown or repeated modifier) never change a proposal. It never throws for
+  anything JSON can hold: a modifier that is neither text nor a number is an
+  unknown modifier. Known limits for its first caller (Log's card): the
+  result carries no group id, so one Apply covers the whole case; after the
+  other order is applied (every such group then follows it) the leader is
+  read from alt.lines[i].lead; Log's own rows are { code, mods } without a
+  wRVU, so they go through an adapter; a caller that holds a stored case and
+  a draft code passes only the draft (an empty code falls back to cptCode);
+  and in one rare full tie beside a family line that carries -51, applying
+  the proposal makes the other order disappear. check.js pins the four
+  worked cases with their CY2026 figures, one case per rule, every flag and
+  note text word for word, and the result's shape.
+- MODIFIERS since ASSET_V 67: -22 counts 1.0 and its chip reads "no wRVU
+  change" (cases saved at 1.2 keep their stored figure - the History keep
+  rule - so the panel of such a case shows that chip beside the kept
+  figure); -82 (0.16) sits beside -80. History's chips show each modifier's
+  desc line like Log's (check.js pins both grids whole, and every row's
+  code, label and desc). Both importers follow the table, so an "82" in a
+  file is now read as -82. CSV import never takes a row's ADJUSTED wRVU from
+  the file. A wRVU column of the file's own (detectCols' rvu names; the
+  app's exports have none, and the RVU Wallet branch never reads one) is the
+  base only in a row whose cell reads as a number other than 0: a blank, 0
+  or non-numeric cell means today's database value, and 0 for a code the
+  database lacks. When the file's adjusted column shows another figure than
+  the row will be stored at, parseImport's FIRST message says for how many
+  rows, and the credit note comes second, in both branches. A row with more
+  cells than the header (a comma inside a cell of a tab paste) is not
+  compared and may be stored with the wrong modifiers or wRVU: it is counted
+  apart, in the same message, which asks the user to check such rows before
+  importing (only a file with an adjusted column gets either count). An RVU
+  Wallet row prints one total for its codes and is allowed half a cent per
+  code, so a real difference of up to half a cent per code there is not
+  counted. The preview shows the first six messages (5f-20 pins its Warnings
+  block whole, from its condition on). check.js reads the export header rows
+  out of the app - `h` in settings.js expCSV, `h` in history.js
+  exportFiltered, `procHeaders` in settings.js doExcelExport - and requires
+  each to keep the columns import reads, an adjusted column the note
+  compares, no wRVU column of its own, and Credit last: renaming one of
+  those arrays or functions fails the first CSV-import check. check.js's
+  ASSET_V floor (67) rises with this table.
 
 ## Working protocol
 
