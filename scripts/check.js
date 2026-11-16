@@ -3566,7 +3566,11 @@ check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_R
   const LOOSE_PIN = ["15000", "15000", "19301", "19303", "38525", "38525", "38525", "38900", "44005", "47562", "47562", "52803", "60000", "64931", "99999"];
   const perFileTokens = {}, perFileAt = {};
   jsFiles.filter(f => f !== "utils.js" && f !== "cpt-data.js").forEach(f => { const at = tokensOf(fs.readFileSync(path.join(JS_DIR, f), "utf8")); if (at.length) { perFileTokens[f] = at.length; perFileAt[f] = at; } });
-  const FILE_TOKENS_PIN = { "compare.js": 3, "crypto.js": 2, "history.js": 1, "log.js": 81 };
+  // log.js 81 -> 78 (Batch 2): the three scanners' copies of the request
+  // became ONE (log.js sendScan), so their three `}, 90000)` timeout arguments
+  // are gone - fetchWithTimeout's own `timeoutMs || 90000` default is the one
+  // left. The 75 codes typed on purpose in the three scanner prompts stay.
+  const FILE_TOKENS_PIN = { "compare.js": 3, "crypto.js": 2, "history.js": 1, "log.js": 78 };
   // The failure line: what moved, in words, and only what moved. utils.js is
   // pinned token by token, so its new and gone tokens are named. Another file
   // is pinned by its count alone, so a file whose count moved prints every
@@ -8222,6 +8226,417 @@ if (sb) {
     check("U6b: acuteInUse and reconInUse - false on a neutral store; a partner, a month or a 'me' turns acute on; a Compare month or a Reconciliation goal turns Reconciliation on; junk stays off",
       sb.acuteInUse(neutral()) === false && sb.acuteInUse(neutral({ acuteRoster: ["P"] })) === true && sb.acuteInUse(neutral({ acuteMonths: { "2026-09": { pool: 1, shifts: {} } } })) === true && sb.acuteInUse(neutral({ acuteMe: "P" })) === true && sb.acuteInUse(null) === false &&
       sb.reconInUse(neutral()) === false && sb.reconInUse(neutral({ institutionData: [{ month: "2026-09", workRVU: 1, splitRVU: 0, cases: 1 }] })) === true && sb.reconInUse(neutral({ settings: { reconGoal: 5 } })) === true && sb.reconInUse(neutral({ settings: { reconGoal: "x" } })) === false && sb.reconInUse(null) === false);
+  }
+}
+
+// S1-S9: the AI note scanners (log.js scanNote / scanClinicNote /
+// scanInpatient; utils.js SCAN_ENABLED, SCAN_MODEL, SCAN_MODS_*,
+// scanReplyText, scanHttpErrorText, scanModifiersFrom). They stay OFF, and no
+// note may leave the browser while they are: the app's one fetch call is
+// fetchWithTimeout's, which only sendScan calls, which only the three scanners
+// call - after their flag test. The reply rule, the HTTP error text and the
+// modifier filter run here on made-up replies, and so does log.js's own
+// handleScanResponse (lifted out of log.js by AST position, like 5f-19). No
+// request is ever made and no key is used: the one "key" below is an obvious
+// placeholder that only checks that no message can show one. The privacy
+// texts of the three prompts and the parser's PHI rules are pinned word for
+// word: change them only on purpose, in log.js and here together.
+{
+  const J = x => JSON.stringify(x);
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const srcs = {}, asts = {};
+  jsFiles.filter(f => f !== "cpt-data.js").forEach(f => { srcs[f] = fs.readFileSync(path.join(JS_DIR, f), "utf8"); try { asts[f] = parser.parse(srcs[f], AST_OPTS); } catch (e) { asts[f] = null; } });
+  const logText = srcs["log.js"] || "", logAst = asts["log.js"] || null;
+  // LogProc's functions by name (var NAME = function ...), each declared once.
+  const fnOf = name => { const d = logAst ? deep(logAst.program, n => n.type === "VariableDeclarator" && isId(n.id, name) && !!n.init && n.init.type === "FunctionExpression") : []; return d.length === 1 ? d[0].init : null; };
+  const textOf = n => n ? logText.slice(n.start, n.end) : "";
+  // A function's code without its comments, white space collapsed.
+  const norm = s => s.replace(/\s+/g, " ").trim();
+  const codeOf = fn => { if (!fn) return ""; let t = "", at = fn.start; (logAst.comments || []).filter(c => c.start >= fn.start && c.end <= fn.end).sort((a, b) => a.start - b.start).forEach(c => { t += logText.slice(at, c.start); at = c.end; }); return norm(t + logText.slice(at, fn.end)); };
+  const inside = (n, fn) => !!fn && n.start >= fn.start && n.end <= fn.end;
+  const callsTo = (ast, name) => ast ? deep(ast.program, n => n.type === "CallExpression" && (isId(n.callee, name) || (n.callee.type === "MemberExpression" && !n.callee.computed && isId(n.callee.property, name)))) : [];
+  const SCANNERS = ["scanNote", "scanClinicNote", "scanInpatient"];
+  const FAKE_KEY = "sk-ant-FAKE-made-up-placeholder";
+
+  // S1. The flag: utils.js declares it once, as false, and nothing writes it.
+  {
+    const bad = [];
+    if (utils.split("var SCAN_ENABLED = false;").length !== 2) bad.push("utils.js does not hold \"var SCAN_ENABLED = false;\" exactly once");
+    Object.keys(asts).forEach(f => {
+      const ast = asts[f];
+      if (!ast) { bad.push(f + " does not parse"); return; }
+      const holds = n => !!n && (deep(n, x => isId(x, "SCAN_ENABLED")).length > 0 || deep(n, x => x.type === "StringLiteral" && x.value === "SCAN_ENABLED").length > 0);
+      deep(ast.program, n => (n.type === "AssignmentExpression" && holds(n.left)) || (n.type === "UpdateExpression" && holds(n.argument)))
+        .forEach(n => bad.push(f + " line " + n.loc.start.line + ": SCAN_ENABLED is assigned"));
+      const decl = deep(ast.program, n => (n.type === "VariableDeclarator" && holds(n.id)) ||
+        ((n.type === "FunctionDeclaration" || n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression" || n.type === "ClassDeclaration") && (isId(n.id, "SCAN_ENABLED") || (n.params || []).some(holds))));
+      const declOk = f === "utils.js" ? decl.length === 1 && decl[0].type === "VariableDeclarator" && !!decl[0].init && decl[0].init.type === "BooleanLiteral" && decl[0].init.value === false : decl.length === 0;
+      if (!declOk) bad.push(f + ": SCAN_ENABLED declared " + decl.length + " time(s)" + (f === "utils.js" ? " - want once, as false" : " - want none"));
+      deep(ast.program, n => (n.type === "StringLiteral" && n.value.indexOf("SCAN_ENABLED") !== -1) || (n.type === "TemplateElement" && n.value.raw.indexOf("SCAN_ENABLED") !== -1))
+        .forEach(n => bad.push(f + " line " + n.loc.start.line + ": a string holds SCAN_ENABLED"));
+    });
+    if (cpt.indexOf("SCAN_ENABLED") !== -1 || html.indexOf("SCAN_ENABLED") !== -1) bad.push("cpt-data.js or index.html names SCAN_ENABLED");
+    check("scanners S1: scanning stays OFF - utils.js holds \"var SCAN_ENABLED = false;\" once, and no js file assigns it, declares it again or names it in a string, nor do cpt-data.js and index.html (turning it on is the owner's decision; a name put together from pieces is not seen)",
+      bad.length === 0, bad.join("; "));
+  }
+
+  // S2. The way out: no note can leave the browser while the flag is off.
+  {
+    const bad = [];
+    const fns = {};
+    ["fetchWithTimeout", "sendScan"].concat(SCANNERS).forEach(n => { fns[n] = fnOf(n); if (!fns[n]) bad.push(n + " is not declared once in log.js as var " + n + " = function"); });
+    SCANNERS.forEach(n => {
+      const first = fns[n] && fns[n].body.body[0];
+      const ok = !!first && first.type === "IfStatement" && !first.alternate && first.test.type === "UnaryExpression" && first.test.operator === "!" && isId(first.test.argument, "SCAN_ENABLED") &&
+        first.consequent.type === "ReturnStatement" && !first.consequent.argument;
+      if (fns[n] && !ok) bad.push(n + "'s first statement is not `if (!SCAN_ENABLED) return;`");
+    });
+    Object.keys(asts).forEach(f => callsTo(asts[f], "fetch").forEach(c => { if (!(f === "log.js" && inside(c, fns.fetchWithTimeout))) bad.push(f + " line " + c.loc.start.line + ": a fetch call outside log.js fetchWithTimeout"); }));
+    const inFwt = callsTo(logAst, "fetch").filter(c => inside(c, fns.fetchWithTimeout)).length;
+    const fwt = callsTo(logAst, "fetchWithTimeout"), ss = callsTo(logAst, "sendScan"), keys = callsTo(logAst, "getDecryptedApiKey");
+    if (inFwt !== 1) bad.push(inFwt + " fetch calls in fetchWithTimeout, want 1");
+    if (!(fwt.length === 1 && inside(fwt[0], fns.sendScan))) bad.push("fetchWithTimeout is called " + fwt.length + " time(s) - want once, in sendScan");
+    if (!(ss.length === 3 && SCANNERS.every(n => ss.filter(c => inside(c, fns[n])).length === 1))) bad.push("sendScan is called " + ss.length + " time(s) - want once in each of " + SCANNERS.join(", "));
+    if (!(keys.length === 3 && SCANNERS.every(n => keys.filter(c => inside(c, fns[n])).length === 1))) bad.push("log.js decrypts the key " + keys.length + " time(s) - want once in each scanner");
+    Object.keys(asts).filter(f => f !== "log.js").forEach(f => { if (callsTo(asts[f], "getDecryptedApiKey").length) bad.push(f + " decrypts the API key"); });
+    check("scanners S2: no note leaves the browser while scanning is off - each scanner's first statement is `if (!SCAN_ENABLED) return;`; the app's one fetch call is log.js fetchWithTimeout's, which only sendScan calls, which only the three scanners call (once each), and only they decrypt the key",
+      bad.length === 0, bad.join("; "));
+  }
+
+  // S3. ONE model id. From the 4.6 generation on, a model id is a pinned
+  // snapshot, so the app sends exactly the model named here until a release
+  // changes it - with this pin, when the deprecations page names a
+  // replacement.
+  {
+    const MODEL_ID = /claude-[0-9a-z]/gi;
+    const hits = [];
+    jsFiles.forEach(f => { const t = f === "cpt-data.js" ? cpt : srcs[f] || ""; (t.match(MODEL_ID) || []).forEach(() => hits.push(f)); });
+    (html.match(MODEL_ID) || []).forEach(() => hits.push("index.html"));
+    const once = utils.split("var SCAN_MODEL = \"claude-sonnet-5-5\";").length === 2;
+    check("scanners S3: ONE model id - utils.js SCAN_MODEL = \"claude-sonnet-5-5\" (the current Sonnet; claude-sonnet-4-20250514 was retired on 2026-06-15) is the only claude-... text in any js file or index.html, comments included",
+      once && J(hits) === J(["utils.js"]) && !!sb && sb.SCAN_MODEL === "claude-sonnet-5-5", J({ declaredOnce: once, hits: hits, value: sb ? sb.SCAN_MODEL : null }));
+  }
+
+  // S4. ONE request, as decided: the model constant, room for thinking
+  // (16 * 1000), effort medium, API version 2023-06-01 (the first live call
+  // changes one thing, the model), one user turn - no thinking, sampling or
+  // prefill field, no beta header, no fallback. Its errors are worded by
+  // utils.js scanHttpErrorText.
+  {
+    const SEND = norm(`function(apiKey, contentBlock, promptText, label, allowed) {
+    fetchWithTimeout("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({
+        model: SCAN_MODEL,
+        max_tokens: 16 * 1000,
+        output_config: { effort: "medium" },
+        messages: [{ role: "user", content: [contentBlock, { type: "text", text: promptText }] }]
+      })
+    }).then(function(apiResp) {
+      handleScanResponse(apiResp, label, allowed);
+    }).catch(function(err) {
+      setScanStatus(""); setScanError("Scan failed: " + err.message); scanning.current = false;
+    });
+  }`);
+    const FWT = norm(`function(url, opts, timeoutMs) {
+    var controller = new AbortController();
+    scanAbort.current = controller;
+    opts.signal = controller.signal;
+    var timer = setTimeout(function() { controller.abort(); }, timeoutMs || 90000);
+    return fetch(url, opts).then(function(res) {
+      clearTimeout(timer);
+      if (!res.ok) {
+        return res.json().catch(function() { return null; }).then(function(body) {
+          throw new Error(scanHttpErrorText(res.status, body && body.error));
+        });
+      }
+      return res.json();
+    }).catch(function(err) {
+      clearTimeout(timer);
+      if (err.name === "AbortError") throw new Error("Request timed out or was cancelled. Try a smaller/clearer image.");
+      throw err;
+    });
+  }`);
+    const send = codeOf(fnOf("sendScan")), fwt = codeOf(fnOf("fetchWithTimeout"));
+    const urls = jsFiles.reduce((s, f) => s + ((f === "cpt-data.js" ? cpt : srcs[f] || "").split("api.anthropic.com").length - 1), 0);
+    check("scanners S4: ONE request (log.js sendScan) - model SCAN_MODEL, max_tokens 16 * 1000, output_config effort \"medium\", anthropic-version \"2023-06-01\", one user turn of the file and the prompt, and nothing else (no thinking, temperature, top_p, top_k, prefill, beta header or fallback); fetchWithTimeout words an HTTP error with utils.js scanHttpErrorText; api.anthropic.com is named once in the js files",
+      send === SEND && fwt === FWT && urls === 1, J({ sendScan: send === SEND ? "as pinned" : send, fetchWithTimeout: fwt === FWT ? "as pinned" : fwt, urls: urls }));
+  }
+
+  if (sb) {
+    // S5. The reply rule (utils.js scanReplyText): only stop_reason end_turn
+    // is read, its text blocks by type; every other way a reply can end has
+    // its own message and fills nothing. Expected values from the rule.
+    {
+      const EMPTY = { problem: "Empty response from AI. Try again." };
+      const CASES = [
+        ["end_turn after a thinking block", { stop_reason: "end_turn", content: [{ type: "thinking", thinking: "", signature: "made-up" }, { type: "text", text: "{\"codes\": []}" }] }, { text: "{\"codes\": []}" }],
+        ["end_turn after a redacted_thinking block: text blocks joined, every other block skipped", { stop_reason: "end_turn", content: [{ type: "redacted_thinking", data: "made-up" }, { type: "text", text: "{\"a\":" }, { type: "tool_use", id: "x", name: "y", input: {} }, { type: "text", text: 7 }, null, { type: "text", text: " 1}" }] }, { text: "{\"a\": 1}" }],
+        ["end_turn after a thinking block that carries text (never read)", { stop_reason: "end_turn", content: [{ type: "thinking", thinking: "made-up reasoning {\"codes\": [1]}", text: "made-up", signature: "made-up" }, { type: "text", text: "{\"codes\": []}" }] }, { text: "{\"codes\": []}" }],
+        ["end_turn with a thinking block only", { stop_reason: "end_turn", content: [{ type: "thinking", thinking: "", signature: "made-up" }] }, EMPTY],
+        ["refusal with empty content", { stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "made-up" }, content: [] }, { problem: "The AI declined to read this note (cyber). Nothing was filled in." }],
+        ["refusal with partial content", { stop_reason: "refusal", stop_details: null, content: [{ type: "text", text: "{\"codes\": [{\"code\": \"47562\"" }] }, { problem: "The AI declined to read this note. Nothing was filled in." }],
+        ["max_tokens with partial JSON", { stop_reason: "max_tokens", content: [{ type: "thinking", thinking: "", signature: "s" }, { type: "text", text: "{\"date\": \"2026-03-04\", \"codes\": [{\"code\": \"47562\", \"modifiers\": []}]" }] }, { problem: "The AI ran out of room before it finished, so nothing was filled in. Try again; if it repeats, scan fewer pages." }],
+        ["model_context_window_exceeded", { stop_reason: "model_context_window_exceeded", content: [{ type: "text", text: "{}" }] }, { problem: "The note is too long for one scan. Scan fewer pages." }],
+        ["pause_turn", { stop_reason: "pause_turn", content: [{ type: "text", text: "{}" }] }, { problem: "The AI stopped before it finished (pause_turn). Try again." }],
+        ["no stop_reason", { content: [{ type: "text", text: "{}" }] }, { problem: "The AI stopped before it finished (no reason given). Try again." }],
+        ["a stop_reason that is not text", { stop_reason: 7, content: [{ type: "text", text: "{}" }] }, { problem: "The AI stopped before it finished (no reason given). Try again." }],
+        ["non-array content", { stop_reason: "end_turn", content: { type: "text", text: "{}" } }, EMPTY],
+        ["an error object", { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, { problem: "API error: Overloaded" }],
+        ["an error object with no message", { type: "error", error: { type: "api_error" } }, { problem: "API error: Unknown error" }],
+        ["an error message that quotes something shaped like a key", { type: "error", error: { type: "invalid_request_error", message: "bad header near " + FAKE_KEY } }, { problem: "API error: bad header near sk-ant-..." }],
+        ["null", null, EMPTY], ["a text", "{\"codes\": []}", EMPTY], ["a number", 5, EMPTY]
+      ];
+      const bad = [];
+      CASES.forEach(c => {
+        const before = J(c[1]);
+        let got;
+        try { got = J(sb.scanReplyText(c[1])); } catch (e) { got = "threw " + e.message; }
+        if (got !== J(c[2])) bad.push(c[0] + ": " + got);
+        if (J(c[1]) !== before) bad.push(c[0] + ": the reply was changed");
+      });
+      check("scanners S5: utils.js scanReplyText - only stop_reason \"end_turn\" text is used (text blocks joined by type; thinking, redacted_thinking and other blocks skipped); refusal (empty or partial), max_tokens (partial JSON), model_context_window_exceeded, pause_turn, a missing or odd stop_reason, non-array content and an error object each give their own message and no text, so nothing fills the form; a key-shaped text in an API message is cut off; the reply is left untouched",
+        bad.length === 0, bad.join(" | "));
+    }
+
+    // S6. The HTTP error text (utils.js scanHttpErrorText): what to do, by
+    // status and error type - and never a key, even when a message quotes one.
+    {
+      const CASES = [
+        ["401", 401, { type: "authentication_error", message: "invalid x-api-key" }, "the API key was refused (wrong, disabled, deleted or expired). Create a new key at platform.claude.com/settings/keys and save it in Settings."],
+        ["401, the browser-call block", 401, { type: "authentication_error", message: "CORS requests are not allowed for this Organization because of its settings." }, "this key's organization does not allow calls from a browser (for example zero data retention), so the scanners cannot use it."],
+        ["400, a key not scoped to a workspace", 400, { type: "invalid_request_error", message: "This API key is not scoped to a workspace, so this request must include the anthropic-workspace-id header with the ID of the workspace to use." }, "this API key is not scoped to a workspace. Create a key for one workspace at platform.claude.com/settings/keys."],
+        ["402", 402, { type: "billing_error", message: "made-up" }, "billing problem on the Anthropic account."],
+        ["403", 403, { type: "permission_error", message: "made-up" }, "this API key is not allowed to do this (organization or workspace settings)."],
+        ["404", 404, { type: "not_found_error", message: "model: made-up" }, "the scan model (claude-sonnet-5-5) is not available to this key, or it has been retired - the app needs an update."],
+        ["413 with no JSON body", 413, null, "the file is too large to send. Try a smaller file."],
+        ["429", 429, { type: "rate_limit_error", message: "made-up" }, "rate or spend limit reached. Wait a minute and try again."],
+        ["529", 529, { type: "overloaded_error", message: "Overloaded" }, "the AI service is busy or failed (HTTP 529). Try again in a minute."],
+        ["500", 500, { type: "api_error", message: "Internal server error" }, "the AI service is busy or failed (HTTP 500). Try again in a minute."],
+        ["another 400 passes its message on", 400, { type: "invalid_request_error", message: "messages: made-up problem" }, "messages: made-up problem"],
+        ["an error type with no status", 0, { type: "rate_limit_error" }, "rate or spend limit reached. Wait a minute and try again."],
+        ["another status with no body", 418, null, "HTTP 418"]
+      ];
+      const bad = [];
+      CASES.forEach(c => {
+        let got;
+        try { got = sb.scanHttpErrorText(c[1], c[2]); } catch (e) { got = "threw " + e.message; }
+        if (got !== c[3]) bad.push(c[0] + ": " + got);
+        // The same error with the placeholder key in its message: no output may show it.
+        const withKey = Object.assign({}, c[2] || {}, { message: ((c[2] && c[2].message) || "") + " " + FAKE_KEY });
+        let k;
+        try { k = String(sb.scanHttpErrorText(c[1], withKey)); } catch (e) { k = "threw " + e.message; }
+        if (k.indexOf("FAKE-made-up") !== -1 || k.indexOf("threw") === 0) bad.push(c[0] + " with a key in its message: " + k);
+      });
+      check("scanners S6: utils.js scanHttpErrorText - 401, the browser-call block, a key not scoped to a workspace, 402, 403, 404 (the model named), 413, 429, 529 and 500 each say what to do; another error passes its own message on; no output shows a key, even one quoted in the message",
+        bad.length === 0, bad.join(" | "));
+    }
+
+    // S7. The modifier filter (utils.js scanModifiersFrom) and the three
+    // allowed lists. A = an allowed list written here, so the rule is tested
+    // apart from the defaults; the defaults are the owner's (Batch 2 plan,
+    // section 6: -80 and -62 not taken from a note, RT / LT not in the table).
+    {
+      const A = ["-50", "-78", "-79"];
+      const D = (code, why) => ({ code: code, why: why });
+      const CASES = [
+        ["the dash added", ["50"], A, { mods: ["-50"], dropped: [] }],
+        ["already dashed", ["-78"], A, { mods: ["-78"], dropped: [] }],
+        ["a number", [79], A, { mods: ["-79"], dropped: [] }],
+        ["a lone text is a list of one", "50", A, { mods: ["-50"], dropped: [] }],
+        ["a lone number is a list of one", 78, A, { mods: ["-78"], dropped: [] }],
+        ["spaces and extra dashes", [" 50 ", "--78", "- 79"], A, { mods: ["-50", "-78", "-79"], dropped: [] }],
+        ["the order kept", ["79", "50"], A, { mods: ["-79", "-50"], dropped: [] }],
+        ["duplicates once", ["50", "-50", 50, " 50"], A, { mods: ["-50"], dropped: [] }],
+        ["51 is sequencing, once", ["51", "-51", 51], A, { mods: [], dropped: [D("-51", "sequencing")] }],
+        ["80, 82, AS and 62 are role", ["80", "-82", "as", 62, "-80"], A, { mods: [], dropped: [D("-80", "role"), D("-82", "role"), D("-AS", "role"), D("-62", "role")] }],
+        ["RT and LT are laterality", ["RT", "lt"], A, { mods: [], dropped: [D("-RT", "laterality"), D("-LT", "laterality")] }],
+        ["anything else is unknown: 25 (not in the table), 59 and 22 (in it, not allowed)", ["25", "59", "-22"], A, { mods: [], dropped: [D("-25", "unknown"), D("-59", "unknown"), D("-22", "unknown")] }],
+        ["a text that is no code is named as given, cut to 12", ["bilateral-ish", "7"], A, { mods: [], dropped: [D("bilateral-is", "unknown"), D("7", "unknown")] }],
+        ["odd entries skipped", [null, true, {}, [], "", "  ", "-", NaN, Infinity], A, { mods: [], dropped: [] }],
+        ["no list: null", null, A, { mods: [], dropped: [] }],
+        ["no list: undefined", undefined, A, { mods: [], dropped: [] }],
+        ["no list: an object", { "0": "50" }, A, { mods: [], dropped: [] }],
+        ["no list: true", true, A, { mods: [], dropped: [] }],
+        ["an allowed list that is no list keeps nothing", ["50"], undefined, { mods: [], dropped: [D("-50", "unknown")] }],
+        ["an allowed code the table lacks is not kept", ["RT"], ["-RT"], { mods: [], dropped: [D("-RT", "laterality")] }],
+        ["the op-note default list", ["50", "78", "79", "80", "62", "51", "RT"], sb.SCAN_MODS_OPNOTE, { mods: ["-50", "-78", "-79"], dropped: [D("-80", "role"), D("-62", "role"), D("-51", "sequencing"), D("-RT", "laterality")] }],
+        ["the clinic default list keeps nothing", ["25", "50"], sb.SCAN_MODS_CLINIC, { mods: [], dropped: [D("-25", "unknown"), D("-50", "unknown")] }],
+        ["the inpatient default list keeps nothing", ["25"], sb.SCAN_MODS_INPATIENT, { mods: [], dropped: [D("-25", "unknown")] }]
+      ];
+      const bad = [];
+      CASES.forEach(c => {
+        const before = J([c[1], c[2]]);
+        let got;
+        try { got = J(sb.scanModifiersFrom(c[1], c[2])); } catch (e) { got = "threw " + e.message; }
+        if (got !== J(c[3])) bad.push(c[0] + ": " + got);
+        if (J([c[1], c[2]]) !== before) bad.push(c[0] + ": an input was changed");
+      });
+      const tableCodes = vm.runInContext("MODIFIERS.map(function(m) { return m.code; })", sb);
+      const lists = { op: sb.SCAN_MODS_OPNOTE, clinic: sb.SCAN_MODS_CLINIC, inpatient: sb.SCAN_MODS_INPATIENT };
+      if (J(lists) !== J({ op: ["-50", "-78", "-79"], clinic: [], inpatient: [] })) bad.push("the allowed lists are " + J(lists) + " - the owner's defaults are op note -50 -78 -79, clinic and inpatient none (to take -80 or -62 from op notes, change SCAN_MODS_OPNOTE and this pin together)");
+      Object.keys(lists).forEach(k => (Array.isArray(lists[k]) ? lists[k] : ["(not a list)"]).forEach(code => { if (code === "-51" || tableCodes.indexOf(code) === -1) bad.push(k + " list: " + code + " is -51 or not a MODIFIERS code"); }));
+      check("scanners S7: utils.js scanModifiersFrom - \"50\", \"-50\" and 50 read -50; a code is kept only when MODIFIERS holds it and the scanner's list allows it, once; the rest is named with why role (-80, -82, AS, -62), laterality (RT, LT), sequencing (-51) or unknown; odd input never throws and the inputs are untouched; the lists are op note -50 -78 -79, clinic and inpatient none, each a MODIFIERS code and never -51",
+        bad.length === 0, bad.join(" | "));
+    }
+  }
+
+  // S8. The prompts' privacy texts and the parser's PHI rules, word for word,
+  // and the op-note prompt no longer asks for 51 (Log proposes -51 itself).
+  {
+    const bad = [];
+    const PRIV = "CRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names";
+    const INITIALS = "2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.";
+    const OP_MODS = "   - modifiers: array of only the modifier codes DOCUMENTED in the note for this procedure, from this list: 50, 80, 62, 78, 79, RT, LT. Never include 51 (the app sets it itself).";
+    const PROMPTS = [ // [name, scanner, opening words, privacy paragraph, label, allowed list]
+      ["op note", "scanNote", "You are analyzing an operative report/note", PRIV + " - never include patient-specific clinical details.", "procedure(s)", "SCAN_MODS_OPNOTE"],
+      ["clinic note", "scanClinicNote", "You are analyzing an outpatient clinic encounter note", PRIV + ".", "code(s)", "SCAN_MODS_CLINIC"],
+      ["inpatient note", "scanInpatient", "You are analyzing an INPATIENT hospital note", PRIV + ".", "code(s)", "SCAN_MODS_INPATIENT"]
+    ];
+    const texts = {};
+    PROMPTS.forEach(p => {
+      const lits = logAst ? deep(logAst.program, n => n.type === "StringLiteral" && n.value.indexOf(p[2]) === 0) : [];
+      const sends = callsTo(logAst, "sendScan").filter(c => inside(c, fnOf(p[1])));
+      const a = sends.length === 1 ? sends[0].arguments : [];
+      if (lits.length !== 1) { bad.push(p[0] + " prompt found " + lits.length + " times, want once"); return; }
+      if (!(a.length === 5 && isId(a[0], "apiKey") && isId(a[1], "contentBlock") && a[2] === lits[0] && a[3].type === "StringLiteral" && a[3].value === p[4] && isId(a[4], p[5])))
+        bad.push(p[1] + " does not send sendScan(apiKey, contentBlock, <its prompt>, \"" + p[4] + "\", " + p[5] + ")");
+      const t = lits[0].value;
+      texts[p[0]] = t;
+      if (t.split("\n\n").indexOf(p[3]) === -1) bad.push(p[0] + ": the privacy paragraph is not word for word");
+      if (t.split("\n").indexOf(INITIALS) === -1) bad.push(p[0] + ": the initials line is not word for word");
+    });
+    const fifty1 = t => (t.match(/(^|[^0-9])51(?![0-9])/g) || []).length;
+    const op = texts["op note"] || "";
+    if (op.split("\n").indexOf(OP_MODS) === -1) bad.push("op note: the modifiers line is not the documented-modifiers one");
+    if (op.indexOf("First/primary procedure gets no modifier") !== -1 || op.indexOf("\"51\"") !== -1 || fifty1(op) !== 1) bad.push("op note: the prompt asks for 51 again (" + fifty1(op) + " mention(s) of 51, want only \"Never include 51\")");
+    ["clinic note", "inpatient note"].forEach(k => { if (texts[k] && fifty1(texts[k]) !== 0) bad.push(k + ": the prompt names 51"); });
+    const SANITIZE = norm(String.raw`function(v) {
+    if (!v) return "";
+    var words = String(v).trim().split(/\s+/).filter(function(w) { return /[A-Za-z]/.test(w); });
+    var init = "";
+    if (words.length >= 2) {
+      init = words[0].replace(/[^A-Za-z]/g, "").charAt(0) + words[1].replace(/[^A-Za-z]/g, "").charAt(0);
+    } else {
+      init = String(v).replace(/[^A-Za-z]/g, "").substring(0, 2);
+    }
+    return init.toUpperCase();
+  }`);
+    if (codeOf(fnOf("sanitizeInitials")) !== SANITIZE) bad.push("sanitizeInitials is not the pinned two-letter rule: " + codeOf(fnOf("sanitizeInitials")));
+    const hsr = fnOf("handleScanResponse");
+    const pats = hsr ? deep(hsr, n => n.type === "CallExpression" && isId(n.callee, "setPatientId")) : [];
+    if (!(pats.length === 1 && textOf(pats[0]) === "setPatientId(sanitizeInitials(result.patient))")) bad.push("handleScanResponse sets the initials other than as setPatientId(sanitizeInitials(result.patient))");
+    // The scanners' only console call is the metadata-only warn.
+    const REGION = ["cancelScan", "fetchWithTimeout", "compressImage", "extractJSON", "sanitizeInitials", "handleScanResponse", "scanDropWords", "scanDropLine", "sendScan"].concat(SCANNERS);
+    const logs = [];
+    REGION.forEach(n => { const fn = fnOf(n); if (!fn) { bad.push(n + " is not declared once in log.js"); return; } deep(fn, x => x.type === "CallExpression" && x.callee.type === "MemberExpression" && isId(x.callee.object, "console")).forEach(x => logs.push([n, textOf(x)])); });
+    const WARN = String.raw`console.warn("Scan parse failed. Response length: " + text.length + " chars; contains '{': " + (text.indexOf("{") !== -1) + "; contains '[': " + (text.indexOf("[") !== -1))`;
+    if (J(logs) !== J([["handleScanResponse", WARN]])) bad.push("the scanners' console calls are " + J(logs) + " - want only handleScanResponse's metadata-only warn");
+    ["scanReplyText", "scanHttpErrorText", "scanModifiersFrom"].forEach(n => { const d = asts["utils.js"] ? findDeclared(asts["utils.js"], n) : null; if (!d) bad.push("utils.js " + n + " not found"); else if (deep(d, x => isId(x, "console")).length) bad.push("utils.js " + n + " names console"); });
+    if (logText.split("// PHI rule: never log response CONTENT").length !== 2 || logText.split("// PHI rule: the scanned patient field must never store more than 2-letter").length !== 2) bad.push("a PHI rule comment of log.js is gone");
+    check("scanners S8: the PHI rules stay word for word - each prompt's privacy paragraph and its initials line, sanitizeInitials (two letters at most) as the only way a scan sets the initials, and the metadata-only console.warn as the scanners' one console call; each scanner sends its own prompt, label and allowed list; the op-note prompt asks only for documented modifiers and never for 51, and no other prompt names 51",
+      bad.length === 0, bad.join("; "));
+  }
+
+  // S9. log.js handleScanResponse RUN on made-up replies: its own text and
+  // that of extractJSON, sanitizeInitials, scanDropWords and scanDropLine is
+  // lifted out of log.js and run against plain variables standing in for the
+  // form's state. A finished reply fills the form, with the modifiers the
+  // scanner's list allows and a line naming the rest; a refused, cut-off or
+  // failed one changes nothing but the error line.
+  if (sb) {
+    const bad = [];
+    const LIFT = ["extractJSON", "sanitizeInitials", "handleScanResponse", "scanDropWords", "scanDropLine"];
+    let make = null;
+    try {
+      const missing = LIFT.filter(n => !fnOf(n));
+      if (missing.length) throw new Error("not declared once in log.js as var NAME = function: " + missing.join(", "));
+      const src = "(function(cptMap) {\n" +
+        "var date = \"2026-01-02\", patientId = \"\", procs = [{ id: 1, code: \"44970\", search: \"\", mods: [] }], activeProc = 3, scanStatus = \"Analyzing operative note...\", scanError = \"\", timers = [], warns = [];\n" +
+        "var setDate = function(v) { date = v; }, setPatientId = function(v) { patientId = v; }, setProcs = function(v) { procs = typeof v === \"function\" ? v(procs) : v; }, setActiveProc = function(v) { activeProc = v; }, setScanStatus = function(v) { scanStatus = v; }, setScanError = function(v) { scanError = v; };\n" +
+        "var scanning = { current: true }, nextId = { current: 7 };\n" +
+        "var setTimeout = function(fn, ms) { timers.push(ms); };\n" +
+        "var console = { log: function(m) { warns.push(String(m)); }, warn: function(m) { warns.push(String(m)); }, error: function(m) { warns.push(String(m)); } };\n" +
+        LIFT.map(n => "var " + n + " = " + textOf(fnOf(n)) + ";").join("\n") + "\n" +
+        "return { reply: function(r, label, allowed) { handleScanResponse(r, label, allowed); return { date: date, patientId: patientId, procs: procs, activeProc: activeProc, status: scanStatus, error: scanError, scanning: scanning.current, timers: timers, warns: warns, line: scanDropLine(procs) }; }, line: scanDropLine };\n})";
+      make = vm.runInContext(src, sb, { filename: "log-scan-reply.js" });
+    } catch (e) { bad.push("cannot lift the scan reply path out of log.js: " + (e && e.message)); }
+    if (make) {
+      const CPT = { "47562": { code: "47562" }, "49505": { code: "49505" }, "27447": { code: "27447" }, "99213": { code: "99213" } };
+      const text = t => ({ type: "message", role: "assistant", stop_reason: "end_turn", content: [{ type: "thinking", thinking: "", signature: "made-up" }, { type: "text", text: t }] });
+      const run = (label, r, lab, allowed, want) => { try { const got = J(make(CPT).reply(r, lab, allowed)); if (got !== J(want)) bad.push(label + ": " + got); } catch (e) { bad.push(label + " threw: " + (e && e.message)); } };
+      const SAME = { date: "2026-01-02", patientId: "", procs: [{ id: 1, code: "44970", search: "", mods: [] }], activeProc: 3 };
+      const failed = msg => Object.assign({}, SAME, { status: "", error: msg, scanning: false, timers: [], warns: [], line: "" });
+      const LINE1 = "Not taken from the note: -80 on 47562 - set it yourself if you were the assistant; -51 on 49505 - the app proposes -51 itself";
+      const ROWS1 = [
+        { id: 7, code: "47562", search: "", mods: [], scanDropped: { code: "47562", search: "", on: "47562", dropped: [{ code: "-80", why: "role" }] } },
+        { id: 8, code: "49505", search: "", mods: ["-50"], scanDropped: { code: "49505", search: "", on: "49505", dropped: [{ code: "-51", why: "sequencing" }] } }
+      ];
+      run("an op note after a thinking block, with prose around the JSON, an 80, a 51 and a 50",
+        text("Here is the JSON:\n" + J({ date: "2026-03-04", patient: "Test Person", codes: [{ code: "47562", description: "Lap chole", confidence: "high", modifiers: ["80"] }, { code: "49505", description: "Inguinal hernia", confidence: "high", modifiers: ["51", "50"] }] }) + "\nDone."),
+        "procedure(s)", sb.SCAN_MODS_OPNOTE,
+        { date: "2026-03-04", patientId: "TP", procs: ROWS1, activeProc: 0, status: "Found 2 procedure(s)", error: "", scanning: false, timers: [3000], warns: [], line: LINE1 });
+      const ROW2 = { id: 8, code: null, search: "99999 made-up code", mods: ["-79"], scanDropped: { code: null, search: "99999 made-up code", on: "99999", dropped: [{ code: "-62", why: "role" }] } };
+      run("an op note with an RT, and a -62 and a 79 on a code the database lacks",
+        text(J({ date: "2026-03-05", patient: "AB", codes: [{ code: "27447", modifiers: ["RT"] }, { code: "99999", description: "made-up code", modifiers: ["-62", "79"] }] })),
+        "procedure(s)", sb.SCAN_MODS_OPNOTE,
+        { date: "2026-03-05", patientId: "AB", procs: [{ id: 7, code: "27447", search: "", mods: [], scanDropped: { code: "27447", search: "", on: "27447", dropped: [{ code: "-RT", why: "laterality" }] } }, ROW2], activeProc: 0, status: "Found 2 procedure(s)", error: "", scanning: false, timers: [3000], warns: [],
+          line: "Not taken from the note: -RT on 27447 - the app has no RT or LT modifier; -62 on 99999 - set it yourself if you were a co-surgeon" });
+      run("a clinic note's 25 and 50 are named, nothing kept (the clinic list allows none)",
+        text(J({ date: "2026-03-06", patient: "", codes: [{ code: "99213", modifiers: ["25", "50"] }] })), "code(s)", sb.SCAN_MODS_CLINIC,
+        { date: "2026-03-06", patientId: "", procs: [{ id: 7, code: "99213", search: "", mods: [], scanDropped: { code: "99213", search: "", on: "99213", dropped: [{ code: "-25", why: "unknown" }, { code: "-50", why: "unknown" }] } }], activeProc: 0, status: "Found 1 code(s)", error: "", scanning: false, timers: [3000], warns: [],
+          line: "Not taken from the note: -25 on 99213 - a scan does not set it; -50 on 99213 - a scan does not set it" });
+      run("a refusal with partial text fills nothing",
+        { stop_reason: "refusal", stop_details: { type: "refusal", category: "cyber", explanation: "made-up" }, content: [{ type: "text", text: "{\"date\": \"2026-03-04\", \"patient\": \"TP\", \"codes\": [{\"code\": \"47562\", \"modifiers\": []}]" }] },
+        "procedure(s)", sb.SCAN_MODS_OPNOTE, failed("The AI declined to read this note (cyber). Nothing was filled in."));
+      run("a refusal with no content fills nothing", { stop_reason: "refusal", content: [] }, "procedure(s)", sb.SCAN_MODS_OPNOTE, failed("The AI declined to read this note. Nothing was filled in."));
+      // Cut off after a whole codes array: the old parser read it as { codes } and filled a partial list.
+      run("an answer cut off at max_tokens fills nothing",
+        { stop_reason: "max_tokens", content: [{ type: "text", text: "{\"date\": \"2026-03-04\", \"patient\": \"TP\", \"codes\": [{\"code\": \"47562\", \"modifiers\": []}]" }] },
+        "procedure(s)", sb.SCAN_MODS_OPNOTE, failed("The AI ran out of room before it finished, so nothing was filled in. Try again; if it repeats, scan fewer pages."));
+      run("an error object fills nothing", { type: "error", error: { type: "overloaded_error", message: "Overloaded" } }, "code(s)", sb.SCAN_MODS_CLINIC, failed("API error: Overloaded"));
+      // 47 characters (counted by hand); the console gets the metadata, never the text.
+      run("an answer with no JSON logs metadata only and fills nothing",
+        text("Made-up note text for Test Person, no JSON here"), "code(s)", sb.SCAN_MODS_INPATIENT,
+        Object.assign(failed("Could not parse AI response. Try a clearer image or PDF."), { warns: ["Scan parse failed. Response length: 47 chars; contains '{': false; contains '[': false"] }));
+      // The line follows the rows the scan filled.
+      try {
+        const L = make(CPT).line, r = JSON.parse(J(ROWS1)), u = JSON.parse(J(ROW2));
+        const LINES = [
+          ["the rows as filled", [r[0], r[1]], LINE1],
+          ["a modifier tapped on keeps the line", [Object.assign({}, r[0], { mods: ["-80"] }), r[1]], LINE1],
+          ["a row cleared", [Object.assign({}, r[0], { code: null, search: "" }), r[1]], "Not taken from the note: -51 on 49505 - the app proposes -51 itself"],
+          ["a row given another code", [r[0], Object.assign({}, r[1], { code: "44970", search: "44970 - made-up" })], "Not taken from the note: -80 on 47562 - set it yourself if you were the assistant"],
+          ["the next case after a save", [{ id: 9, code: null, search: "", mods: [] }], ""],
+          ["a code-less row as filled", [u], "Not taken from the note: -62 on 99999 - set it yourself if you were a co-surgeon"],
+          ["a code-less row typed over", [Object.assign({}, u, { search: "99999 made-up cod" })], ""]
+        ];
+        LINES.forEach(c => { const got = L(c[1]); if (got !== c[2]) bad.push("line, " + c[0] + ": " + J(got)); });
+      } catch (e) { bad.push("the line threw: " + (e && e.message)); }
+    }
+    // compressImage: a small JPEG, PNG, GIF or WebP photo is sent as it is,
+    // under its own type; any other type (a HEIC photo, say) is re-encoded
+    // first (the canvas path, not run here: no callback yet).
+    try {
+      const mib = logAst ? deep(logAst.program, n => n.type === "VariableDeclarator" && isId(n.id, "MAX_IMG_B64") && !!n.init) : [];
+      if (mib.length !== 1 || !fnOf("compressImage")) throw new Error("MAX_IMG_B64 or compressImage is not declared once in log.js");
+      const imgSrc = "(function() {\nvar sent = [], status = [];\nvar Image = function() {};\nvar MAX_IMG_B64 = " + textOf(mib[0].init) + ";\nvar compressImage = " + textOf(fnOf("compressImage")) + ";\n" +
+        "return function(url) { sent = []; status = []; compressImage(url, function(b, t) { sent.push([b, t]); }, function(s) { status.push(s); }); return { sent: sent, status: status }; };\n})()";
+      const send = vm.runInContext(imgSrc, sb, { filename: "log-compress-image.js" });
+      const IMG = [
+        ["data:image/jpeg;base64,QUJD", { sent: [["QUJD", "image/jpeg"]], status: [] }],
+        ["data:image/png;base64,QUJD", { sent: [["QUJD", "image/png"]], status: [] }],
+        ["data:image/gif;base64,QUJD", { sent: [["QUJD", "image/gif"]], status: [] }],
+        ["data:image/webp;base64,QUJD", { sent: [["QUJD", "image/webp"]], status: [] }],
+        ["data:image/heic;base64,QUJD", { sent: [], status: ["Compressing image..."] }]
+      ];
+      IMG.forEach(c => { const got = J(send(c[0])); if (got !== J(c[1])) bad.push("compressImage " + c[0].slice(0, 16) + ": " + got); });
+    } catch (e) { bad.push("compressImage: " + (e && e.message)); }
+    if (logText.split("var scanDropText = scanDropLine(procs);").length !== 2 || logText.split("{scanDropText && <div ").length !== 2 || logText.split(">{scanDropText}</div>}").length !== 2) bad.push("Log does not render the line once from scanDropLine(procs)");
+    check("scanners S9: log.js handleScanResponse, run on made-up replies - a finished one fills the date, two-letter initials and the rows (thinking block first, prose around the JSON), with only the modifiers the scanner's list allows and one line naming the rest (-80, -62, -51, RT, a clinic 25), which lasts while the rows the scan filled do; a refusal, a cut-off answer, an error and an answer with no JSON change nothing but the error line, and the console gets metadata only; a small JPEG, PNG, GIF or WebP photo is sent under its own type, any other re-encoded first",
+      bad.length === 0, bad.join(" | "));
   }
 }
 

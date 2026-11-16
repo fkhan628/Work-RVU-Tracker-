@@ -729,6 +729,34 @@ the per-file gates below. Run it after EVERY file change.
   seeded from hintText on every open, so Cancel just closes; only Save (after
   its storage write, the trimmed value) and Remove set hintText (check.js
   pins it).
+- AI note scanning (log.js scanNote / scanClinicNote / scanInpatient) stays
+  OFF: utils.js `var SCAN_ENABLED = false;` is written nowhere else (check.js
+  scanners S1). Turning it on is the owner's decision: Anthropic's
+  documentation says PHI needs a signed BAA and a HIPAA-enabled
+  organisation, and its documented path for a web page is a back end. Each
+  scanner's first statement is `if (!SCAN_ENABLED) return;`, before the key
+  is decrypted, and the app's one fetch is log.js fetchWithTimeout's, called
+  only by sendScan, the ONE request, which only the three scanners call (S2).
+  The model is the ONE constant utils.js SCAN_MODEL ("claude-sonnet-5-5", a
+  pinned snapshot): change it, and its pin, when Anthropic's deprecations
+  page names a replacement; no other model id may sit in a js file (S3).
+  sendScan sends max_tokens 16 * 1000 (thinking is on by default and counts
+  against it), output_config effort "medium", anthropic-version 2023-06-01
+  and one user turn - no thinking, sampling or prefill field, no beta header
+  and no fallback (beta features are generally outside a BAA) (S4). A reply
+  is read only through utils.js scanReplyText: only stop_reason end_turn is
+  used, and a refusal, a cut-off answer or any other stop fills nothing
+  (S5); HTTP errors are worded by scanHttpErrorText, which never shows a key
+  (S6). A scanned modifier reaches a row only through scanModifiersFrom with
+  that scanner's list (SCAN_MODS_OPNOTE -50, -78, -79; clinic and inpatient
+  none; never -51, which Log's card proposes; -80 / -82 / -62 are left to
+  the user): the dash added, kept only when MODIFIERS holds it (S7). What it
+  drops rides on the row as scanDropped (memory only; save() never copies
+  it) and Log names it in one amber line. Each prompt's privacy paragraph and
+  initials line, sanitizeInitials and the metadata-only parse-failure log are
+  pinned word for word, and the op-note prompt asks only for documented
+  modifiers, never 51 (S8); check.js runs handleScanResponse itself on
+  made-up replies (S9). No real scan has been run on this model.
 - `crypto.js` DATA_KEY must equal `utils.js` SK (check.js asserts).
 - Backups: the file text IS the clipboard code (one builder, settings.js
   buildBackupCode). "Restore from File..." and a pasted code share

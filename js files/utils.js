@@ -15,6 +15,86 @@ var SCAN_ENABLED = false; // AI note scanning (op/clinic/inpatient). OFF by
 // implications - review compliance before setting true. Flip to true to
 // re-enable everywhere.
 
+// The ONE model id the three scanners send (log.js sendScan). From the 4.6
+// generation on a model id is a pinned snapshot, not a moving alias: change
+// it here when the deprecations page names a replacement (check.js pins it).
+var SCAN_MODEL = "claude-sonnet-5-5";
+// The modifiers a scan may put on a row, one list per scanner (log.js passes
+// its own to scanModifiersFrom), each code as MODIFIERS writes it. Never -51:
+// Log proposes -51 itself. -80, -82 and -62 are left to the user, because a
+// note cannot say whether the user was the surgeon or the assistant; add one
+// to SCAN_MODS_OPNOTE to take it from op notes (check.js pins the lists).
+var SCAN_MODS_OPNOTE = ["-50", "-78", "-79"];
+var SCAN_MODS_CLINIC = [];
+var SCAN_MODS_INPATIENT = [];
+// The scanners' reply rule (log.js handleScanResponse). Pure. Returns
+// { text } only for a finished answer (stop_reason "end_turn"), joining the
+// text blocks by type - thinking / redacted_thinking blocks come first and
+// are skipped. Anything else returns { problem }, the message to show: a
+// refusal or a cut-off answer is never parsed, so a partial code list can
+// never fill the form. An API error's own message is shown with anything
+// shaped like an API key cut off.
+function scanReplyText(resp) {
+  if (!resp || typeof resp !== "object") return { problem: "Empty response from AI. Try again." };
+  if (resp.error) return { problem: "API error: " + (typeof resp.error.message === "string" && resp.error.message ? resp.error.message.replace(/sk-ant-[0-9A-Za-z_-]*/g, "sk-ant-...") : "Unknown error") };
+  var stop = resp.stop_reason;
+  if (stop === "refusal") {
+    var cat = resp.stop_details && typeof resp.stop_details.category === "string" ? " (" + resp.stop_details.category + ")" : "";
+    return { problem: "The AI declined to read this note" + cat + ". Nothing was filled in." };
+  }
+  if (stop === "max_tokens") return { problem: "The AI ran out of room before it finished, so nothing was filled in. Try again; if it repeats, scan fewer pages." };
+  if (stop === "model_context_window_exceeded") return { problem: "The note is too long for one scan. Scan fewer pages." };
+  if (stop !== "end_turn") return { problem: "The AI stopped before it finished (" + (typeof stop === "string" ? stop : "no reason given") + "). Try again." };
+  var text = "";
+  (Array.isArray(resp.content) ? resp.content : []).forEach(function(b) { if (b && b.type === "text" && typeof b.text === "string") text += b.text; });
+  return text ? { text: text } : { problem: "Empty response from AI. Try again." };
+}
+// The scanners' HTTP error text (log.js fetchWithTimeout), shown after
+// "Scan failed: ". Pure. It never receives the key, and a message it passes
+// on has anything shaped like an API key cut off.
+function scanHttpErrorText(status, err) {
+  var type = err && typeof err.type === "string" ? err.type : "";
+  var msg = err && typeof err.message === "string" ? err.message.replace(/sk-ant-[0-9A-Za-z_-]*/g, "sk-ant-...") : "";
+  if (msg.indexOf("CORS requests are not allowed") === 0) return "this key's organization does not allow calls from a browser (for example zero data retention), so the scanners cannot use it.";
+  if (status === 401 || type === "authentication_error") return "the API key was refused (wrong, disabled, deleted or expired). Create a new key at platform.claude.com/settings/keys and save it in Settings.";
+  if (msg.indexOf("not scoped to a workspace") !== -1) return "this API key is not scoped to a workspace. Create a key for one workspace at platform.claude.com/settings/keys.";
+  if (status === 402 || type === "billing_error") return "billing problem on the Anthropic account.";
+  if (status === 403 || type === "permission_error") return "this API key is not allowed to do this (organization or workspace settings).";
+  if (status === 404 || type === "not_found_error") return "the scan model (" + SCAN_MODEL + ") is not available to this key, or it has been retired - the app needs an update.";
+  if (status === 413 || type === "request_too_large") return "the file is too large to send. Try a smaller file.";
+  if (status === 429 || type === "rate_limit_error") return "rate or spend limit reached. Wait a minute and try again.";
+  if (status >= 500 || type === "overloaded_error" || type === "api_error") return "the AI service is busy or failed (HTTP " + status + "). Try again in a minute.";
+  return msg || ("HTTP " + status);
+}
+// The modifiers a scan may put on a row (log.js handleScanResponse). Pure;
+// never throws for anything JSON can hold. `raw` is the model's list: a lone
+// text or number is a list of one, anything else no list, and an entry that
+// is neither text nor a number is skipped. "50", "-50" and 50 all read -50.
+// A code is kept only when MODIFIERS holds it AND `allowed` lists it; every
+// other one is returned in `dropped`, with why: "role" (-80, -82, AS, -62:
+// the note cannot say whether the user was the surgeon or the assistant),
+// "laterality" (RT, LT: not in the table), "sequencing" (-51: Log proposes
+// it) or "unknown" (anything else, -25 for example). Each code once in each
+// list; a text that is no two-character code is named as given, cut to 12
+// characters.
+function scanModifiersFrom(raw, allowed) {
+  var list = Array.isArray(raw) ? raw : (typeof raw === "string" || typeof raw === "number") ? [raw] : [];
+  var ok = Array.isArray(allowed) ? allowed : [];
+  var mods = [], dropped = [];
+  list.forEach(function(x) {
+    if (typeof x !== "string" && !(typeof x === "number" && isFinite(x))) return;
+    var t = String(x).trim();
+    var core = t.replace(/^[-\s]+/, "").toUpperCase();
+    if (!core) return;
+    var code = /^[0-9A-Z]{2}$/.test(core) ? "-" + core : t.slice(0, 12);
+    if (mods.indexOf(code) !== -1 || dropped.some(function(d) { return d.code === code; })) return;
+    if (ok.indexOf(code) !== -1 && MODIFIERS.some(function(m) { return m.code === code; })) { mods.push(code); return; }
+    var why = core === "51" ? "sequencing" : (core === "80" || core === "82" || core === "AS" || core === "62") ? "role" : (core === "RT" || core === "LT") ? "laterality" : "unknown";
+    dropped.push({ code: code, why: why });
+  });
+  return { mods: mods, dropped: dropped };
+}
+
 // --- Crypto helpers for API key ---
 async function getDecryptedApiKey(settings) {
   if (settings.encryptedApiKey) {

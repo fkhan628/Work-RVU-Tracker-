@@ -53,9 +53,9 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     return fetch(url, opts).then(function(res) {
       clearTimeout(timer);
       if (!res.ok) {
-        return res.json().catch(function() { return { error: { message: "HTTP " + res.status + " " + res.statusText } }; }).then(function(body) {
-          if (body.error) throw new Error(body.error.message || "HTTP " + res.status);
-          throw new Error("HTTP " + res.status + " " + res.statusText);
+        // utils.js scanHttpErrorText: what to do, by status and error type.
+        return res.json().catch(function() { return null; }).then(function(body) {
+          throw new Error(scanHttpErrorText(res.status, body && body.error));
         });
       }
       return res.json();
@@ -66,12 +66,16 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     });
   };
 
-  // Compress image if base64 exceeds ~4.5MB (API limit is 5MB)
+  // Compress image if base64 exceeds ~4.5MB (the Claude API allows 10 MB per
+  // image as base64, Amazon Bedrock 5 MB: 4.5MB keeps a margin for both)
   var MAX_IMG_B64 = 4.5 * 1024 * 1024; // 4.5MB in base64 chars (~3.3MB raw)
   var compressImage = function(dataURL, callback, statusFn) {
     var b64 = dataURL.split(",")[1];
-    if (b64.length <= MAX_IMG_B64) {
-      callback(b64, "image/jpeg");
+    // Send the file's own type; any other type is re-encoded as JPEG below.
+    var srcType = dataURL.slice(5, dataURL.indexOf(";"));
+    var sendable = ["image/jpeg", "image/png", "image/gif", "image/webp"].indexOf(srcType) !== -1;
+    if (b64.length <= MAX_IMG_B64 && sendable) {
+      callback(b64, srcType);
       return;
     }
     if (statusFn) statusFn("Compressing image...");
@@ -417,20 +421,16 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     return init.toUpperCase();
   };
 
-  var handleScanResponse = function(apiResp, label) {
-    // Check for API errors first
-    if (apiResp.error) {
-      setScanStatus(""); setScanError("API error: " + (apiResp.error.message || "Unknown error")); scanning.current = false;
+  var handleScanResponse = function(apiResp, label, allowed) {
+    // utils.js scanReplyText: only a finished answer (stop_reason end_turn)
+    // is read, its text blocks by type; a refusal or a cut-off answer is
+    // never parsed.
+    var reply = scanReplyText(apiResp);
+    if (!reply.text) {
+      setScanStatus(""); setScanError(reply.problem); scanning.current = false;
       return;
     }
-    var text = "";
-    if (apiResp.content) {
-      apiResp.content.forEach(function(item) { if (item.type === "text") text += item.text; });
-    }
-    if (!text) {
-      setScanStatus(""); setScanError("Empty response from AI. Try again."); scanning.current = false;
-      return;
-    }
+    var text = reply.text;
     var result = extractJSON(text);
     if (!result) {
       // PHI rule: never log response CONTENT - an unparseable response is exactly
@@ -445,11 +445,17 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       var newProcs = [];
       result.codes.forEach(function(c) {
         var found = cptMap[c.code];
+        // utils.js scanModifiersFrom: the dash added, and only what this
+        // scanner's list allows; what it leaves out is kept on the row
+        // (scanDropped) for the line under the scan buttons.
+        var m = scanModifiersFrom(c.modifiers, allowed);
         if (found) {
-          newProcs.push({ id: nextId.current++, code: c.code, search: "", mods: c.modifiers || [] });
+          newProcs.push({ id: nextId.current++, code: c.code, search: "", mods: m.mods });
         } else {
-          newProcs.push({ id: nextId.current++, code: null, search: c.code + " " + (c.description || ""), mods: c.modifiers || [] });
+          newProcs.push({ id: nextId.current++, code: null, search: c.code + " " + (c.description || ""), mods: m.mods });
         }
+        var row = newProcs[newProcs.length - 1];
+        if (m.dropped.length > 0) row.scanDropped = { code: row.code, search: row.search, on: c.code === undefined || c.code === null || c.code === "" ? "a code" : String(c.code), dropped: m.dropped };
       });
       if (newProcs.length > 0) { setProcs(newProcs); setActiveProc(0); }
       setScanStatus("Found " + result.codes.length + " " + label);
@@ -458,6 +464,49 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       setScanStatus(""); setScanError("No codes identified in note");
     }
     scanning.current = false;
+  };
+
+  // The line that names what a scan did not take from the note. It is read
+  // from the rows the scan filled (their scanDropped), so it lasts while they
+  // do - through a tab switch (the draft keeps the rows) - and goes with the
+  // next scan (it replaces every row), the save (the next case starts on a new
+  // row), or a row cleared or given another code.
+  var scanDropWords = function(d) {
+    if (d.why === "role") return "set it yourself if you were " + (d.code === "-62" ? "a co-surgeon" : "the assistant");
+    if (d.why === "laterality") return "the app has no RT or LT modifier";
+    if (d.why === "sequencing") return "the app proposes -51 itself";
+    return "a scan does not set it";
+  };
+  var scanDropLine = function(rows) {
+    var parts = [];
+    rows.forEach(function(p) {
+      var d = p.scanDropped;
+      if (!d || p.code !== d.code || (p.code === null && p.search !== d.search)) return;
+      d.dropped.forEach(function(x) { parts.push(x.code + " on " + d.on + " - " + scanDropWords(x)); });
+    });
+    return parts.length > 0 ? "Not taken from the note: " + parts.join("; ") : "";
+  };
+  var scanDropText = scanDropLine(procs);
+
+  // ONE request for the three scanners (utils.js SCAN_MODEL is the model).
+  // Thinking is on by default on this model and counts against max_tokens.
+  // No thinking, temperature, top_p, top_k or prefill is sent, and no beta
+  // header (beta features are generally outside a BAA).
+  var sendScan = function(apiKey, contentBlock, promptText, label, allowed) {
+    fetchWithTimeout("https://api.anthropic.com/v1/messages", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
+      body: JSON.stringify({
+        model: SCAN_MODEL,
+        max_tokens: 16 * 1000,
+        output_config: { effort: "medium" },
+        messages: [{ role: "user", content: [contentBlock, { type: "text", text: promptText }] }]
+      })
+    }).then(function(apiResp) {
+      handleScanResponse(apiResp, label, allowed);
+    }).catch(function(err) {
+      setScanStatus(""); setScanError("Scan failed: " + err.message); scanning.current = false;
+    });
   };
 
   var scanNote = function(file) {
@@ -476,27 +525,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         var contentBlock = isPDF
           ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
           : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
-      fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
-          messages: [{
-            role: "user",
-            content: [
-              contentBlock,
-              { type: "text", text: "You are analyzing an operative report/note (which may be a PDF document or image) for a surgical RVU tracking app. The document may be multi-page - analyze ALL pages thoroughly.\n\nCRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names - never include patient-specific clinical details.\n\nExtract:\n1. date: the procedure date in YYYY-MM-DD format (look for Date of Surgery, Date of Procedure, DOS, etc.)\n2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.\n3. codes: an array of objects, each with:\n   - code: the most likely CPT code (5-digit number)\n   - description: brief GENERIC procedure name (e.g. \"Lap cholecystectomy\" not patient-specific details)\n   - confidence: high/medium/low\n   - modifiers: array of applicable modifier codes (e.g. [\"51\"] for multiple procedures, [\"50\"] for bilateral). First/primary procedure gets no modifier, subsequent procedures get \"51\".\n\nIMPORTANT: Suggest standard CPT codes based on the procedures described. Common surgical codes include:\n- 47562/47563 lap chole, 44970 lap appy, 49505 inguinal hernia\n- 44140/44204 colectomy, 44120 small bowel resection\n- 19301 partial mastectomy, 19303 simple mastectomy, 38525 axillary node dissection\n- 27447 TKA, 27130 THA, 27590 AKA, 27880 BKA\n- 35301 CEA, 36821 AV fistula, 47562 lap chole\n- Also look for: central line (36556/36561), chest tube (32551), tracheostomy (31600)\n- Include any separately billable add-on procedures mentioned\n\nIf the document contains MULTIPLE operative notes (e.g. a day's cases), extract ALL of them.\n\nRespond ONLY with valid JSON, no markdown backticks or other text:\n{\"date\": \"YYYY-MM-DD\", \"patient\": \"XX\", \"codes\": [{\"code\": \"XXXXX\", \"description\": \"...\", \"confidence\": \"high\", \"modifiers\": []}]}" }
-            ]
-          }]
-        })
-      }, 90000).then(function(apiResp) {
-        handleScanResponse(apiResp, "procedure(s)");
-      }).catch(function(err) {
-        setScanStatus("");
-        setScanError("Scan failed: " + err.message);
-        scanning.current = false;
-      });
+      sendScan(apiKey, contentBlock, "You are analyzing an operative report/note (which may be a PDF document or image) for a surgical RVU tracking app. The document may be multi-page - analyze ALL pages thoroughly.\n\nCRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names - never include patient-specific clinical details.\n\nExtract:\n1. date: the procedure date in YYYY-MM-DD format (look for Date of Surgery, Date of Procedure, DOS, etc.)\n2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.\n3. codes: an array of objects, each with:\n   - code: the most likely CPT code (5-digit number)\n   - description: brief GENERIC procedure name (e.g. \"Lap cholecystectomy\" not patient-specific details)\n   - confidence: high/medium/low\n   - modifiers: array of only the modifier codes DOCUMENTED in the note for this procedure, from this list: 50, 80, 62, 78, 79, RT, LT. Never include 51 (the app sets it itself).\n\nIMPORTANT: Suggest standard CPT codes based on the procedures described. Common surgical codes include:\n- 47562/47563 lap chole, 44970 lap appy, 49505 inguinal hernia\n- 44140/44204 colectomy, 44120 small bowel resection\n- 19301 partial mastectomy, 19303 simple mastectomy, 38525 axillary node dissection\n- 27447 TKA, 27130 THA, 27590 AKA, 27880 BKA\n- 35301 CEA, 36821 AV fistula, 47562 lap chole\n- Also look for: central line (36556/36561), chest tube (32551), tracheostomy (31600)\n- Include any separately billable add-on procedures mentioned\n\nIf the document contains MULTIPLE operative notes (e.g. a day's cases), extract ALL of them.\n\nRespond ONLY with valid JSON, no markdown backticks or other text:\n{\"date\": \"YYYY-MM-DD\", \"patient\": \"XX\", \"codes\": [{\"code\": \"XXXXX\", \"description\": \"...\", \"confidence\": \"high\", \"modifiers\": []}]}", "procedure(s)", SCAN_MODS_OPNOTE);
       }; // end sendToAPI
       if (isPDF) {
         sendToAPI(ev.target.result.split(",")[1], "application/pdf");
@@ -535,25 +564,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         var contentBlock = isPDF
           ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
           : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
-      fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
-          messages: [{
-            role: "user",
-            content: [
-              contentBlock,
-              { type: "text", text: "You are analyzing an outpatient clinic encounter note (which may be a PDF or image) for a surgical RVU tracking app. This is a SINGLE patient visit note (H&P, progress note, or consult note). The document may be multi-page - analyze ALL pages thoroughly.\n\nCRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names.\n\nExtract:\n1. date: the visit date in YYYY-MM-DD format\n2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.\n3. codes: an array of objects, each with:\n   - code: the most likely CPT code (5-digit number)\n   - description: brief GENERIC description\n   - confidence: high/medium/low\n   - modifiers: array of applicable modifier codes\n\nE&M CODE SELECTION GUIDE - Determine level by Medical Decision Making (MDM) complexity:\n- New patient: 99202 (straightforward), 99203 (low), 99204 (moderate), 99205 (high)\n- Established patient: 99211 (minimal/nurse), 99212 (straightforward), 99213 (low), 99214 (moderate), 99215 (high)\n\nMDM complexity factors: number of diagnoses, data reviewed (labs, imaging, records), risk of complications/morbidity.\n- Straightforward: 1 self-limited problem, minimal data, minimal risk\n- Low: 2+ self-limited problems OR 1 stable chronic, limited data, low risk\n- Moderate: 1 chronic illness with exacerbation OR undiagnosed new problem, moderate data, moderate risk (Rx drug management)\n- High: 1 chronic illness with severe exacerbation OR acute life-threatening, extensive data, high risk (surgery, hospitalization)\n\nAlso look for office procedures performed during the visit:\n- Biopsy (skin 11102-11107, breast 19081-19086), I&D (10060-10061), excision, wound care\n- Joint injection (20610-20611), trigger point (20552-20553)\n- Lesion destruction, laceration repair, etc.\n- If procedure + E&M on same visit, include modifier 25 on the E&M code\n\nRespond ONLY with valid JSON, no markdown backticks or other text:\n{\"date\": \"YYYY-MM-DD\", \"patient\": \"XX\", \"codes\": [{\"code\": \"XXXXX\", \"description\": \"...\", \"confidence\": \"high\", \"modifiers\": []}]}" }
-            ]
-          }]
-        })
-      }, 90000).then(function(apiResp) {
-        handleScanResponse(apiResp, "code(s)");
-      }).catch(function(err) {
-        setScanStatus(""); setScanError("Scan failed: " + err.message); scanning.current = false;
-      });
+      sendScan(apiKey, contentBlock, "You are analyzing an outpatient clinic encounter note (which may be a PDF or image) for a surgical RVU tracking app. This is a SINGLE patient visit note (H&P, progress note, or consult note). The document may be multi-page - analyze ALL pages thoroughly.\n\nCRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names.\n\nExtract:\n1. date: the visit date in YYYY-MM-DD format\n2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.\n3. codes: an array of objects, each with:\n   - code: the most likely CPT code (5-digit number)\n   - description: brief GENERIC description\n   - confidence: high/medium/low\n   - modifiers: array of applicable modifier codes\n\nE&M CODE SELECTION GUIDE - Determine level by Medical Decision Making (MDM) complexity:\n- New patient: 99202 (straightforward), 99203 (low), 99204 (moderate), 99205 (high)\n- Established patient: 99211 (minimal/nurse), 99212 (straightforward), 99213 (low), 99214 (moderate), 99215 (high)\n\nMDM complexity factors: number of diagnoses, data reviewed (labs, imaging, records), risk of complications/morbidity.\n- Straightforward: 1 self-limited problem, minimal data, minimal risk\n- Low: 2+ self-limited problems OR 1 stable chronic, limited data, low risk\n- Moderate: 1 chronic illness with exacerbation OR undiagnosed new problem, moderate data, moderate risk (Rx drug management)\n- High: 1 chronic illness with severe exacerbation OR acute life-threatening, extensive data, high risk (surgery, hospitalization)\n\nAlso look for office procedures performed during the visit:\n- Biopsy (skin 11102-11107, breast 19081-19086), I&D (10060-10061), excision, wound care\n- Joint injection (20610-20611), trigger point (20552-20553)\n- Lesion destruction, laceration repair, etc.\n- If procedure + E&M on same visit, include modifier 25 on the E&M code\n\nRespond ONLY with valid JSON, no markdown backticks or other text:\n{\"date\": \"YYYY-MM-DD\", \"patient\": \"XX\", \"codes\": [{\"code\": \"XXXXX\", \"description\": \"...\", \"confidence\": \"high\", \"modifiers\": []}]}", "code(s)", SCAN_MODS_CLINIC);
       }; // end sendToAPI
       if (isPDF) {
         sendToAPI(ev.target.result.split(",")[1], "application/pdf");
@@ -583,25 +594,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         var contentBlock = isPDF
           ? { type: "document", source: { type: "base64", media_type: "application/pdf", data: base64 } }
           : { type: "image", source: { type: "base64", media_type: mediaType, data: base64 } };
-      fetchWithTimeout("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01", "anthropic-dangerous-direct-browser-access": "true" },
-        body: JSON.stringify({
-          model: "claude-sonnet-4-20250514",
-          max_tokens: 2000,
-          messages: [{
-            role: "user",
-            content: [
-              contentBlock,
-              { type: "text", text: "You are analyzing an INPATIENT hospital note (which may be a PDF or image) for a surgical RVU tracking app. This could be an H&P, progress note, consult note, discharge summary, or critical care note. The document may be multi-page - analyze ALL pages thoroughly.\n\nCRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names.\n\nExtract:\n1. date: the note/service date in YYYY-MM-DD format\n2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.\n3. codes: an array of objects, each with:\n   - code: the most likely CPT code (5-digit number)\n   - description: brief GENERIC description\n   - confidence: high/medium/low\n   - modifiers: array of applicable modifier codes\n\nINPATIENT E&M CODE GUIDE:\n- Initial hospital care (admission H&P): 99221 (straightforward/low MDM), 99222 (moderate MDM), 99223 (high MDM)\n- Subsequent hospital care (daily rounding): 99231 (straightforward/low), 99232 (moderate), 99233 (high)\n- Observation care: 99218 (straightforward/low), 99219 (moderate), 99220 (high)\n- Hospital discharge: 99238 (30 min or less), 99239 (more than 30 min)\n- Consult (inpatient): 99251 (straightforward), 99252 (low), 99253 (moderate), 99254 (high), 99255 (high complexity)\n- Critical care: 99291 (first 30-74 min), 99292 (each additional 30 min)\n\nMDM complexity factors: number of diagnoses, data reviewed, risk level.\n- Low: 2+ self-limited problems OR 1 stable chronic, limited data, low risk\n- Moderate: 1+ chronic illness with exacerbation OR undiagnosed new problem, moderate data, moderate risk (Rx management)\n- High: 1+ chronic illness with severe exacerbation OR acute life-threatening, extensive data, high risk (surgical decisions, ICU)\n\nAlso look for BEDSIDE PROCEDURES:\n- Central venous catheter: 36555-36558 (non-tunneled), 36560-36563 (tunneled)\n- Arterial line: 36620\n- Chest tube/thoracostomy: 32551\n- Paracentesis: 49083, Thoracentesis: 32554-32555\n- Lumbar puncture: 62270\n- Intubation: 31500\n- Tracheostomy: 31600-31601\n- Wound debridement: 97597-97598 or 11042-11047\n- If procedure + E&M on same day, include modifier 25 on the E&M code\n\nRespond ONLY with valid JSON, no markdown backticks or other text:\n{\"date\": \"YYYY-MM-DD\", \"patient\": \"XX\", \"codes\": [{\"code\": \"XXXXX\", \"description\": \"...\", \"confidence\": \"high\", \"modifiers\": []}]}" }
-            ]
-          }]
-        })
-      }, 90000).then(function(apiResp) {
-        handleScanResponse(apiResp, "code(s)");
-      }).catch(function(err) {
-        setScanStatus(""); setScanError("Scan failed: " + err.message); scanning.current = false;
-      });
+      sendScan(apiKey, contentBlock, "You are analyzing an INPATIENT hospital note (which may be a PDF or image) for a surgical RVU tracking app. This could be an H&P, progress note, consult note, discharge summary, or critical care note. The document may be multi-page - analyze ALL pages thoroughly.\n\nCRITICAL PRIVACY RULE: Do NOT include any Protected Health Information (PHI) in your response. Never return patient full names, MRNs, dates of birth, SSNs, addresses, phone numbers, or any other HIPAA identifiers. For patient field, generate only 2-letter initials (e.g. \"JD\"). For descriptions, use only generic procedure names.\n\nExtract:\n1. date: the note/service date in YYYY-MM-DD format\n2. patient: 2-letter initials ONLY derived from patient name. If you cannot determine, use empty string.\n3. codes: an array of objects, each with:\n   - code: the most likely CPT code (5-digit number)\n   - description: brief GENERIC description\n   - confidence: high/medium/low\n   - modifiers: array of applicable modifier codes\n\nINPATIENT E&M CODE GUIDE:\n- Initial hospital care (admission H&P): 99221 (straightforward/low MDM), 99222 (moderate MDM), 99223 (high MDM)\n- Subsequent hospital care (daily rounding): 99231 (straightforward/low), 99232 (moderate), 99233 (high)\n- Observation care: 99218 (straightforward/low), 99219 (moderate), 99220 (high)\n- Hospital discharge: 99238 (30 min or less), 99239 (more than 30 min)\n- Consult (inpatient): 99251 (straightforward), 99252 (low), 99253 (moderate), 99254 (high), 99255 (high complexity)\n- Critical care: 99291 (first 30-74 min), 99292 (each additional 30 min)\n\nMDM complexity factors: number of diagnoses, data reviewed, risk level.\n- Low: 2+ self-limited problems OR 1 stable chronic, limited data, low risk\n- Moderate: 1+ chronic illness with exacerbation OR undiagnosed new problem, moderate data, moderate risk (Rx management)\n- High: 1+ chronic illness with severe exacerbation OR acute life-threatening, extensive data, high risk (surgical decisions, ICU)\n\nAlso look for BEDSIDE PROCEDURES:\n- Central venous catheter: 36555-36558 (non-tunneled), 36560-36563 (tunneled)\n- Arterial line: 36620\n- Chest tube/thoracostomy: 32551\n- Paracentesis: 49083, Thoracentesis: 32554-32555\n- Lumbar puncture: 62270\n- Intubation: 31500\n- Tracheostomy: 31600-31601\n- Wound debridement: 97597-97598 or 11042-11047\n- If procedure + E&M on same day, include modifier 25 on the E&M code\n\nRespond ONLY with valid JSON, no markdown backticks or other text:\n{\"date\": \"YYYY-MM-DD\", \"patient\": \"XX\", \"codes\": [{\"code\": \"XXXXX\", \"description\": \"...\", \"confidence\": \"high\", \"modifiers\": []}]}", "code(s)", SCAN_MODS_INPATIENT);
       }; // end sendToAPI
       if (isPDF) {
         sendToAPI(ev.target.result.split(",")[1], "application/pdf");
@@ -742,6 +735,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       <button onClick={cancelScan} style={{ padding: "3px 10px", borderRadius: 6, border: "1px solid rgba(239,68,68,0.4)", background: "rgba(239,68,68,0.1)", color: "var(--accent-red-soft)", fontSize: 11, fontWeight: 600, cursor: "pointer" }}>Cancel</button>
     </div>}
     {scanError && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(239,68,68,0.1)", color: "var(--accent-red)", fontSize: 13, textAlign: "center" }}>{scanError}</div>}
+    {scanDropText && <div style={{ marginBottom: 8, padding: "8px 12px", borderRadius: 8, background: "rgba(245,158,11,0.1)", color: "var(--accent-amber)", fontSize: 13, lineHeight: 1.5 }}>{scanDropText}</div>}
 
 
     <div style={{ display: "flex", gap: 8 }}>

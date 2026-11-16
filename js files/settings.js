@@ -1025,7 +1025,7 @@ function Settings({ data, db, cptMap, categories, upd, setView, theme, toggleThe
         <div style={S.cardLabel}>AI Scan Features</div>
         <span style={{ fontSize: 11, padding: "2px 8px", borderRadius: 4, background: hasApiKey(settings) ? "rgba(16,185,129,0.15)" : "rgba(245,158,11,0.15)", color: hasApiKey(settings) ? "var(--accent-green)" : "var(--accent-amber)" }}>{hasApiKey(settings) ? "Active" : "Not configured"}</span>
       </div>
-      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Enter an Anthropic API key to enable scanning operative notes and clinic schedules. Get a key at console.anthropic.com</div>
+      <div style={{ fontSize: 12, color: "var(--text-muted)", marginTop: 4, lineHeight: 1.5 }}>Enter an Anthropic API key to enable scanning operative notes and clinic schedules. Get a key at platform.claude.com/settings/keys (scope it to one workspace).</div>
       {hasApiKey(settings) && !showApiKeyInput ? (
         <div style={{ marginTop: 10 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "10px 12px", background: "var(--bg-inset)", borderRadius: 8, border: "1px solid var(--border-default)" }}>
