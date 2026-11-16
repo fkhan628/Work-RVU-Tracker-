@@ -157,6 +157,8 @@ the per-file gates below. Run it after EVERY file change.
   their component names.
 - Hooks before any conditional return — a hook below an early return
   crashes the view (this bug shipped once in analytics.js).
+  A hook inside JSX that renders only sometimes (an IIFE such as Log's
+  lead-code card) is a conditional hook too (check.js Log card C2).
 - KEYWORD_SUPPLEMENT and FRIENDLY_DESC must stay above
   CPT_DATABASE_DEFAULT in utils.js.
 - All date math from LOCAL parts: `todayLocal()`/`localYMD()`, month keys
@@ -300,8 +302,9 @@ the per-file gates below. Run it after EVERY file change.
   write - aside), a literal-0 adjustedRVU write, any noCredit mention
   outside isNoCredit/repairData/withNoCredit, and any use of the four
   helper names other than calling them or passing them as a call argument; RAW_RVU_PIN
-  pins the remaining raw reads (utils.js 2) - bump it only for a new
-  sort/display.
+  pins the remaining raw reads (utils.js 3: the third is caseSavedMates'
+  stored figure, which Log's lead-code card shows beside a saved case) -
+  bump it only for a new sort/display.
 - No-credit readers (7a): counts and averages shown next to, or dividing,
   a credited wRVU or $ figure count CREDITED cases only; no-credit cases
   appear once, on a quiet "Logged, no credit" line (Home, Trends, month
@@ -580,6 +583,10 @@ the per-file gates below. Run it after EVERY file change.
   onClick={save}), pinned once the active procedure has a code. While
   pinned, LogProc reports it (setLogBar) and App lifts the undo toast to
   bottom 148 so Undo never covers Save; otherwise the toast stays at 64.
+  While the lead-code card suggests a change that was not kept (in Log, or
+  to a saved case in History), the bar's small first line ends in an amber
+  "sequencing suggested"; nothing else in the bar changes and Save is never
+  blocked.
   After the post-save reset, the next case's first code dismisses that
   save's pending Undo (same Log visit; Call Pay precedent). Change the bar height, nav height or toast offset together;
   never hide the bar on input focus. The toast's Undo and aria-labelled
@@ -688,7 +695,9 @@ the per-file gates below. Run it after EVERY file change.
   and the static meta (check.js 5f-15). manifest.json's theme_color stays
   dark (launch only).
 - Unsaved forms survive a tab switch through App's MEMORY-ONLY refs (never
-  persisted): Log's encounter (logDraft) and Call Pay's shift form
+  persisted): Log's encounter (logDraft, which also parks the lead-code
+  card's Keep as is, seqKept: it never keeps a draft on its own and the
+  post-save reset clears it) and Call Pay's shift form
   (callPayDraft, passed as `keep`). CallPay reads keep.current ONCE in a
   useState initialiser that clears it and returns utils.js payParkedDraft
   (the same site-list object - ANY paySites write drops the form, fail-safe:
@@ -933,41 +942,57 @@ the per-file gates below. Run it after EVERY file change.
   does a plain five-digit number or a word in a comment (write a new number
   that is no code as a product, 15 * 1000; the failure line names the token
   and its line). A prefix test or a code put together from pieces is not
-  seen: review those by eye.
+  seen: review those by eye. Log's "Also add?" chips (getCompanionSuggestions)
+  offer an add-on whose CMS list is complete (type 1) only once a code in the
+  case is one of its primaries - typed, or in a saved case of the same date
+  and exactly the same initials (Log passes the card's saved cases' codes;
+  they are not skipped as already selected). In the built-in list that
+  holds back only 38900; a "Logged together" chip from the user's own
+  history waits the same way (44121 after 47562, say, until 44120 is in the
+  case). Type 2 and 3 add-ons and every other suggestion are unchanged.
 - Lead code and -51 have ONE rule, utils.js proposeCaseModifiers. It is pure:
   it proposes and flags, writes nothing and leaves its input untouched, and
-  a caller applies a proposal only on the user's tap (nothing calls it until
-  Log's card does; check.js pins that). Lines are { code, modifiers,
-  baseRVU }: a stored case's cptCode is read where the code is missing, null
-  or empty, and a line without a usable baseRVU ranks and prices as 0, so a
-  caller passes the wRVU itself. Its `before` / `after` and totals are
-  TODAY's prices of the modifiers entered and proposed, never a saved case's
-  stored figure: a caller that shows saved cases puts the stored adjustedRVU
-  beside them, and what a save then writes is History's keep rule. The
-  owner's choice of 2026-11-13: the LEADER is the ranked line with the
-  highest WORK RVU - the line's own base, x1.5 for -50 where BILAT SURG is
-  1 - not CMS's facility total. A tie in work RVU goes to a line without -51
-  (a case entered in order is never re-sequenced for no gain), then to the
-  higher facility total, then to the earlier line; both ranks are compared
-  to four decimals. When the facility total would name another leader, the
-  result carries that order too (`alt`, with its own lead marks) and a note:
-  a caller shows both and never picks silently. No other order is offered
-  when the two leaders tie in work RVU, when a line of an endoscopy family
-  of two or more has the leader's work RVU (the leader itself included), or
-  when the facility leader is such a line and carries -51. In those three
-  cases nothing says that the facility total names another leader: the one
-  place where an order is passed over in silence (a note of its own is
-  planned with the card).
+  a caller applies a proposal only on the user's tap. Its one caller is
+  Log's lead-code card (one mention in log.js; check.js 5f-18 pins the
+  count). Lines are { code, modifiers, baseRVU }: a stored case's cptCode is
+  read where the code is missing, null or empty, and a line without a usable
+  baseRVU ranks and prices as 0, so a caller passes the wRVU itself. Its
+  `before` / `after` and totals are TODAY's prices of the modifiers entered
+  and proposed, never a saved case's stored figure: a caller that shows saved
+  cases puts the stored adjustedRVU beside them, and what a save then writes
+  is History's keep rule. The owner's choice of 2026-11-13: the LEADER is the
+  ranked line with the highest WORK RVU - the line's own base, x1.5 for -50
+  where BILAT SURG is 1 - not CMS's facility total. A tie in work RVU goes to
+  a line without -51 (a case entered in order is never re-sequenced for no
+  gain), then to the higher facility total, then to the earlier line; both
+  ranks are compared to four decimals. When the facility total would name
+  another leader, the result carries that order too (`alt`, with its own
+  lead marks) and a measures-disagree note: a caller shows both and never
+  picks silently. The facility order's leader is found by facility total,
+  then work RVU, then a line that is not a line of an endoscopy family of
+  two or more carrying -51, then a line without -51, then the earlier line
+  (the third step, Batch 2's, keeps the other order in place after Apply and
+  changes no other tie). No other order is offered when
+  the two leaders tie in work RVU, when a line of an endoscopy family of two
+  or more has the leader's work RVU (the leader itself included), or when
+  the facility leader is such a line and carries -51; then a
+  measures-not-offered note names both leaders and why (none when both
+  leaders are family lines, or when they also tie in facility total). Each
+  alt line carries `followed`: true on every line of a group the other order
+  flips whose ranked lines are all as alt has them.
   `settled` says that nothing NEEDS a tap: every line is as the proposal has
   it, except that a group where the other order is offered may follow that
   order instead (decided group by group). A tap may still be on offer: where
-  `alt` exists, `changed` or `alt.changed` stays true, and what the card
-  does with that is decided with the card. Nor does it say that nothing is
-  wrong - show flags whatever it says, with one exception: while it is true,
-  a 51-on-lead flag belongs to the order the user did not choose and is not
-  an error (while it is false the result cannot say which group a flag
-  belongs to). A family leader that carries -51 has a flag kind of its own,
-  51-on-family-lead: an error by the work-RVU order, with nothing to tap.
+  `alt` exists, `changed` or `alt.changed` stays true, and the card offers
+  that order quietly. Nor does it say that nothing is wrong - show flags
+  whatever it says, with one exception: a 51-on-lead flag on a line whose alt
+  line is `followed` belongs to the order the user did not choose and is not
+  an error (caseCardPlan leaves it out). A family leader that carries -51
+  has a flag kind of its own, 51-on-family-lead: an error by the work-RVU
+  order, with nothing to tap. While one group holds ranked lines the texts
+  say "here"; with two or more, each leader, all-51, not-sequenced,
+  family-lead and measures text names its group, and a leader's flag says it
+  leads there, not that it has the highest work RVU.
   Ranked lines are MULT PROC 2 and 3; every other code never takes -51
   (flagged on any line; proposed away except on a -76 / -77 / -78 line).
   Groups never mix: the user's own lines, assistant lines (-80, -82, AS),
@@ -982,16 +1007,47 @@ the per-file gates below. Run it after EVERY file change.
   proposed away). Flags (bilateral, assistant, co-surgeon, add-on pairing,
   unknown or repeated modifier) never change a proposal. It never throws for
   anything JSON can hold: a modifier that is neither text nor a number is an
-  unknown modifier. Known limits for its first caller (Log's card): the
-  result carries no group id, so one Apply covers the whole case; after the
-  other order is applied (every such group then follows it) the leader is
-  read from alt.lines[i].lead; Log's own rows are { code, mods } without a
-  wRVU, so they go through an adapter; a caller that holds a stored case and
-  a draft code passes only the draft (an empty code falls back to cptCode);
-  and in one rare full tie beside a family line that carries -51, applying
-  the proposal makes the other order disappear. check.js pins the four
-  worked cases with their CY2026 figures, one case per rule, every flag and
-  note text word for word, and the result's shape.
+  unknown modifier.
+  Log's lead-code card (ASSET_V 68) sits under the Encounter Summary in the
+  amber style of the call-credit card. Its decisions are utils.js helpers,
+  and Log only wires them: caseLinesFromRows (Log's rows, priced from the
+  code map as save() prices them), caseSavedMates (the saved cases of the
+  same date and exactly the same initials - History's encounter rule),
+  caseCardPlan (nothing, flags, a proposal, or both orders; needsTap; the
+  error flags; the notes to list - measures-not-offered, all-51 and
+  not-sequenced open the card on their own, the other kinds only beside
+  something else), caseApplyOrder (new rows with only the -51 changes of the
+  chosen order; null for an order that would change a saved case, or for a
+  stale result) and caseCardTotals (the figures it prints: the typed lines
+  as the Encounter Summary totals them, a no-credit encounter's too; each
+  saved case shown at its stored figure and counted in the encounter's
+  column - its credited figure, or its no-credit one while the encounter
+  being typed earns no credit, as History's totals count it). None of them
+  calls the function or prices anything. The card never changes a saved
+  case: an order that would is shown as "edit it in History", with no
+  button. check.js tests each helper by value, and pins Log's wiring with
+  Log card C1-C6: C1 that an order reaches the rows only in an onClick
+  (`var x = caseApplyOrder(procs, <result>, "main" | "alt"); if (x)
+  setProcs(x);`); C2 that the card renders only under ONE typeof guard of
+  the five helpers, with no hook under it (for about ten minutes after a
+  deploy a phone can hold the new log.js beside the old utils.js: the card
+  then simply does not show); C3 runs LogProc's card state (the seq* lines,
+  lifted out of log.js) on made-up cases; C4 that the card's own function
+  writes state only in its three taps; C5 that Apply and Use this order show
+  only where their order applies; C6 that Keep as is survives a tab switch
+  and is forgotten after a save. The card's words are not tested: review
+  them by eye. Keep as is hides the card while the case's codes and
+  modifiers - the typed rows' and the saved cases' - stay as they were
+  (seqKept). Known limits: the result carries no group id, so one Apply
+  covers the whole case; a caller that holds a stored case and a draft code
+  passes only the draft (an empty code falls back to cptCode); the typed
+  rows come first, so in a full tie (same work RVU and facility total, no
+  -51 on either) a typed line leads over a saved one and the card asks for
+  the saved case to be changed in History, although the equal order with
+  the saved line leading could be applied in Log. check.js pins
+  the four worked cases with their CY2026 figures, one case per rule, every
+  flag and note text word for word, the result's shape, and every card
+  helper by value.
 - MODIFIERS since ASSET_V 67: -22 counts 1.0 and its chip reads "no wRVU
   change" (cases saved at 1.2 keep their stored figure - the History keep
   rule - so the panel of such a case shows that chip beside the kept

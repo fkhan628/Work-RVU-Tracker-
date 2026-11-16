@@ -425,7 +425,11 @@ check("one restore path: paste and file -> restoreFromText -> finishRestore; und
 // history.js is 7 since ASSET_V 66 (was 6): the edit panel DISPLAYS the stored
 // adjusted wRVU of a case whose code and modifiers are unchanged - the value
 // Save keeps (5f-18: editStored = editOrig ? editOrig.adjustedRVU : editCalc).
-const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 7, "settings.js": 3, "utils.js": 2 };
+// utils.js is 3 since Batch 2 (was 2): caseSavedMates hands Log's card each
+// saved case's stored figure to SHOW beside it (`stored: e.adjustedRVU`); the
+// card's totals add `credited` (creditedRVU) or `uncredited` (noCreditRVU),
+// never that figure.
+const RAW_RVU_PIN = { "analytics.js": 4, "dashboard.js": 1, "history.js": 7, "settings.js": 3, "utils.js": 3 };
 const CREDIT_HELPERS = ["creditedRVU", "isNoCredit", "noCreditRVU", "withNoCredit"];
 const ARITH_OPS = { "+": 1, "-": 1, "*": 1, "/": 1, "%": 1 };
 const WALK_SKIP = { loc: 1, start: 1, end: 1, leadingComments: 1, trailingComments: 1, innerComments: 1 };
@@ -2531,9 +2535,11 @@ const COMP_MONEY_PIN = 8;
   // key; the factor can be read as ["factor"], destructured or copied under
   // its key; the table can be changed through MOD_MAP at run time; calcAdj
   // can be reached by its name in a string; and proposeCaseModifiers returns
-  // priced figures, so a caller could store them. Nothing calls
-  // proposeCaseModifiers until Log's card does - that batch moves its pin,
-  // for a caller that shows a proposal and applies it on a tap.
+  // priced figures, so a caller could store them. Its pin moved in Batch 2
+  // (was { "utils.js": 1 }): Log's lead-code card is its one caller - ONE
+  // mention in log.js, the call, which shows a proposal and applies it only
+  // on a tap (the Log card C1 / C2 gates below pin where the call sits and
+  // how its answer reaches the rows). utils.js keeps its one, the declaration.
   // Either name inside a string or a template is looked for as a PART of the
   // text, in every file walked here: a whole-text test let new
   // Function("b", "m", "return calcAdj(b, m)") and
@@ -2546,7 +2552,7 @@ const COMP_MONEY_PIN = 8;
     { what: "mentions of the name factor", pin: { "utils.js": 14 }, seen: {}, test: x => (x.type === "MemberExpression" && ((!x.computed && x.property.name === "factor") || (x.computed && x.property.type === "StringLiteral" && x.property.value === "factor"))) || (x.type === "ObjectProperty" && keyOf(x) === "factor") || (x.type === "StringLiteral" && x.value === "factor") },
     { what: "mentions of MOD_MAP", pin: { "utils.js": 6 }, seen: {}, test: x => isId(x, "MOD_MAP") },
     { what: "strings or templates that hold the text calcAdj", pin: {}, seen: {}, test: x => inText(x, "calcAdj") },
-    { what: "mentions of proposeCaseModifiers (nothing calls it yet)", pin: { "utils.js": 1 }, seen: {}, test: x => isId(x, "proposeCaseModifiers") },
+    { what: "mentions of proposeCaseModifiers (Log's card calls it, once)", pin: { "log.js": 1, "utils.js": 1 }, seen: {}, test: x => isId(x, "proposeCaseModifiers") },
     { what: "strings or templates that hold the text proposeCaseModifiers", pin: {}, seen: {}, test: x => inText(x, "proposeCaseModifiers") },
   ];
   jsFiles.filter(f => f !== "cpt-data.js").forEach(f => {
@@ -2565,6 +2571,126 @@ const COMP_MONEY_PIN = 8;
   MORE_PINS.forEach(p => { if (JSON.stringify(p.seen) !== JSON.stringify(p.pin)) bad.push(p.what + " " + JSON.stringify(p.seen) + ", pinned " + JSON.stringify(p.pin)); });
   check("5f-18: History's Save keeps a stored case's pricing - saveEdit passes the stored case as found and the panel's seven values to ONE utils.js entryEditFields call, stops when it returns nothing, and stores entryWithCall({ ...e, ...edited, isCall }) itself (no calcAdj, no adjustedRVU or modifiers write of its own, the other cases untouched); the panel is seeded with the stored code and modifiers and changes one tapped code at a time; the preview's lines, the three tiles and the one `Saved <stored> wRVU, after save <new>` line are as written; saveAdd prices a new case, and so does Log's save (adj = calcAdj(info.wRVU, p.mods), stored as it is); calcAdj call sites pinned per file, neither calcAdj nor proposeCaseModifiers named inside a string",
     bad.length === 0, bad.join(", "));
+}
+
+// Log card C1 / C2 (Batch 2): Log's lead-code card (log.js, under the
+// Encounter Summary) calls proposeCaseModifiers once; the utils.js helpers
+// decide what it shows and what Apply does (tested by value further down),
+// and Log only wires them (C1 / C2 here, C3-C6 once the sandbox is made).
+// C1, the tap-only rule (CLAUDE.md: a caller applies a proposal only on the
+// user's tap): caseApplyOrder is named only as the callee of its two calls,
+// (procs, the card's one lead-code result, "main" / "alt"), and each is the
+// whole body of a function that is an onClick value inside LogProc:
+// `var x = caseApplyOrder(...); if (x) setProcs(x);` - so the rows' modifiers
+// change only in that tap, never during render or in an effect, and the
+// result reaches setProcs only there. The card's result is never named in a
+// setProcs or updateProc argument (a proposal written to the rows another way).
+// C2, the update window: for a few minutes after a deploy a phone can hold
+// the new log.js beside the old utils.js (build 67: proposeCaseModifiers but
+// none of the helpers), so the card shows only under ONE typeof guard of
+// exactly the five helpers; every call of them and of proposeCaseModifiers,
+// and every use of a value such a call gives, sits under that guard (inside
+// a `g ? .. : ..` whose test is a guard name, or the right of an && chain
+// that leads with one; a guard name is the typeof guard or a name declared
+// as an && chain leading with a guard name), and no hook call does (it would
+// run only while the card shows). proposeCaseModifiers has no typeof of its
+// own: its one mention in log.js is the call (5f-18), and the five sit after
+// it in the same utils.js. Syntactic, like 5f-18.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression" || n.type === "FunctionDeclaration");
+  const HELPERS = ["caseLinesFromRows", "caseSavedMates", "caseCardPlan", "caseApplyOrder", "caseCardTotals"];
+  const bad1 = [], bad2 = [];
+  let lsrc = "", lprog = null;
+  try { lsrc = fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8"); lprog = parser.parse(lsrc, AST_OPTS).program; } catch (e) { bad1.push("parse log.js"); bad2.push("parse log.js"); }
+  const srcOf = n => n ? lsrc.slice(n.start, n.end).replace(/\s+/g, " ") : "";
+  // Parent links over the whole file, then the usual collectors.
+  const parent = new Map();
+  const link = (n, p) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(x => link(x, p)); return; }
+    if (!n.type) return;
+    if (p) parent.set(n, p);
+    for (const k in n) { if (k === "loc" || k === "start" || k === "end" || k === "extra" || k === "leadingComments" || k === "trailingComments" || k === "innerComments") continue; link(n[k], n); }
+  };
+  if (lprog) link(lprog, null);
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const within = (n, root) => { for (let p = n; p; p = parent.get(p)) if (p === root) return true; return false; };
+  const fnOf = n => { for (let p = parent.get(n); p; p = parent.get(p)) if (isFn(p)) return p; return null; };
+  const logFn = lprog ? lprog.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "LogProc"))[0] : null;
+  if (lprog && !logFn) { bad1.push("no LogProc"); bad2.push("no LogProc"); }
+  const decls = logFn ? deep(logFn, n => n.type === "VariableDeclarator" && n.id.type === "Identifier") : [];
+  const callsOf = name => lprog ? deep(lprog, n => n.type === "CallExpression" && isId(n.callee, name)) : [];
+  // An Identifier that READS the name (not a declaration, a .property or a key).
+  const isRef = n => { const p = parent.get(n); return !(p && ((p.type === "VariableDeclarator" && p.id === n) || (p.type === "MemberExpression" && p.property === n && !p.computed) || (p.type === "ObjectProperty" && p.key === n && !p.computed && !p.shorthand))); };
+  const refsOf = name => lprog ? deep(lprog, n => isId(n, name) && isRef(n)) : [];
+  const propCalls = callsOf("proposeCaseModifiers");
+  const resDecl = propCalls.length === 1 ? (() => { for (let p = parent.get(propCalls[0]); p; p = parent.get(p)) if (p.type === "VariableDeclarator") return p; return null; })() : null;
+  const R = resDecl && resDecl.id.type === "Identifier" ? resDecl.id.name : "";
+  if (logFn && !R) bad1.push("the lead-code result is not one `var <name> = ...proposeCaseModifiers(...)...` (" + propCalls.length + " calls)");
+  // C1.
+  // (A typeof reads only the type; C2 allows one, in the guard.)
+  const applyRefs = refsOf("caseApplyOrder").filter(n => !(parent.get(n) && parent.get(n).type === "UnaryExpression" && parent.get(n).operator === "typeof")), applyCalls = callsOf("caseApplyOrder");
+  if (applyRefs.some(n => !(parent.get(n) && parent.get(n).type === "CallExpression" && parent.get(n).callee === n))) bad1.push("caseApplyOrder is named other than as the callee of a call");
+  const whichSeen = [];
+  applyCalls.forEach(c => {
+    const at = "caseApplyOrder at line " + c.loc.start.line;
+    const a = c.arguments;
+    if (!(a.length === 3 && isId(a[0], "procs") && R && isId(a[1], R) && a[2].type === "StringLiteral" && (a[2].value === "main" || a[2].value === "alt"))) { bad1.push(at + " is not (procs, " + (R || "the card's result") + ", \"main\" / \"alt\"): " + srcOf(c)); return; }
+    whichSeen.push(a[2].value);
+    const d = parent.get(c), fn = fnOf(c), box = fn && parent.get(fn), attr = box && parent.get(box);
+    const onClick = !!fn && fn.type !== "FunctionDeclaration" && !!box && box.type === "JSXExpressionContainer" && box.expression === fn && !!attr && attr.type === "JSXAttribute" && !!attr.name && attr.name.name === "onClick" && attr.value === box && !!logFn && within(fn, logFn);
+    if (!onClick) { bad1.push(at + " is not inside a function that is an onClick value in LogProc"); return; }
+    const body = fn.body && fn.body.type === "BlockStatement" ? fn.body.body : [];
+    const x = d && d.type === "VariableDeclarator" && d.init === c && d.id.type === "Identifier" ? d.id.name : "";
+    const ifs = body[1], cons = ifs && ifs.type === "IfStatement" ? (ifs.consequent.type === "BlockStatement" && ifs.consequent.body.length === 1 ? ifs.consequent.body[0] : ifs.consequent) : null;
+    const setCall = cons && cons.type === "ExpressionStatement" ? cons.expression : null;
+    const shapeOk = !!x && body.length === 2 && body[0].type === "VariableDeclaration" && body[0].declarations.length === 1 && body[0].declarations[0] === d &&
+      !!ifs && ifs.type === "IfStatement" && !ifs.alternate && isId(ifs.test, x) && !!setCall && setCall.type === "CallExpression" && isId(setCall.callee, "setProcs") && setCall.arguments.length === 1 && isId(setCall.arguments[0], x) &&
+      deep(fn, n => isId(n, x)).length === 3;
+    if (!shapeOk) bad1.push(at + ": its onClick is not `var x = caseApplyOrder(...); if (x) setProcs(x);` and nothing more (" + srcOf(fn.body) + ")");
+  });
+  if (whichSeen.slice().sort().join(",") !== "alt,main") bad1.push("caseApplyOrder calls for " + JSON.stringify(whichSeen) + ", want one for \"main\" (Apply) and one for \"alt\" (Use this order)");
+  if (R) ["setProcs", "updateProc"].forEach(s => callsOf(s).forEach(c => { if (c.arguments.some(a => deep(a, n => isId(n, R)).length > 0)) bad1.push("a " + s + " argument names the card's result " + R + " at line " + c.loc.start.line); }));
+  // C2.
+  const typeofOf = e => e && e.type === "BinaryExpression" && e.operator === "===" && e.left.type === "UnaryExpression" && e.left.operator === "typeof" && e.left.argument.type === "Identifier" && e.right.type === "StringLiteral" && e.right.value === "function" ? e.left.argument.name : null;
+  const andList = e => e && e.type === "LogicalExpression" && e.operator === "&&" ? andList(e.left).concat(andList(e.right)) : [e];
+  const CARD_FNS = HELPERS.concat(["proposeCaseModifiers"]);
+  const typeofDecls = decls.filter(d => d.init && andList(d.init).some(e => CARD_FNS.indexOf(typeofOf(e)) !== -1));
+  const ok = typeofDecls.length === 1 ? typeofDecls[0] : null;
+  const guarded = ok ? andList(ok.init).map(typeofOf) : [];
+  if (!ok) bad2.push("LogProc has " + typeofDecls.length + " typeof guards of the card's functions, want ONE");
+  else if (guarded.indexOf(null) !== -1 || guarded.slice().sort().join(",") !== HELPERS.slice().sort().join(",")) bad2.push("the guard " + ok.id.name + " is `" + srcOf(ok.init) + "`, want typeof === \"function\" of exactly " + HELPERS.join(", "));
+  const G = {};
+  if (ok) G[ok.id.name] = true;
+  const leftmost = e => { while (e && e.type === "LogicalExpression" && e.operator === "&&") e = e.left; return e; };
+  for (let grew = true; grew;) { grew = false; decls.forEach(d => { const l = leftmost(d.init); if (d.init && d.init.type === "LogicalExpression" && l && l.type === "Identifier" && G[l.name] && !G[d.id.name]) { G[d.id.name] = true; grew = true; } }); }
+  const underGuard = n => {
+    for (let c = n, p = parent.get(n); p && p !== logFn; c = p, p = parent.get(p)) {
+      if (p.type === "ConditionalExpression" && p.test.type === "Identifier" && G[p.test.name] && within(n, p.consequent)) return true;
+      if (p.type === "LogicalExpression" && p.operator === "&&" && p.right === c && leftmost(p) && leftmost(p).type === "Identifier" && G[leftmost(p).name]) return true;
+    }
+    return false;
+  };
+  const okArgs = ok ? deep(ok.init, n => n.type === "Identifier") : [];
+  HELPERS.concat(["proposeCaseModifiers"]).forEach(h => {
+    const calls = callsOf(h), refs = refsOf(h).filter(n => okArgs.indexOf(n) === -1);
+    const want = h === "caseApplyOrder" ? 2 : 1;
+    if (calls.length !== want) bad2.push(h + " is called " + calls.length + " times in log.js, want " + want);
+    if (refs.some(n => !(parent.get(n) && parent.get(n).type === "CallExpression" && parent.get(n).callee === n))) bad2.push(h + " is named other than as a callee (or in the guard)");
+    calls.forEach(c => { if (!logFn || !within(c, logFn) || !underGuard(c)) bad2.push(h + " at line " + c.loc.start.line + " is not under the guard"); });
+  });
+  // Values the guarded calls give: names declared as `g ? ... : ...`.
+  const D = decls.filter(d => d.init && d.init.type === "ConditionalExpression" && d.init.test.type === "Identifier" && G[d.init.test.name]).map(d => d.id.name);
+  if (R && D.indexOf(R) === -1) bad2.push("the lead-code result " + R + " is not declared as `<guard> ? ... : ...`");
+  D.forEach(name => refsOf(name).forEach(n => { if (!underGuard(n)) bad2.push(name + " is used outside the guard at line " + n.loc.start.line); }));
+  // A hook under the guard runs only when the card shows - a conditional
+  // hook (the hooks check above ignores nested functions such as the card's).
+  if (logFn) deep(logFn, n => n.type === "CallExpression" && n.callee.type === "Identifier" && /^use[A-Z]/.test(n.callee.name)).forEach(c => { if (underGuard(c)) bad2.push("hook " + c.callee.name + " under the guard at line " + c.loc.start.line); });
+  check("Log card C1: Apply / Use this order change the rows only on a tap - in log.js caseApplyOrder is named only as the callee of its two calls (procs, the card's one lead-code result, \"main\" / \"alt\"), each the whole `var x = caseApplyOrder(...); if (x) setProcs(x);` body of a function that is an onClick value in LogProc; the card's result is never named in a setProcs or updateProc argument",
+    bad1.length === 0, bad1.join("; "));
+  check("Log card C2: the card shows only when utils.js has its helpers - LogProc declares ONE typeof guard of exactly caseLinesFromRows, caseSavedMates, caseCardPlan, caseApplyOrder and caseCardTotals; each call of those and of proposeCaseModifiers (once each, caseApplyOrder twice) and every use of a value such a call gives sits under it, and no hook does",
+    bad2.length === 0, bad2.join("; "));
 }
 
 // 5f-20. A modifier chip says what the modifier does to the wRVU: in Log and
@@ -3534,6 +3660,140 @@ if (rows) {
   check("utils.js beside a CMS_MORE it cannot read (null, text, tables that are not tables, values of another shape): it loads, every row keeps its policy, and an unreadable value is no rule - no pairing answer, no add-on flag, no endoscopy family",
     odds.every(m => !m.threw && m.policy === rows.length && m.rules.length === 0 && m.allows.length === 0 && m.fam.length === 0 && m.a === " | 51-never" && m.b === " | "), JSON.stringify(odds));
 }
+
+// Log card C3-C6 (Batch 2): Log's wiring of the card, which C1 / C2 pin only
+// in shape. C3 RUNS it: LogProc's top-level declarations of canSave,
+// callSites, encPreview, pvAll, ncNow and every seq* name are lifted out of
+// log.js (they hold no JSX) and run on made-up states - the case's lines
+// (the typed rows, then the saved cases of the same date and exactly the
+// same initials), the post-save window, Keep as is and what brings the card
+// back, when the card and the save bar's hint show, an order that would
+// change a saved case, and the Case total of a no-credit encounter. C4:
+// inside the card's own function the only state writes are its three taps
+// (setProcs(next) twice, setSeqKept(seqSig) once), each in an onClick. C5:
+// the card renders under seqShow, Apply (the "main" order) only where
+// seqPlan.main.applies and Use this order (the "alt" one) only where
+// seqPlan.alt.applies. C6: Keep as is is read back from the draft, parked in
+// it (and in its effect's deps) and cleared by the post-save reset. The
+// card's words are not tested by value (check.js has no JSX transform):
+// review them by eye.
+{
+  const J = x => JSON.stringify(x);
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const bad3 = [], bad4 = [], bad5 = [], bad6 = [];
+  let lsrc = "", logFn = null;
+  try { lsrc = fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8"); logFn = parser.parse(lsrc, AST_OPTS).program.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "LogProc"))[0] || null; } catch (e) { logFn = null; }
+  if (!logFn) [bad3, bad4, bad5, bad6].forEach(b => b.push("no LogProc in log.js"));
+  const textOf = n => lsrc.slice(n.start, n.end).replace(/\s+/g, " ");
+  const parent = new Map();
+  const link = (n, p) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(x => link(x, p)); return; }
+    if (!n.type) return;
+    if (p) parent.set(n, p);
+    for (const k in n) { if (k === "loc" || k === "start" || k === "end" || k === "extra" || /Comments$/.test(k)) continue; link(n[k], n); }
+  };
+  if (logFn) link(logFn, null);
+  // C3.
+  const LIFTED = ["canSave", "callSites", "encPreview", "pvAll", "ncNow", "seqOk", "seqOn", "seqMates", "seqR", "seqPlan", "seqTot", "seqSig", "seqShow", "seqHint"];
+  let run = null;
+  if (logFn && !sb) bad3.push("utils.js did not load in the sandbox");
+  if (logFn && sb) {
+    const names = s => s.type === "VariableDeclaration" ? s.declarations.filter(d => d.id.type === "Identifier").map(d => d.id.name) : [];
+    const stmts = logFn.body.body.filter(s => names(s).some(n => LIFTED.indexOf(n) !== -1 || /^seq[A-Z]/.test(n)));
+    const declared = [].concat.apply([], stmts.map(names)), missing = LIFTED.filter(n => declared.indexOf(n) === -1);
+    if (missing.length) bad3.push("LogProc does not declare " + missing.join(", ") + " at its top level (var NAME = ...)");
+    else {
+      try {
+        run = vm.runInContext("(function(S) {\nvar data = S.data, date = S.date, patientId = S.patientId, procs = S.procs, cptMap = S.cptMap, saved = S.saved, seqKept = S.seqKept, isCall = S.isCall, callSite = S.callSite, totalRVU = 0;\n" +
+          stmts.map(s => lsrc.slice(s.start, s.end)).join("\n") + "\nreturn { ncNow: ncNow, seqShow: seqShow, seqHint: seqHint, seqPlan: seqPlan, seqTot: seqTot, seqR: seqR, seqSig: seqSig, seqMates: seqMates };\n})", sb, { filename: "log-card-state.js" });
+      } catch (e) { bad3.push("cannot lift the card's state out of LogProc: " + (e && e.message)); }
+    }
+  }
+  if (run) {
+    try {
+      const map = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", sb), W = c => map[c].wRVU, near = (a, b) => typeof a === "number" && Math.abs(a - b) < 1e-9;
+      const row = (id, code, mods) => ({ id: id, code: code, search: "", mods: mods || [] });
+      const ent = (id, code, mods, ini, nc) => Object.assign({ id: id, date: "2026-11-02", cptCode: code, modifiers: mods || [], baseRVU: W(code), adjustedRVU: sb.calcAdj(W(code), mods || []), encounterId: ini }, nc ? { noCredit: true } : {});
+      const SITES = [{ id: "m1", name: "Made-up site", casesEarnRVU: false }];
+      const S = o => run(Object.assign({ data: { entries: [], paySites: [] }, date: "2026-11-02", patientId: "", procs: [], cptMap: map, saved: false, seqKept: "", isCall: false, callSite: "" }, o));
+      const mate = { data: { entries: [ent("s1", "47562", [], "QX")], paySites: [] }, patientId: "QX", procs: [row(1, "44970")] };
+      const a = S(mate);
+      if (!(J(a.seqR.lines.map(l => l.code)) === '["44970","47562"]' && a.seqShow === true && a.seqHint === true && a.seqPlan.main.applies === true && a.seqTot.lines[1].before === W("47562") && near(a.seqTot.before, W("44970") + W("47562")) && a.ncNow === false))
+        bad3.push("a typed row beside a saved case of the same date and initials: the case is the row, then the saved case; the card and the hint show, Apply is offered -> " + J({ lines: a.seqR.lines.map(l => l.code), show: a.seqShow, hint: a.seqHint, main: a.seqPlan.main, total: a.seqTot && a.seqTot.before }));
+      const w = S(Object.assign({}, mate, { saved: "Logged 1 code" }));
+      if (w.seqShow !== false || w.seqHint !== false) bad3.push("in the post-save window the card and the hint are off -> " + J([w.seqShow, w.seqHint]));
+      const k = S(Object.assign({}, mate, { seqKept: a.seqSig }));
+      if (k.seqShow !== false || k.seqHint !== false) bad3.push("Keep as is hides the card and the hint -> " + J([k.seqShow, k.seqHint]));
+      if (S(Object.assign({}, mate, { seqKept: a.seqSig, procs: [row(1, "44970", ["-22"])] })).seqShow !== true) bad3.push("a modifier changed after Keep as is does not bring the card back");
+      if (S(Object.assign({}, mate, { seqKept: a.seqSig, data: { entries: [ent("s1", "47563", [], "QX")], paySites: [] } })).seqShow !== true) bad3.push("a saved case's code changed (in History) after Keep as is does not bring the card back");
+      if (S(Object.assign({}, mate, { seqKept: a.seqSig, data: { entries: [ent("s1", "47562", ["-22"], "QX")], paySites: [] } })).seqShow !== true) bad3.push("a saved case's modifiers changed (in History) after Keep as is do not bring the card back");
+      const n0 = S({ procs: [row(1, "47562"), row(2, "44970")] });
+      if (S({ procs: [row(1, "47562"), row(2, "44970")], patientId: "QX", data: { entries: [ent("s2", "49505", [], "QX")], paySites: [] }, seqKept: n0.seqSig }).seqShow !== true) bad3.push("initials that bring a saved case in after Keep as is do not bring the card back");
+      const none = S({ procs: [row(1, "47562"), row(2, "44970", ["-51"])] });
+      if (none.seqShow !== false || none.seqHint !== false) bad3.push("nothing to say, yet the card or the hint shows -> " + J([none.seqShow, none.seqHint]));
+      const fl = S({ procs: [row(1, "44227"), row(2, "44213")] });
+      if (fl.seqShow !== true || fl.seqHint !== false) bad3.push("warnings only: want the card and no hint -> " + J([fl.seqShow, fl.seqHint]));
+      const sv = S({ procs: [row(1, "47562")], patientId: "QX", data: { entries: [ent("s3", "44970", [], "QX")], paySites: [] } });
+      if (!(sv.seqShow === true && sv.seqPlan.main.applies === false && J(sv.seqPlan.main.savedLines) === "[1]")) bad3.push("an order that would change a saved case is offered for Apply -> " + J(sv.seqPlan.main));
+      if (S({ procs: [row(1, "47562")], patientId: "qx", data: { entries: [ent("s3", "44970", [], "QX")], paySites: [] } }).seqMates.length !== 0) bad3.push("initials qx take a saved QX case (History's rule is exact)");
+      const ncSite = { isCall: true, callSite: "m1" };
+      const nc1 = S(Object.assign({ procs: [row(1, "47562"), row(2, "44970")], data: { entries: [], paySites: SITES } }, ncSite));
+      if (!(nc1.ncNow === true && near(nc1.seqTot.before, W("47562") + W("44970")) && near(nc1.seqTot.main, W("47562") + W("44970") / 2))) bad3.push("a no-credit encounter counts its typed lines as the Encounter Summary does -> " + J([nc1.ncNow, nc1.seqTot]));
+      const nc2 = S(Object.assign({ procs: [row(1, "38525")], patientId: "QX", data: { entries: [ent("s4", "19301", [], "QX", true)], paySites: SITES } }, ncSite));
+      if (!(nc2.ncNow === true && near(nc2.seqTot.before, W("38525") + W("19301")) && near(nc2.seqTot.main, W("38525") / 2 + W("19301")))) bad3.push("a no-credit encounter typed in two saves: its Case total leaves the saved no-credit case out -> " + J([nc2.ncNow, nc2.seqTot]));
+      const mix = S({ procs: [row(1, "38525")], patientId: "QX", data: { entries: [ent("s4", "19301", [], "QX", true)], paySites: SITES } });
+      if (!(mix.ncNow === false && near(mix.seqTot.before, W("38525")) && near(mix.seqTot.main, W("38525") / 2))) bad3.push("a credited encounter counts a saved no-credit case in its credited total -> " + J([mix.ncNow, mix.seqTot]));
+    } catch (e) { bad3.push("threw: " + (e && e.message)); }
+  }
+  // C4 / C5: the card's own function, `{seqShow && (function() { ... })()}`.
+  const cards = logFn ? deep(logFn, n => { const p = parent.get(n); return n.type === "CallExpression" && n.callee.type === "FunctionExpression" && !!p && p.type === "LogicalExpression" && p.operator === "&&" && p.right === n && p.left.type === "Identifier" && /^seq/.test(p.left.name); }) : [];
+  const card = cards.length === 1 ? cards[0] : null;
+  if (logFn && !card) [bad4, bad5].forEach(b => b.push("want ONE `{seq... && (function() { ... })()}` card in LogProc, found " + cards.length));
+  if (card) {
+    const inClick = n => { for (let p = parent.get(n); p; p = parent.get(p)) { if (p.type === "FunctionExpression" || p.type === "ArrowFunctionExpression") { const b = parent.get(p), a = b && parent.get(b); return !!(b && b.type === "JSXExpressionContainer" && b.expression === p && a && a.type === "JSXAttribute" && a.name && a.name.name === "onClick"); } } return false; };
+    const sets = deep(card.callee, n => n.type === "CallExpression" && n.callee.type === "Identifier" && (/^set[A-Z]/.test(n.callee.name) || n.callee.name === "updateProc" || n.callee.name === "toggleMod"));
+    const got = sets.map(n => textOf(n) + (inClick(n) ? "" : " (not in an onClick)")).sort();
+    if (J(got) !== J(["setProcs(next)", "setProcs(next)", "setSeqKept(seqSig)"])) bad4.push("the card's state writes are " + J(got));
+    const guard = parent.get(card).left.name;
+    if (guard !== "seqShow") bad5.push("the card renders under " + guard + ", want seqShow");
+    const where = { apply: [], other: [] }, init = {};
+    deep(card.callee, n => n.type === "Identifier" && (n.name === "apply" || n.name === "other")).forEach(n => {
+      const p = parent.get(n);
+      if (p && p.type === "VariableDeclarator" && p.id === n) { init[n.name] = p.init ? textOf(p.init) : ""; return; }
+      if (p && ((p.type === "MemberExpression" && p.property === n && !p.computed) || (p.type === "ObjectProperty" && p.key === n && !p.computed && !p.shorthand))) return;
+      where[n.name].push(p && p.type === "ConditionalExpression" && p.consequent === n ? textOf(p.test) : "unconditional (" + (p ? p.type : "?") + ")");
+    });
+    if (J(where.apply) !== J(["seqPlan.main.applies", "seqPlan.main.applies"])) bad5.push("Apply shown under " + J(where.apply));
+    if (J(where.other) !== J(["seqPlan.alt.applies"])) bad5.push("Use this order shown under " + J(where.other));
+    if (!(init.apply || "").includes('caseApplyOrder(procs, seqR, "main")') || !(init.other || "").includes('caseApplyOrder(procs, seqR, "alt")')) bad5.push("apply is not the \"main\" order's button, or other the \"alt\" one's");
+  }
+  // C6.
+  if (logFn) {
+    if (lsrc.split('const [seqKept, setSeqKept] = useState(function() { return dr && typeof dr.seqKept === "string" ? dr.seqKept : ""; });').length !== 2) bad6.push("seqKept is not read back from the draft (dr.seqKept) in ONE useState");
+    let draftOk = false, depsOk = false, resetOk = false;
+    walk(logFn, n => {
+      if (n.type === "CallExpression" && isId(n.callee, "useEffect") && n.arguments.length === 2 && /logDraft\.current = empty \? null :/.test(textOf(n.arguments[0]))) {
+        draftOk = /[{,] seqKept: seqKept \}/.test(textOf(n.arguments[0]));
+        depsOk = n.arguments[1].type === "ArrayExpression" && n.arguments[1].elements.some(e => isId(e, "seqKept"));
+      }
+      if (n.type === "CallExpression" && isId(n.callee, "setTimeout") && /resetTimer\.current = null;/.test(textOf(n)) && /setSeqKept\(""\)/.test(textOf(n))) resetOk = true;
+    });
+    if (!draftOk) bad6.push("the draft does not park seqKept");
+    if (!depsOk) bad6.push("the draft's effect does not re-run on seqKept");
+    if (!resetOk) bad6.push("the post-save reset does not clear seqKept");
+  }
+  check("Log card C3: the card's state runs by value - LogProc's canSave, callSites, encPreview, pvAll, ncNow and seq* declarations, lifted out of log.js, give the case as the typed rows then the saved cases of the same date and exactly the same initials; no card or hint in the post-save window; Keep as is until a code or modifier changes (a saved case's too) or initials bring a saved case in; no card for nothing to say, no hint for warnings only, no Apply for an order that would change a saved case; a no-credit encounter's Case total counts its saved no-credit cases, a credited one its credited cases",
+    bad3.length === 0, bad3.join(" || "));
+  check("Log card C4: inside the card's own function the only state writes are its three taps - setProcs(next) twice and setSeqKept(seqSig) once, each in an onClick",
+    bad4.length === 0, bad4.join("; "));
+  check("Log card C5: the card renders under seqShow; Apply (the \"main\" order) only where seqPlan.main.applies, Use this order (the \"alt\" order) only where seqPlan.alt.applies",
+    bad5.length === 0, bad5.join("; "));
+  check("Log card C6: Keep as is is read back from the draft, parked in it (and in its effect's deps), and cleared by the post-save reset",
+    bad6.length === 0, bad6.join("; "));
+}
+
 if (sb) {
   const ymdOf = d => d.getFullYear() + "-" + String(d.getMonth() + 1).padStart(2, "0") + "-" + String(d.getDate()).padStart(2, "0");
   const holidaysIn = y => { const out = []; for (let d = new Date(y, 0, 1); d.getFullYear() === y; d.setDate(d.getDate() + 1)) { if (sb.payHolidayName(ymdOf(d))) out.push(ymdOf(d)); } return out; };
@@ -3818,9 +4078,12 @@ if (sb) {
       const lo = tw[0][7] < tw[1][7] ? tw[0] : tw[1], hi = lo === tw[0] ? tw[1] : tw[0];
       want("a tie in work RVU where neither line carries -51 goes to the higher facility total, with no second order", P([ln(lo[0]), ln(hi[0])]), { prop: "-51 | ", lead: "1", alt: "none", notes: "" });
       want("...in either order", P([ln(hi[0]), ln(lo[0])]), { prop: " | -51", lead: "0", alt: "none", notes: "" });
+      // notes moved in Batch 2 (were ""): the facility total names the line
+      // with -51 and that order is not offered (a tie in work RVU), so the
+      // measures-not-offered note says so - no order is passed over in silence.
       want("...but a pair entered in order is left alone: in a tie the line without -51 leads, whatever the facility totals", P([ln(lo[0]), ln(hi[0], ["-51"])]),
-        { prop: " | -51", flags: " | ", notes: "", lead: "0", alt: "none", changed: false, settled: true });
-      want("...in either order", P([ln(hi[0], ["-51"]), ln(lo[0])]), { prop: "-51 | ", flags: " | ", notes: "", lead: "1", alt: "none", changed: false, settled: true });
+        { prop: " | -51", flags: " | ", notes: "measures-not-offered", lead: "0", alt: "none", changed: false, settled: true });
+      want("...in either order", P([ln(hi[0], ["-51"]), ln(lo[0])]), { prop: "-51 | ", flags: " | ", notes: "measures-not-offered", lead: "1", alt: "none", changed: false, settled: true });
       want("...and when both tied lines carry -51 the facility total picks the one that loses it", P([ln(lo[0], ["-51"], 5), ln(hi[0], ["-51"], 5), ln(lo[0], [], 1)]),
         { prop: "-51 |  | -51", flags: " | 51-on-lead | ", lead: "1", alt: "none", notes: "" });
       const aLeads = Math.round(ft[0][7] * 15000) > Math.round(ft[1][7] * 10000);
@@ -3858,17 +4121,22 @@ if (sb) {
     want("settled says only that no tap is offered: of two flags on a settled case, the 51-on-lead is the other order's and the family leader's stands", P([ln("49618", ["-51"]), ln("44120"), ln("45385", ["-79", "-51"]), ln("45380", ["-79"]), ln("46221", ["-79"])]),
       { prop: " | -51 | -79 -51 | -79 | -79", flags: "51-on-lead |  | 51-on-family-lead |  | ", notes: "measures-disagree+endoscopy-family+family-lead", lead: "02", altLead: "12", altChanged: false, settled: true });
     if (!(sb.endoFamily("46221") === "" && W("45385") > W("46221") && W("45385") > W("45380"))) bad.push("fixture: 45385 no longer leads 45380 and 46221, or 46221 is now an endoscopy code");
-    want("no second order when the WORK leader is a family line (it could not take -51)", P([ln("45385"), ln("45380"), ln("46505")]), { prop: " |  | -51", lead: "0", notes: "endoscopy-family", alt: "none" });
+    // Notes moved in Batch 2 (were "endoscopy-family" only) here, in "...but
+    // not when that family line carries -51" and in "no second order when a
+    // family line has the leader's work RVU": the facility total names
+    // another leader and that order is not offered, so a
+    // measures-not-offered note says so.
+    want("no second order when the WORK leader is a family line (it could not take -51)", P([ln("45385"), ln("45380"), ln("46505")]), { prop: " |  | -51", lead: "0", notes: "endoscopy-family+measures-not-offered", alt: "none" });
     want("the second order IS offered when only the facility leader is a family line and it is plain: a case entered that way is settled", P([ln("44392"), ln("44389"), ln("45380", ["-51"])]),
       { prop: " |  | ", flags: " |  | 51-on-lead", notes: "endoscopy-family+measures-disagree", lead: "2", alt: " |  | -51", altLead: "0", changed: true, altChanged: false, settled: true });
     want("...the same case with nothing entered: both orders, each with one -51 or none", P([ln("44392"), ln("44389"), ln("45380")]),
       { prop: " |  | ", notes: "endoscopy-family+measures-disagree", lead: "2", alt: " |  | -51", altLead: "0", changed: false, altChanged: true, settled: true });
     want("...but not when that family line carries -51 (a family line is never changed)", P([ln("44392", ["-51"]), ln("44389"), ln("45380")]),
-      { prop: "-51 |  | ", flags: " |  | ", notes: "endoscopy-family", lead: "2", alt: "none", changed: false, settled: true });
+      { prop: "-51 |  | ", flags: " |  | ", notes: "endoscopy-family+measures-not-offered", lead: "2", alt: "none", changed: false, settled: true });
     if (!(W("45380") > W("44392") && W("44392") > W("44389") && pol("44392").facTotal > pol("45380").facTotal && sb.endoFamily("44392") !== "" && sb.endoFamily("44392") === sb.endoFamily("44389") && sb.endoFamily("45380") !== sb.endoFamily("44392")))
       bad.push("fixture: 44392 / 44389 / 45380 no longer show a family whose top line leads by facility total only");
     want("no second order when a family line has the leader's work RVU (it would lead as soon as the leader took -51)", P([ln("47562", [], 5), ln("45385", [], 5), ln("45380", [], 2), ln("19301", [], 4)]),
-      { prop: " |  |  | -51", lead: "0", notes: "endoscopy-family", alt: "none" });
+      { prop: " |  |  | -51", lead: "0", notes: "endoscopy-family+measures-not-offered", alt: "none" });
     want("...and with that line a little lower the second order is back", P([ln("47562", [], 5), ln("45385", [], 4.9), ln("45380", [], 2), ln("19301", [], 4)]),
       { prop: " |  |  | -51", lead: "0", notes: "endoscopy-family+measures-disagree", alt: "-51 |  |  | ", altLead: "3" });
     if (!(pol("19301").facTotal > pol("47562").facTotal && pol("47562").facTotal > pol("45385").facTotal)) bad.push("fixture: the facility totals of 19301, 47562 and 45385 are no longer in that order");
@@ -4017,16 +4285,24 @@ if (sb) {
     ];
     const wrongText = texts.filter(t => t[0] !== t[1]);
     const twoGroups = P([ln("47562", ["-51"]), ln("44970", ["-51"]), ln("44140", ["-80", "-51"]), ln("44120", ["-80", "-51"])]);
+    // sameTwice moved in Batch 2 (was ONE note): the two groups' all-51 notes
+    // now name their group, so they are two different texts. The dedupe of a
+    // note printed twice (kind and text both equal) is held by sameFam
+    // instead: one endoscopy family in two groups gives the same note once.
     const sameTwice = P([ln("47562", ["-51"]), ln("47562", ["-80", "-51"])]);
+    const sameFam = P([ln("45380"), ln("45385"), ln("45380", ["-80"]), ln("45385", ["-80"])]);
     check("proposeCaseModifiers: every flag and note text, word for word - one per indicator value that reaches it (bilateral 0/2/3/9, assistant 0/1, co-surgeon 0/9, the four never -51 reasons, the leader with and without -50 and in a family, unknown, non-text and repeated modifiers, -80 with -82, no CMS data, an add-on by its global period, the lists with 'and more', all-51, not-sequenced, the family notes, the lines left as entered, the two measures with -50) - a note names its codes, and the same note is never printed twice",
-      wrongText.length === 0 && twoGroups.notes.length === 2 && twoGroups.notes[0].text !== twoGroups.notes[1].text && sameTwice.notes.length === 1,
-      wrongText.map(t => "got: " + t[0] + " | want: " + t[1]).join(" || ") + " " + J(twoGroups.notes) + " " + J(sameTwice.notes));
+      wrongText.length === 0 && twoGroups.notes.length === 2 && twoGroups.notes[0].text !== twoGroups.notes[1].text && sameTwice.notes.length === 2 && sameTwice.notes[0].text !== sameTwice.notes[1].text &&
+        noteKinds(sameFam) === "endoscopy-family",
+      wrongText.map(t => "got: " + t[0] + " | want: " + t[1]).join(" || ") + " " + J(twoGroups.notes) + " " + J(sameTwice.notes) + " " + J(sameFam.notes));
 
     // Shape, purity and odd input.
     const inp = [ln("49618", ["-51"]), ln("44120", []), ln("44121", ["-51"])], inpJ = J(inp);
     const r0 = P(inp), r1 = P(inp);
+    // alt lines gained `followed` in Batch 2 (was "proposed,after,changed,lead"):
+    // whether the line's group follows the other order (Log's card reads it).
     const shapeOk = Object.keys(r0).join() === "lines,totalBefore,totalAfter,changed,notes,alt,settled" && r0.settled === false && r0.lines.every(l => Object.keys(l).join() === "code,modifiers,proposed,before,after,changed,lead,flags") &&
-      !!r0.alt && Object.keys(r0.alt).join() === "lines,totalAfter,changed" && r0.alt.lines.every(l => Object.keys(l).join() === "proposed,after,changed,lead") &&
+      !!r0.alt && Object.keys(r0.alt).join() === "lines,totalAfter,changed" && r0.alt.lines.every(l => Object.keys(l).join() === "proposed,after,changed,lead,followed" && typeof l.followed === "boolean") &&
       r0.lines.every(l => l.flags.every(f => Object.keys(f).join() === "kind,text" && typeof f.text === "string" && !/[^\x20-\x7e]/.test(f.text))) && r0.notes.every(n => Object.keys(n).join() === "kind,text" && !/[^\x20-\x7e]/.test(n.text));
     const rSame = P([ln("47562"), ln("44970", ["-51"])]);
     const pure = J(inp) === inpJ && J(r0) === J(r1) && !!r0.alt && rSame.changed === false && rSame.lines.every(l => l.proposed !== l.modifiers) && r0.lines.every((l, i) => l.modifiers !== inp[i].modifiers && l.proposed !== inp[i].modifiers && l.modifiers !== l.proposed && r0.alt.lines[i].proposed !== l.proposed && r0.alt.lines[i].proposed !== inp[i].modifiers) &&
@@ -4037,7 +4313,254 @@ if (sb) {
     const oddBad = odd.filter(x => { try { const r = P(x); return !(r && Array.isArray(r.lines) && r.lines.length === (Array.isArray(x) ? x.length : 0) && typeof r.totalBefore === "number" && !isNaN(r.totalBefore) && !isNaN(r.totalAfter)); } catch (e) { return true; } });
     check("proposeCaseModifiers: fixed result shape, ASCII texts, input untouched and never shared, no list shared inside the result either, the same answer twice, totals are the lines' sums priced by calcAdj; odd input (not a list, empty lines, non-string codes and modifiers, inherited names, values whose own toString is not a function) gives a result and never throws",
       shapeOk && pure && oddBad.length === 0, J({ shapeOk: shapeOk, pure: pure, odd: oddBad.map(x => J(x)) }));
+
+    // Batch 2, for Log's card: the second order survives Apply (3F4), the
+    // `followed` mark, a note where the other order is not offered, and texts
+    // that name their group. Each expected text is written from the wording
+    // rule; the fixtures guard the CY2026 figures the cases need.
+    const bad4 = bad.length;
+    const NN = (r, kind) => r.notes.filter(x => x.kind === kind).map(x => x.text).join(" || ");
+    const fol = r => r.alt ? J(r.alt.lines.map(l => l.followed)) : "none";
+    if (!(W("29822") === W("65780") && pol("29822").facTotal === pol("65780").facTotal && sb.endoFamily("29822") !== "" && sb.endoFamily("29822") === sb.endoFamily("29805") && sb.endoFamily("65780") === "" &&
+      W("11004") > W("29822") && pol("11004").facTotal < pol("65780").facTotal && W("29805") < W("29822") && pol("29805").facTotal < pol("29822").facTotal))
+      bad.push("fixture: 11004 / 29822 / 29805 / 65780 no longer make the 3F4 case (a family line with -51 tied on both ranks with an outside line, below a higher outside code)");
+    // 3F4: between two lines tied on both ranks, one of the family pair with
+    // -51 and one outside it, the facility leader is the outside one, so
+    // applying the main proposal (65780 takes -51) leaves the second order in
+    // place, whichever line comes first.
+    [[ln("11004"), ln("29822", ["-51"]), ln("29805", ["-51"]), ln("65780")], [ln("11004"), ln("65780"), ln("29822", ["-51"]), ln("29805", ["-51"])]].forEach(c => {
+      const at = String(c.findIndex(l => l.code === "65780"));
+      const r = P(c), r2 = P(c.map((l, i) => ({ code: l.code, modifiers: r.lines[i].proposed.slice(), baseRVU: l.baseRVU })));
+      if (!(r.alt && altLeads(r) === at && r2.alt && altLeads(r2) === at && r2.changed === false && r2.settled === true && r2.alt.changed === true && leads(r2) === "0"))
+        bad.push("3F4 with 65780 on line " + at + ": the second order (65780 leads) must be there before and after Apply -> " + show(r) + " then " + show(r2));
+    });
+    // ...and only there: every other full tie is decided as before Batch 2.
+    // Entered with the family line plain and the outside one at -51, the
+    // facility order is the case as entered (29822 leads) and it is settled.
+    const rD = P([ln("15778", ["-51"]), ln("29822"), ln("29805"), ln("65780", ["-51"])]);
+    if (!(W("15778") > W("29822") && pol("15778").facTotal < pol("29822").facTotal && rD.alt && altLeads(rD) === "1" && rD.alt.changed === false && rD.settled === true && leads(rD) === "0"))
+      bad.push("a full tie beside a family pair outside the 3F4 corner: the other order is the case as entered (29822 leads), settled -> " + show(rD));
+    // followed: every line of a group the other order flips whose ranked
+    // lines are as that order has them - family lines and add-ons included,
+    // whatever settled says; other groups never.
+    if (!(fol(P([ln("49618", ["-51"]), ln("44120"), ln("44121", ["-51"])])) === "[true,true,true]" && P([ln("49618", ["-51"]), ln("44120"), ln("44121", ["-51"])]).settled === false)) bad.push("followed: a group entered in the other order, while settled is false (an add-on keeps a -51) -> " + fol(P([ln("49618", ["-51"]), ln("44120"), ln("44121", ["-51"])])));
+    if (fol(P([ln("49618", ["-51"]), ln("44120"), ln("47562", ["-80"]), ln("44970", ["-80"])])) !== "[true,true,false,false]") bad.push("followed: only the group the other order flips is marked");
+    if (fol(P([ln("49618"), ln("44120", ["-51"]), ln("44121")])) !== "[false,false,false]") bad.push("followed: a group entered as the proposal has it is not marked");
+    if (fol(P([ln("49618"), ln("44120", ["-51"]), ln("19301", ["-80"]), ln("47562", ["-80", "-51"])])) !== "[false,false,true,true]") bad.push("followed: two groups following different orders are marked group by group");
+    if (fol(P([ln("49618", ["-51"]), ln("44120"), ln("45385"), ln("45380")])) !== "[true,true,true,true]") bad.push("followed: the family lines of a group that follows the other order are marked too");
+    // measures-not-offered: one per reason, then the two places it stays quiet.
+    const twLo = tw ? (tw[0][7] < tw[1][7] ? tw[0] : tw[1]) : null, twHi = tw ? (twLo === tw[0] ? tw[1] : tw[0]) : null;
+    const notOfferedTexts = [
+      [twLo ? NN(P([ln(twLo[0]), ln(twHi[0], ["-51"])]), "measures-not-offered") : "(no tie in the data)", twLo ? "By work RVU " + twLo[0] + " leads; by CMS's facility total " + twHi[0] + " would lead, but that order is not offered: the two have the same work RVU and " + twHi[0] + " carries -51" : "?"],
+      [NN(P([ln("45385"), ln("45380"), ln("46505")]), "measures-not-offered"), "By work RVU 45385 leads; by CMS's facility total 46505 would lead, but that order is not offered: 45385 is in an endoscopy family, so it is left as entered"],
+      [NN(P([ln("47562", [], 5), ln("45385", [], 5), ln("45380", [], 2), ln("19301", [], 4)]), "measures-not-offered"), "By work RVU 47562 leads; by CMS's facility total 19301 would lead, but that order is not offered: 45385 is in an endoscopy family and has the same work RVU as 47562"],
+      [NN(P([ln("44392", ["-51"]), ln("44389"), ln("45380")]), "measures-not-offered"), "By work RVU 45380 leads; by CMS's facility total 44392 would lead, but that order is not offered: 44392 is in an endoscopy family and carries -51, so it is left as entered"],
+      [NN(P([ln("46505"), ln("45385", ["-51"]), ln("45380", ["-51"])]), "measures-not-offered"), "By work RVU 45385 leads; by CMS's facility total 46505 would lead, but that order is not offered: 45385 carries -51 and is in an endoscopy family, so it is left as entered"],
+      [NN(P([ln("45385"), ln("45380"), ln("46505"), ln("47562", ["-80"]), ln("44970", ["-80"])]), "measures-not-offered"), "By work RVU 45385 leads among your own lines; by CMS's facility total 46505 would lead, but that order is not offered: 45385 is in an endoscopy family, so it is left as entered"],
+      [NN(P([ln("29827"), ln("29806"), ln("21385", ["-50"])]), "measures-not-offered"), "By work RVU 29827 leads; by CMS's facility total 21385 (with -50, counted 1.5 times) would lead, but that order is not offered: 29827 is in an endoscopy family, so it is left as entered"],
+    ];
+    if (!(pol("46505").facTotal > pol("45380").facTotal && pol("44392").facTotal > pol("44389").facTotal && pol("19301").facTotal > pol("45380").facTotal && W("45385") > W("45380") && W("45380") > W("46505"))) bad.push("fixture: the scope cases no longer have the facility totals and work RVUs the not-offered notes need");
+    want("the family leader with -51: flagged, nothing proposed, and the facility leader named in a note of its own", P([ln("46505"), ln("45385", ["-51"]), ln("45380", ["-51"])]),
+      { prop: " | -51 | -51", flags: " | 51-on-family-lead | ", notes: "endoscopy-family+family-lead+measures-not-offered", lead: "1", alt: "none", changed: false, settled: true });
+    want("no such note between two lines of one family (both orders leave them as entered)", P([ln("46601"), ln("46612")]), { notes: "endoscopy-family", alt: "none" });
+    want("...nor between two lines tied on both ranks", P([ln("47562", ["-51"]), ln("47562")]), { notes: "", alt: "none" });
+    want("...also where the tie on both ranks is between a family line and an outside line, both with -51 (the facility order alone would pick the outside one)", P([ln("29822", ["-51"]), ln("29805"), ln("65780", ["-51"])]),
+      { notes: "endoscopy-family+family-lead", alt: "none" });
+    want("...also where the two orders pick different lines of the tie: the work order the plain family line, the facility order the outside one (the facility total names no other leader)", P([ln("29822"), ln("29805"), ln("65780", ["-51"])]),
+      { prop: " |  | -51", notes: "endoscopy-family", lead: "0", alt: "none", changed: false });
+    // Group names: with two or more groups holding ranked lines every text
+    // names its group, and a leader's flag says it LEADS there; one group
+    // keeps "here" (the pinned texts above), also beside a group that holds
+    // no ranked line.
+    const groupTexts = [
+      [T(P([ln("44140"), ln("47562", ["-80", "-51"]), ln("49505", ["-80"])]), 1, "51-on-lead"), "47562 leads among the lines where you assisted, so it should not carry -51"],
+      [T(P([ln("44140"), ln("49505", ["-80", "-50", "-51"]), ln("47562", ["-80"])]), 1, "51-on-lead"), "49505 leads among the lines where you assisted (with -50 its work RVU counts 1.5 times), so it should not carry -51"],
+      [T(P([ln("47562"), ln("47562", ["-62", "-51"]), ln("44970", ["-62"])]), 1, "51-on-lead"), "47562 leads among the co-surgeon lines, so it should not carry -51"],
+      [T(P([ln("45378"), ln("45380", ["-51"]), ln("47562", ["-80"]), ln("44970", ["-80"])]), 1, "51-on-family-lead"), "45380 leads among your own lines, so it should not carry -51 (it is in an endoscopy family, so it is left as entered)"],
+      [T(P([ln("47562", ["-51"]), ln("44970"), ln("47562", ["-79", "-51"]), ln("44970", ["-79"])]), 0, "51-on-lead"), "47562 leads among your own lines that carry no -79, so it should not carry -51"],
+      [T(P([ln("47562", ["-51"]), ln("44970"), ln("47562", ["-79", "-51"]), ln("44970", ["-79"])]), 2, "51-on-lead"), "47562 leads among your own -79 lines, so it should not carry -51"],
+      [T(P([ln("44140"), ln("47562", ["-80", "-51"]), ln("44970", ["-80"]), ln("47562", ["-80", "-79", "-51"]), ln("44970", ["-80", "-79"])]), 1, "51-on-lead"), "47562 leads among the lines where you assisted that carry no -79, so it should not carry -51"],
+      [T(P([ln("44140"), ln("47562", ["-80", "-51"]), ln("44970", ["-80"]), ln("47562", ["-80", "-79", "-51"]), ln("44970", ["-80", "-79"])]), 3, "51-on-lead"), "47562 leads among the -79 lines where you assisted, so it should not carry -51"],
+      [T(P([ln("47562", ["-62", "-51"]), ln("44970", ["-62"]), ln("47562", ["-62", "-79", "-51"]), ln("44970", ["-62", "-79"])]), 0, "51-on-lead"), "47562 leads among the co-surgeon lines that carry no -79, so it should not carry -51"],
+      [T(P([ln("47562", ["-62", "-51"]), ln("44970", ["-62"]), ln("47562", ["-62", "-79", "-51"]), ln("44970", ["-62", "-79"])]), 2, "51-on-lead"), "47562 leads among the -79 co-surgeon lines, so it should not carry -51"],
+      [T(P([ln("47562", ["-51"]), ln("44970"), ln("47562", ["-80", "-79", "-51"]), ln("44970", ["-80", "-79"])]), 0, "51-on-lead"), "47562 leads among your own lines, so it should not carry -51"],
+      [NN(P([ln("47562", ["-51"]), ln("47562", ["-80", "-51"])]), "all-51"), "47562 carries -51 and no other procedure among your own lines can lead: the leading procedure may be logged elsewhere, so its -51 is left as entered || 47562 carries -51 and no other procedure among the lines where you assisted can lead: the leading procedure may be logged elsewhere, so its -51 is left as entered"],
+      [NN(P([ln("47562", ["-51"]), ln("44970", ["-51"]), ln("44140", ["-80", "-51"]), ln("44120", ["-80", "-51"])]), "all-51"), "47562, 44970 all carry -51 among your own lines: the leading procedure may be logged elsewhere, so they are left as entered || 44140, 44120 all carry -51 among the lines where you assisted: the leading procedure may be logged elsewhere, so they are left as entered"],
+      [NN(P([ln("47562"), ln("ZZZZZ", [], 30), ln("47562", ["-80"]), ln("44970", ["-80"])]), "not-sequenced"), "ZZZZZ has no CMS data and may be the leading procedure, so no -51 is proposed among your own lines"],
+      [NN(P([ln("43239"), ln("45385", ["-51"]), ln("45380", ["-51"]), ln("47562", ["-80"]), ln("44970", ["-80"])]), "family-lead"), "The leading procedure 45385 carries -51 and is in an endoscopy family, so no -51 is proposed for the other procedures among your own lines"],
+      [NN(P([ln("49618"), ln("44120"), ln("47562", ["-80"]), ln("44970", ["-80"])]), "measures-disagree"), "By work RVU 49618 leads among your own lines; by CMS's facility total 44120 would lead"],
+      [NN(P([ln("49618"), ln("44120"), ln("47562", ["-79"]), ln("44970", ["-79"])]), "measures-disagree"), "By work RVU 49618 leads among your own lines that carry no -79; by CMS's facility total 44120 would lead"],
+      [T(P([ln("49618", ["-51"]), ln("44120"), ln("44121", ["-80"])]), 0, "51-on-lead"), "49618 has the highest work RVU here, so it leads and should not carry -51"],
+      [T(P([ln("47562", ["-51"]), ln("44970"), ln("ZZZZZ", ["-80"], 30)]), 0, "51-on-lead"), "47562 has the highest work RVU here, so it leads and should not carry -51"],
+    ];
+    if (!(W("49505") * 1.5 > W("47562") && pol("49505").bilat === "1" && pol("49505").facTotal * 1.5 > pol("47562").facTotal && W("47562") > W("49505") && pol("47562").facTotal > pol("49505").facTotal && W("47562") > W("44970") && W("44140") > W("44120") && W("45380") > W("45378")))
+      bad.push("fixture: the group-text cases no longer have the leaders they name (49505 x1.5 over 47562, 47562 over 49505 and 44970, 44140 over 44120, 45380 over 45378)");
+    const wrong4 = notOfferedTexts.concat(groupTexts).filter(t => t[0] !== t[1]);
+    check("proposeCaseModifiers (Batch 2, Log's card): the second order survives Apply between lines tied on both ranks beside a family pair, in both line orders (3F4); alt.lines[i].followed marks the lines of each group that follows the other order; a measures-not-offered note, word for word, for each reason the other order is not offered and none between family lines or in a full tie; every text names its group once two groups hold ranked lines, and keeps 'here' with one",
+      bad.length === bad4 && wrong4.length === 0, bad.slice(bad4).join(" || ") + " " + wrong4.map(t => "got: " + t[0] + " | want: " + t[1]).join(" || "));
+
+    // The card's helpers (utils.js), by value. Made-up cases; the figures are
+    // the database wRVUs (W) and the -51 / -22 factors of the table.
+    const hb = [];
+    const dbMap = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", sb), ovMap = vm.runInContext('buildCPTMap(getDB({ "47562": 12.5 }))', sb);
+    // caseLinesFromRows: the map's wRVU (an override here), a row save()
+    // skips is a line without a code, modifiers copied, rows untouched.
+    const rowsA = [{ id: 1, code: "47562", search: "47562 - x", mods: ["-22"] }, { id: 2, code: "44970", search: "", mods: [] }, { id: 3, code: null, search: "", mods: ["-51"] }, { id: 4, code: "ZZZZZ", search: "", mods: [] }, { id: 5, code: "constructor", search: "", mods: [] }];
+    const rowsAJ = J(rowsA), lsA = sb.caseLinesFromRows(rowsA, ovMap), rA = P(lsA);
+    if (!(J(lsA) === J([{ code: "47562", modifiers: ["-22"], baseRVU: 12.5 }, { code: "44970", modifiers: [], baseRVU: W("44970") }, { code: "", modifiers: ["-51"], baseRVU: 0 }, { code: "", modifiers: [], baseRVU: 0 }, { code: "", modifiers: [], baseRVU: 0 }]) &&
+      lsA[0].modifiers !== rowsA[0].mods && J(rowsA) === rowsAJ && J(sb.caseLinesFromRows(null, ovMap)) === "[]" && J(sb.caseLinesFromRows([{ id: 1, code: "47562", mods: ["-51"] }], null)) === J([{ code: "", modifiers: ["-51"], baseRVU: 0 }]) &&
+      rA.lines[0].before === sb.calcAdj(12.5, ["-22"]) && rA.lines[1].after === sb.calcAdj(ovMap["44970"].wRVU, ["-51"]) && near(rA.lines[1].after, W("44970") / 2)))
+      hb.push("caseLinesFromRows -> " + J(lsA) + " " + show(rA));
+    // caseSavedMates: the same date and exactly the same non-empty initials.
+    const ents = [
+      { id: "a", date: "2026-11-02", cptCode: "44970", modifiers: ["-51"], baseRVU: 9.21, adjustedRVU: 4.605, encounterId: "AB" },
+      { id: "b", date: "2026-11-02", cptCode: "47562", modifiers: [], baseRVU: 10.21, adjustedRVU: 10.21, encounterId: "ab" },
+      { id: "c", date: "2026-11-02", cptCode: "47562", modifiers: [], baseRVU: 10.21, adjustedRVU: 10.21, encounterId: "AB " },
+      { id: "d", date: "2026-11-03", cptCode: "47562", modifiers: [], baseRVU: 10.21, adjustedRVU: 10.21, encounterId: "AB" },
+      { id: "e", date: "2026-11-02", cptCode: "47562", modifiers: [], baseRVU: 10.21, adjustedRVU: 10.21 },
+      { id: "f", date: "2026-11-02", cptCode: "44140", modifiers: ["-22"], baseRVU: 22.03, adjustedRVU: 26.436, encounterId: "AB", noCredit: true },
+      { id: "g", date: "2026-11-02", cptCode: "47562", modifiers: [], baseRVU: 10.21, adjustedRVU: 10.21, encounterId: "" },
+      null, "x"];
+    const entsJ = J(ents), mates2 = sb.caseSavedMates(ents, "2026-11-02", "AB");
+    if (!(J(mates2) === J([{ id: "a", code: "44970", modifiers: ["-51"], baseRVU: 9.21, stored: 4.605, credited: 4.605, uncredited: 0 }, { id: "f", code: "44140", modifiers: ["-22"], baseRVU: 22.03, stored: 26.436, credited: 0, uncredited: 26.436 }]) &&
+      mates2[0].modifiers !== ents[0].modifiers && J(ents) === entsJ && J(sb.caseSavedMates(ents, "2026-11-02", "ab").map(m => m.id)) === '["b"]' && J(sb.caseSavedMates(ents, "2026-11-02", "AB ").map(m => m.id)) === '["c"]' &&
+      J(sb.caseSavedMates(ents, "2026-11-02", "")) === "[]" && J(sb.caseSavedMates(ents, "2026-11-02", undefined)) === "[]" && J(sb.caseSavedMates(ents, "2026-11-04", "AB")) === "[]" && J(sb.caseSavedMates(null, "2026-11-02", "AB")) === "[]"))
+      hb.push("caseSavedMates -> " + J(mates2));
+    // caseCardPlan: every state of the card.
+    const planOf = p => ({ show: p.show, needsTap: p.needsTap, settled: p.settled, main: p.main, alt: p.alt, flags: p.flags.map(f => f.line + ":" + f.kind), notes: p.notes.map(n => n.kind), leads: p.leads.map(x => x ? "1" : "0").join("") });
+    const wantPlan = (label, p, o) => { const got = planOf(p), why = Object.keys(o).filter(k => J(got[k]) !== J(o[k])).map(k => k + " " + J(got[k])); if (why.length) hb.push("caseCardPlan, " + label + " -> " + why.join(", ")); };
+    const PL = lines => sb.caseCardPlan(P(lines), lines.length);
+    const none = { applies: false, savedLines: [] }, apply = { applies: true, savedLines: [] };
+    wantPlan("nothing to say", PL([ln("47562"), ln("44970", ["-51"])]), { show: "nothing", needsTap: false, settled: true, main: none, alt: null, flags: [], notes: [], leads: "10" });
+    wantPlan("a note that does not open the card (one endoscopy family)", PL([ln("45380"), ln("45385")]), { show: "nothing", flags: [], notes: [] });
+    wantPlan("...nor does a line left as entered", PL([ln("47562"), ln("44970", ["-78"])]), { show: "nothing", notes: [] });
+    wantPlan("a note that opens it: every ranked line carries -51", PL([ln("47562", ["-51"])]), { show: "flags", needsTap: false, settled: true, main: none, alt: null, flags: [], notes: ["all-51"] });
+    wantPlan("...and the other order not offered, with the notes that come with it", PL([ln("44392", ["-51"]), ln("44389"), ln("45380")]), { show: "flags", needsTap: false, flags: [], notes: ["endoscopy-family", "measures-not-offered"] });
+    wantPlan("flags only: an add-on without its primary", PL([ln("44227"), ln("44213")]), { show: "flags", needsTap: false, settled: true, main: none, alt: null, flags: ["1:add-on-primary"], notes: [] });
+    wantPlan("a -51 to add", PL([ln("47562"), ln("44970")]), { show: "proposal", needsTap: true, settled: false, main: apply, alt: null, flags: [], leads: "10" });
+    wantPlan("a -51 to add, with a flag", PL([ln("15734", ["-50"]), ln("49618")]), { show: "proposal", needsTap: true, main: apply, flags: ["0:bilateral"] });
+    wantPlan("both orders, the case as the proposal has it: the other one offered", PL([ln("49618"), ln("44120", ["-51"]), ln("44121")]), { show: "both", needsTap: false, settled: true, main: none, alt: apply, flags: [], notes: ["measures-disagree"], leads: "100" });
+    wantPlan("...and with an error flag", PL([ln("49618"), ln("44120", ["-51"]), ln("44213")]), { show: "both", needsTap: false, settled: true, main: none, alt: apply, flags: ["2:add-on-primary"], leads: "100" });
+    wantPlan("both orders, the case as the other order has it: its 51-on-lead flag is that order's, not an error", PL([ln("49618", ["-51"]), ln("44120")]), { show: "both", needsTap: false, settled: true, main: apply, alt: none, flags: [], leads: "01" });
+    wantPlan("...and with an error flag beside it", PL([ln("49618", ["-51"]), ln("44120"), ln("44213")]), { show: "both", needsTap: false, settled: true, main: apply, alt: none, flags: ["2:add-on-primary"], leads: "010" });
+    wantPlan("both orders, the groups following different orders: the leader each follows; an error flag stays", PL([ln("49618"), ln("44120", ["-51"]), ln("19301", ["-80"]), ln("47562", ["-80", "-51"])]), { show: "both", needsTap: false, settled: true, main: apply, alt: apply, flags: ["2:assistant"], leads: "1010" });
+    wantPlan("both orders, the case as neither has it", PL([ln("49618"), ln("44120"), ln("44121"), ln("44121"), ln("44121"), ln("49623")]), { show: "both", needsTap: true, settled: false, main: apply, alt: apply, flags: [], notes: ["measures-disagree"], leads: "100000" });
+    wantPlan("the other order's 51-on-lead flag is left out while settled is false too", PL([ln("49618", ["-51"]), ln("44120"), ln("44121", ["-51"])]), { show: "both", needsTap: true, settled: false, flags: ["2:51-never"], leads: "010" });
+    const sv = (id, code, mods, stored, credited) => ({ id: id, code: code, modifiers: mods, baseRVU: W(code), stored: stored, credited: credited, uncredited: stored - credited });
+    const s1 = [sv("s1", "44970", [], W("44970"), W("44970"))], rS1 = P([ln("47562")].concat(s1));
+    wantPlan("an order that would change a saved case: not applied, that case named", sb.caseCardPlan(rS1, 1), { show: "proposal", needsTap: true, settled: false, main: { applies: false, savedLines: [1] }, alt: null });
+    const s2 = [sv("s2", "47562", ["-51"], W("47562") / 2, W("47562") / 2)], rS2 = P([ln("44970")].concat(s2));
+    wantPlan("...also when the typed part alone could be applied (it would leave every line at -51)", sb.caseCardPlan(rS2, 1), { show: "proposal", needsTap: true, main: { applies: false, savedLines: [1] }, flags: ["1:51-on-lead"] });
+    const s6 = [sv("s3", "44120", [], W("44120"), W("44120")), sv("s4", "49618", ["-51"], W("49618") / 2, W("49618") / 2)], rS6 = P([ln("44121")].concat(s6));
+    wantPlan("a saved encounter in the other order and a typed add-on: neither order to apply here", sb.caseCardPlan(rS6, 1), { show: "both", needsTap: false, settled: true, main: { applies: false, savedLines: [1, 2] }, alt: none, flags: [], leads: "010" });
+    if (!(sb.caseCardPlan(null, 0).show === "nothing" && sb.caseCardPlan(null, 0).alt === null && J(sb.caseCardPlan(undefined).flags) === "[]")) hb.push("caseCardPlan of no result");
+    // caseApplyOrder: only -51 moves, other modifiers and fields stay, rows
+    // it does not change are the same objects; refused for a saved case,
+    // for nothing to change, for rows that are not the ones r was worked out
+    // from, and for an unknown order.
+    const rowsB = [{ id: 7, code: "47562", search: "a", mods: ["-51", "-22"] }, { id: 8, code: "44970", search: "b", mods: ["-59"] }, { id: 9, code: "44121", search: "c", mods: [] }, { id: 10, code: null, search: "", mods: [] }];
+    const rowsBJ = J(rowsB), rB = P(sb.caseLinesFromRows(rowsB, ovMap)), nB = sb.caseApplyOrder(rowsB, rB, "main");
+    if (!(nB && J(nB) === J([{ id: 7, code: "47562", search: "a", mods: ["-22"] }, { id: 8, code: "44970", search: "b", mods: ["-59", "-51"] }, rowsB[2], rowsB[3]]) && nB[0] !== rowsB[0] && nB[2] === rowsB[2] && nB[3] === rowsB[3] && J(rowsB) === rowsBJ &&
+      P(sb.caseLinesFromRows(nB, ovMap)).changed === false && sb.caseApplyOrder(nB, P(sb.caseLinesFromRows(nB, ovMap)), "main") === null))
+      hb.push("caseApplyOrder, main -> " + J(nB));
+    if (!(sb.caseApplyOrder(rowsB, rB, "alt") === null && sb.caseApplyOrder(rowsB, rB, "other") === null && sb.caseApplyOrder(rowsB, rB) === null && sb.caseApplyOrder(rowsB, null, "main") === null &&
+      sb.caseApplyOrder([Object.assign({}, rowsB[0], { mods: ["-22"] })].concat(rowsB.slice(1)), rB, "main") === null && sb.caseApplyOrder([rowsB[0], Object.assign({}, rowsB[1], { code: "47563" })].concat(rowsB.slice(2)), rB, "main") === null &&
+      sb.caseApplyOrder(rowsB.concat([{ id: 11, code: "47562", search: "", mods: [] }]), rB, "main") === null))
+      hb.push("caseApplyOrder applies what it must refuse (no second order, an unknown order, no result, rows changed since, more rows than lines)");
+    if (!(sb.caseApplyOrder([{ id: 1, code: "47562", search: "", mods: [] }], rS1, "main") === null && sb.caseApplyOrder([{ id: 1, code: "44970", search: "", mods: [] }], rS2, "main") === null && sb.caseApplyOrder([{ id: 1, code: "44121", search: "", mods: [] }], rS6, "main") === null && sb.caseApplyOrder([{ id: 1, code: "44121", search: "", mods: [] }], rS6, "alt") === null))
+      hb.push("caseApplyOrder applies an order that changes a saved case, or one with nothing to change");
+    // ...but applies one that changes only the typed row beside a saved case.
+    const matesA = sb.caseSavedMates([{ id: "s1", date: "2026-11-02", cptCode: "47562", modifiers: [], baseRVU: W("47562"), adjustedRVU: W("47562"), encounterId: "QX" }], "2026-11-02", "QX");
+    const rowsA1 = [{ id: 1, code: "44970", search: "", mods: [] }], appA = sb.caseApplyOrder(rowsA1, P(sb.caseLinesFromRows(rowsA1, dbMap).concat(matesA)), "main");
+    if (J(appA) !== J([{ id: 1, code: "44970", search: "", mods: ["-51"] }])) hb.push("caseApplyOrder, an order that changes only the typed row beside a saved case -> " + J(appA));
+    // caseCardPlan hands on the function's flag text, and keeps a 51-on-lead
+    // error in a group the other order does not flip.
+    const rF = P([ln("44227"), ln("44213")]), pF = sb.caseCardPlan(rF, 2);
+    if (!(pF.flags.length === 1 && pF.flags[0].text === rF.lines[1].flags[0].text && /^44213 is an add-on code/.test(pF.flags[0].text))) hb.push("caseCardPlan, the flag's text is the function's -> " + J(pF.flags));
+    const p6 = sb.caseCardPlan(P([ln("49618"), ln("44120", ["-51"]), ln("47562", ["-80", "-51"]), ln("44970", ["-80"])]), 4);
+    if (J(p6.flags.map(f => f.line + ":" + f.kind)) !== '["2:51-on-lead"]') hb.push("caseCardPlan, a 51-on-lead error in a group the other order does not flip stays -> " + J(p6.flags.map(f => f.line + ":" + f.kind)));
+    const rowsC = [{ id: 1, code: "49618", search: "", mods: [] }, { id: 2, code: "44120", search: "", mods: [] }], rC = P(sb.caseLinesFromRows(rowsC, dbMap));
+    const nCm = sb.caseApplyOrder(rowsC, rC, "main"), nCa = sb.caseApplyOrder(rowsC, rC, "alt");
+    if (!(nCm && nCa && J(nCm.map(p => p.mods)) === '[[],["-51"]]' && J(nCa.map(p => p.mods)) === '[["-51"],[]]' && (rC2 => !rC2.changed && rC2.settled && !!rC2.alt)(P(sb.caseLinesFromRows(nCm, dbMap))) && (rC3 => !!rC3.alt && !rC3.alt.changed && rC3.settled)(P(sb.caseLinesFromRows(nCa, dbMap)))))
+      hb.push("caseApplyOrder, both orders of two lines -> " + J(nCm) + " " + J(nCa));
+    // caseCardTotals: typed lines at their figures in either column; each
+    // saved case by its figure in the encounter's column (credited, or
+    // no-credit when nc is true); its stored figure shown per line.
+    const tE = (a, b) => a === null ? b === null : (b !== null && near(a, b));
+    const lineOk = (got, want) => got.length === want.length && got.every((g, i) => tE(g.before, want[i][0]) && tE(g.main, want[i][1]) && tE(g.alt, want[i][2]));
+    const rowsT = [{ id: 1, code: "47562", search: "", mods: [] }, { id: 2, code: "44970", search: "", mods: [] }], rT = P(sb.caseLinesFromRows(rowsT, dbMap));
+    const tT = sb.caseCardTotals(rT, 2, [], false), tT1 = sb.caseCardTotals(rT, 2, [], true);
+    if (!(tT && lineOk(tT.lines, [[W("47562"), W("47562"), null], [W("44970"), W("44970") / 2, null]]) && near(tT.before, W("47562") + W("44970")) && near(tT.main, W("47562") + W("44970") / 2) && tT.alt === null &&
+      J(tT1) === J(tT)))
+      hb.push("caseCardTotals, typed lines (the same in either column) -> " + J(tT) + " " + J(tT1));
+    const rowsM = [{ id: 1, code: "47562", search: "", mods: [] }], rM = P(sb.caseLinesFromRows(rowsM, dbMap).concat(mates2)), tM = sb.caseCardTotals(rM, 1, mates2, false), tM1 = sb.caseCardTotals(rM, 1, mates2, true);
+    if (!(tM && lineOk(tM.lines, [[W("47562"), W("47562") / 2, null], [4.605, 4.605, null], [26.436, 26.436, null]]) && near(tM.before, W("47562") + 4.605) && near(tM.main, W("47562") / 2 + 4.605) && tM.alt === null &&
+      tM1 && lineOk(tM1.lines, [[W("47562"), W("47562") / 2, null], [4.605, 4.605, null], [26.436, 26.436, null]]) && near(tM1.before, W("47562") + 26.436) && near(tM1.main, W("47562") / 2 + 26.436) && tM1.alt === null && rM.lines[2].before !== 26.436))
+      hb.push("caseCardTotals, with saved cases (one credited, one no-credit stored at a figure today's table would not give), each counted only in its own column -> " + J(tM) + " " + J(tM1));
+    // A no-credit encounter typed in two saves (19301 saved, then 38525
+    // typed): its total counts both; a credited one leaves the saved case out.
+    const entsN = [{ id: "n1", date: "2026-11-05", cptCode: "19301", modifiers: [], baseRVU: W("19301"), adjustedRVU: W("19301"), encounterId: "QX", noCredit: true }];
+    const matesN = sb.caseSavedMates(entsN, "2026-11-05", "QX"), rN = P(sb.caseLinesFromRows([{ id: 1, code: "38525", search: "", mods: [] }], dbMap).concat(matesN));
+    const tN = sb.caseCardTotals(rN, 1, matesN, true), tNc = sb.caseCardTotals(rN, 1, matesN, false);
+    if (!(tN && near(tN.before, W("38525") + W("19301")) && near(tN.main, W("38525") / 2 + W("19301")) && lineOk(tN.lines, [[W("38525"), W("38525") / 2, null], [W("19301"), W("19301"), null]]) &&
+      tNc && near(tNc.before, W("38525")) && near(tNc.main, W("38525") / 2)))
+      hb.push("caseCardTotals, a no-credit encounter typed in two saves -> " + J(tN) + " " + J(tNc));
+    const tS1 = sb.caseCardTotals(rS1, 1, s1, false), tS6 = sb.caseCardTotals(rS6, 1, s6, false);
+    if (!(tS1 && tS1.main === null && near(tS1.before, W("47562") + W("44970")) && lineOk(tS1.lines, [[W("47562"), W("47562"), null], [W("44970"), W("44970") / 2, null]]) &&
+      tS6 && tS6.main === null && near(tS6.alt, W("44121") + W("44120") + W("49618") / 2) && near(tS6.before, tS6.alt) && lineOk(tS6.lines, [[W("44121"), W("44121"), W("44121")], [W("44120"), W("44120") / 2, W("44120")], [W("49618") / 2, W("49618"), W("49618") / 2]])))
+      hb.push("caseCardTotals, an order that would change a saved case has no total -> " + J(tS1) + " " + J(tS6));
+    const tC = sb.caseCardTotals(rC, 2, [], false);
+    if (!(tC && near(tC.before, W("49618") + W("44120")) && near(tC.main, W("49618") + W("44120") / 2) && near(tC.alt, W("49618") / 2 + W("44120")) && lineOk(tC.lines, [[W("49618"), W("49618"), W("49618") / 2], [W("44120"), W("44120") / 2, W("44120")]]) &&
+      sb.caseCardTotals(rT, 1, [], false) === null && sb.caseCardTotals(rT, 2, [], null) === null && sb.caseCardTotals(rT, 2, [], v => v) === null && sb.caseCardTotals(null, 0, [], false) === null && sb.caseCardTotals(rM, 1, [null, null], false) === null))
+      hb.push("caseCardTotals, both orders and inputs that do not fit -> " + J(tC));
+    check("Log card helpers (utils.js): caseLinesFromRows prices rows from Log's code map (overrides included) and blanks a row save() skips; caseSavedMates takes the same date and exactly the same initials, with stored, credited and no-credit figures; caseCardPlan for every state of the card (nothing, notes that open it or not, flags only, one order, both orders followed or not, the other order's flag left out, orders that would change a saved case); caseApplyOrder moves only -51 and refuses a saved change, nothing to change, stale rows and unknown orders; caseCardTotals adds the typed lines' figures and each saved case's figure in the encounter's column (credited, or no-credit for a no-credit encounter, also one typed in two saves)",
+      hb.length === 0, hb.join(" || "));
   } catch (e) { check("proposeCaseModifiers: its tests ran to their end (a throw here hides every case after it in this group)", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
+  // "Also add?" chips (utils.js getCompanionSuggestions): an add-on code
+  // whose primaries CMS lists in full (type 1) is suggested only once one of
+  // them is in the case - typed, or in a saved case of the encounter - from
+  // the table and from the user's history alike; add-ons of type 2 and 3 and
+  // every other suggestion are as before.
+  try {
+    const cMap = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", sb), CT = sb.COMPANION_CODES;
+    const G = (code, entries, sel) => sb.getCompanionSuggestions(code, entries, cMap, sel).map(s => s.code + (s.source === "history" ? "(h)" : "")).join(",");
+    const twoDays = (a, b) => ["2026-10-05", "2026-10-06"].reduce((out, d, i) => out.concat([{ id: "h" + i + "a", date: d, cptCode: a }, { id: "h" + i + "b", date: d, cptCode: b }]), []);
+    const cb = [];
+    if (!(sb.addOnRule("38900").type === "1" && sb.addOnAllows("38900", "19301") === false && sb.addOnAllows("38900", "38525") === true && sb.addOnRule("76937").type === "2" && sb.addOnRule("49327").type === "3" &&
+      sb.addOnAllows("49327", "44120") === false && sb.addOnAllows("44121", "44120") === true && sb.addOnRule("38525") === null && sb.addOnRule("19283") === null && sb.addOnRule("47563") === null && cMap["19283"] && cMap["47563"]))
+      cb.push("fixture: the add-on rules of 38900, 76937, 49327, 44121, 38525, 19283 or 47563 are no longer the ones these cases need");
+    [["19301", [], ["19301"], "38525,19283", "38900 after 19301 alone: not offered"],
+      ["19301", [], ["19301", "38525"], "38900,19283", "...with 38525 in the case: offered"],
+      ["44120", [], [], "44121", "the code the chips are for counts as in the case: 44121 after 44120"],
+      ["36556", [], ["36556"], "76937", "an add-on CMS lists no primaries for (type 2): unchanged"],
+      ["47562", twoDays("47562", "38900"), ["47562"], "47563", "from the history: 38900 logged twice beside 47562 waits for a primary too"],
+      ["47562", twoDays("47562", "38900"), ["47562", "38525"], "47563,38900(h)", "...and is offered once 38525 is in the case"],
+      ["44120", twoDays("44120", "49327"), ["44120"], "44121,49327(h)", "an add-on with a partial list (type 3), from the history: unchanged"]
+    ].forEach(t => { const got = G(t[0], t[1], t[2]); if (got !== t[3]) cb.push(t[4] + " -> " + got + ", want " + t[3]); });
+    // The codes of the encounter's saved cases (the fifth argument) count as
+    // in the case for that rule, and are still offered themselves.
+    const GS = (code, entries, sel, saved) => sb.getCompanionSuggestions(code, entries, cMap, sel, saved).map(s => s.code + (s.source === "history" ? "(h)" : "")).join(",");
+    [["19301", [], ["19301"], ["38525"], "38900,38525,19283", "38900 after 19301 with 38525 in a saved case of the encounter: offered (and 38525 still is)"],
+      ["47562", twoDays("47562", "44121"), ["47562"], [], "47563", "a history chip of 44121 after 47562 waits for 44120"],
+      ["47562", twoDays("47562", "44121"), ["47562"], ["44120"], "47563,44121(h)", "...and is offered with 44120 saved"],
+      ["19301", [], ["19301"], "38525", "38525,19283", "saved codes that are not a list are ignored"]
+    ].forEach(t => { const got = GS(t[0], t[1], t[2], t[3]); if (got !== t[4]) cb.push(t[5] + " -> " + got + ", want " + t[4]); });
+    // Log passes them: its one call gives the card's saved cases' codes,
+    // under the card's guard (Log card C2).
+    const logChips = fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8");
+    if (!(logChips.split("getCompanionSuggestions(").length === 2 && logChips.split("getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes, seqOn ? seqMates.map(function(m) { return m.code; }) : [])").length === 2))
+      cb.push("log.js does not call getCompanionSuggestions once, as getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes, seqOn ? seqMates.map(function(m) { return m.code; }) : [])");
+    // Every key of the table alone: its list as before, less the type-1
+    // add-ons that do not list the key among their primaries.
+    Object.keys(CT).forEach(k => {
+      const want = CT[k].filter((c, i, a) => !!cMap[c.code] && c.code !== k && a.findIndex(x => x.code === c.code) === i)
+        .filter(c => { const ru = sb.addOnRule(c.code); return !(ru && ru.type === "1" && ru.tokens.length > 0 && sb.addOnAllows(c.code, k) !== true); }).map(c => c.code).join(",");
+      const got = G(k, [], [k]);
+      if (got !== want) cb.push(k + " alone -> " + got + ", want " + want);
+    });
+    check("\"Also add?\" chips: an add-on whose primaries CMS lists in full is suggested only once one of them is in the case (38900 waits after 19301 alone and comes with 38525), typed or in a saved case of the encounter (Log passes the card's saved cases' codes), from the table and from the history; add-ons with no list or a partial one, and every other suggestion of the table, are as before",
+      cb.length === 0, cb.join(" || "));
+  } catch (e) { check("\"Also add?\" chips: their tests ran to their end", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
   // CSV import never reads the exports' Credit column back into a mark - it
   // warns instead - and never takes a wRVU from the file's own adjusted
   // column: when a row will come in at another figure than the file shows,

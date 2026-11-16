@@ -529,8 +529,11 @@ var COMPANION_CODES = {
   "27880": [{ code: "27590", label: "AKA" }],
 };
 
-// Get companion suggestions combining clinical rules + user history
-function getCompanionSuggestions(code, entries, cptMap, alreadySelected) {
+// Get companion suggestions combining clinical rules + user history.
+// savedCodes: the codes of the encounter's saved cases (Log passes those of
+// the same date and exactly the same initials, as its card counts them).
+// They count as in the case for the add-on rule below and are not skipped.
+function getCompanionSuggestions(code, entries, cptMap, alreadySelected, savedCodes) {
   if (!code) return [];
   var seen = {};
   var results = [];
@@ -538,13 +541,23 @@ function getCompanionSuggestions(code, entries, cptMap, alreadySelected) {
   var skipSet = {};
   (alreadySelected || []).forEach(function(c) { skipSet[c] = true; });
   skipSet[code] = true;
+  // An add-on code whose primary codes CMS lists in full (addOnRule type
+  // "1") is suggested only once one of them is in the case - the code itself,
+  // one already selected or one of a saved case: tapped before, it would
+  // raise the card's add-on warning at once. Other add-ons (types 2 and 3)
+  // and every other code are suggested as before, from both sources.
+  var inCase = (alreadySelected || []).concat(Array.isArray(savedCodes) ? savedCodes : [], [code]);
+  var waitsForPrimary = function(c) {
+    var rule = addOnRule(c);
+    return !!rule && rule.type === "1" && rule.tokens.length > 0 && !inCase.some(function(p) { return addOnAllows(c, p) === true; });
+  };
 
   // 1. Clinical companion codes
   var clinical = COMPANION_CODES[code];
   if (clinical) {
     clinical.forEach(function(c) {
       if (skipSet[c.code] || !cptMap[c.code]) return;
-      if (seen[c.code]) return;
+      if (seen[c.code] || waitsForPrimary(c.code)) return;
       seen[c.code] = true;
       var info = cptMap[c.code];
       results.push({ code: c.code, desc: info.desc, friendly: info.friendly, wRVU: info.wRVU, label: c.label, source: "clinical" });
@@ -572,7 +585,7 @@ function getCompanionSuggestions(code, entries, cptMap, alreadySelected) {
     var sorted = Object.entries(pairCounts).sort(function(a, b) { return b[1] - a[1]; });
     sorted.slice(0, 5).forEach(function(pair) {
       var c = pair[0], count = pair[1];
-      if (count < 2 || seen[c] || !cptMap[c]) return; // require at least 2 occurrences
+      if (count < 2 || seen[c] || !cptMap[c] || waitsForPrimary(c)) return; // require at least 2 occurrences
       seen[c] = true;
       var info = cptMap[c];
       results.push({ code: c, desc: info.desc, friendly: info.friendly, wRVU: info.wRVU, label: "Logged together x" + count, source: "history" });
@@ -1892,7 +1905,7 @@ function entryEditFields(orig, p) {
 //   { lines: [{ code, modifiers (as entered), proposed, before, after,
 //               changed, lead, flags: [{ kind, text }] }],
 //     totalBefore, totalAfter, changed, notes: [{ kind, text }],
-//     alt: null | { lines: [{ proposed, after, changed, lead }], totalAfter, changed },
+//     alt: null | { lines: [{ proposed, after, changed, lead, followed }], totalAfter, changed },
 //     settled }
 // `before` and `after` are TODAY's prices of the modifiers entered and
 // proposed (calcAdj on the line's baseRVU), never a saved case's stored
@@ -1908,10 +1921,12 @@ function entryEditFields(orig, p) {
 // alt exists, `changed` (a group follows the other order) or `alt.changed`
 // (it follows the proposal) stays true. Nor does it say that nothing is
 // wrong: flags stand whatever it says (a doubled modifier, a never -51 on a
-// line that is not changed, a 51-on-family-lead), with ONE exception - while
-// settled is true, a 51-on-lead flag belongs to the order the user did not
-// choose (its group follows alt) and is not an error. While settled is
-// false that cannot be told from the result (it carries no group id).
+// line that is not changed, a 51-on-family-lead), with ONE exception - a
+// 51-on-lead flag on a line whose group follows alt belongs to the order the
+// user did not choose and is not an error. alt.lines[i].followed tells it,
+// whether settled is true or false: it is true on every line of a group alt
+// flips whose ranked lines are all as alt has them, and false everywhere
+// else (so it also says which leader each line follows).
 // It never throws for anything JSON can hold: a modifier that is neither
 // text nor a number is an unknown modifier (calcAdj itself would still read
 // a list holding one modifier as that modifier; no form writes one).
@@ -1949,18 +1964,32 @@ function entryEditFields(orig, p) {
 //   carry -51, gets no proposal for its ranked lines: the leader may be the
 //   unknown code, or logged elsewhere.
 // - When CMS's facility total would name ANOTHER leader (found by facility
-//   total, then work RVU, then a line without -51, then the earlier line),
-//   `alt` holds that order too, with its total and its own lead marks, and
-//   a note says so - the caller shows both; nothing is picked silently.
-//   `alt` flips every group where the other order is offered, and equals
-//   the main proposal elsewhere; alt.changed === false means the case as
-//   entered already follows that order. No other order is offered - and no
-//   note says that the facility total names another leader - when the two
-//   leaders tie in work RVU (the wRVU total is the same either way unless
-//   another modifier prices the tied lines differently), when the work
-//   leader is a line of an endoscopy family of two or more or such a line
-//   ties its work RVU, or when the facility leader is such a line and
-//   carries -51 (a family line is never changed).
+//   total, then work RVU, then a line that is not a line of an endoscopy
+//   family of two or more carrying -51, then a line without -51, then the
+//   earlier line), `alt` holds that
+//   order too, with its total and its own lead marks, and a note
+//   (measures-disagree) says so - the caller shows both; nothing is picked
+//   silently. `alt` flips every group where the other order is offered, and
+//   equals the main proposal elsewhere; alt.changed === false means the case
+//   as entered already follows that order. No other order is offered when
+//   the two leaders tie in work RVU (the wRVU total is the same either way
+//   unless another modifier prices the tied lines differently), when the
+//   work leader is a line of an endoscopy family of two or more or such a
+//   line ties its work RVU, or when the facility leader is such a line and
+//   carries -51 (a family line is never changed); nor when the work leader
+//   is such a line and carries -51 (nothing is proposed around it). Each time
+//   a note of its own (measures-not-offered) names both leaders and the
+//   reason, unless both are lines of endoscopy families of two or more (both
+//   orders would leave them as entered) or the two tie in facility total too
+//   (it then names no other leader).
+// - The texts say "here" while only one group holds ranked lines. With two
+//   or more, every leader, all-51, not-sequenced, family-lead and measures
+//   text names its group ("among your own lines", "among the lines where you
+//   assisted", "among the co-surgeon lines", or that group's -79 lines; a
+//   group without -79 says "that carry no -79" beside a -79 group of its
+//   kind), and a leader's flag says that it LEADS there, not that it has the
+//   highest work RVU (a line that is never ranked, such as an add-on, can
+//   have a higher one).
 // - Flags never change a proposal: -50 where BILAT SURG is not 1; an
 //   assistant modifier where ASST SURG is 0 or 1; -62 where CO- SURG is not 1
 //   or 2; an add-on code CMS lists primaries for with none of them in the
@@ -1969,9 +1998,9 @@ function entryEditFields(orig, p) {
 // - Kinds. Flags: unknown-modifier, repeated-modifier, no-cms-data,
 //   bilateral, assistant, co-surgeon, add-on-primary, add-on-partial,
 //   51-never, 51-on-lead, 51-on-family-lead. Notes: left-alone,
-//   endoscopy-family, not-sequenced, all-51, family-lead, measures-disagree.
-//   A group that gets no sequencing proposal (a code without CMS data, every
-//   ranked line at -51) has no lead mark.
+//   endoscopy-family, not-sequenced, all-51, family-lead, measures-disagree,
+//   measures-not-offered. A group that gets no sequencing proposal (a code
+//   without CMS data, every ranked line at -51) has no lead mark.
 function modKey(m) { return typeof m === "string" || typeof m === "number" ? String(m).replace(/^-/, "").toUpperCase() : ""; }
 function proposeCaseModifiers(lines) {
   var BILAT_TEXT = { "0": "CMS does not allow the 150% bilateral adjustment for this code", "2": "CMS already values this code as bilateral, so -50 does not apply", "3": "CMS pays each side of this code in full instead of 150%" };
@@ -2065,10 +2094,17 @@ function proposeCaseModifiers(lines) {
   L.forEach(function(l, i) { if (!l.blank && l.stage === "alone" && l.code !== "") alone.push(i); });
   if (alone.length) note("left-alone", codesText(alone) + (alone.length === 1 ? " carries" : " carry") + " -76, -77 or -78 (a repeat procedure or a return to the operating room), so " + (alone.length === 1 ? "that line is" : "those lines are") + " left as entered");
   var altLead = [];
+  // A text names its group once two or more groups hold ranked lines; with
+  // one, it says "here" as it always has.
+  var GROUP_TEXT = { "own|main": "your own lines", "own|79": "your own -79 lines", "assist|main": "the lines where you assisted", "assist|79": "the -79 lines where you assisted", "co|main": "the co-surgeon lines", "co|79": "the -79 co-surgeon lines" };
+  var rankedGroups = order.filter(function(g) { return groups[g].some(function(i) { return isRanked(L[i]); }); });
+  var multi = rankedGroups.length > 1;
+  var groupText = function(g) { var role = g.split("|")[0]; return "among " + GROUP_TEXT[g] + (g === role + "|main" && rankedGroups.indexOf(role + "|79") !== -1 ? " that carry no -79" : ""); };
   order.forEach(function(g) {
     var idx = groups[g];
     var ranked = idx.filter(function(i) { return isRanked(L[i]); });
     if (ranked.length === 0) return;
+    var where = multi ? " " + groupText(g) : " here", whereM = multi ? " " + groupText(g) : "";
     var famCount = {};
     ranked.forEach(function(i) { var f = endoFamily(L[i].code); L[i].family = f; if (f) famCount[f] = (cmsOwn(famCount, f) ? famCount[f] : 0) + 1; });
     var inFamily = function(i) { return L[i].family !== "" && famCount[L[i].family] > 1; };
@@ -2079,12 +2115,12 @@ function proposeCaseModifiers(lines) {
     var noData = idx.filter(function(i) { return !L[i].pol; });
     if (noData.length) {
       var named = noData.filter(function(i) { return L[i].code !== ""; });
-      note("not-sequenced", (named.length ? codesText(named) + (named.length === 1 ? " has" : " have") + " no CMS data and" : "A line the app cannot read") + " may be the leading procedure, so no -51 is proposed here");
+      note("not-sequenced", (named.length ? codesText(named) + (named.length === 1 ? " has" : " have") + " no CMS data and" : "A line the app cannot read") + " may be the leading procedure, so no -51 is proposed" + where);
       return;
     }
     if (ranked.every(function(i) { return L[i].has51; })) {
-      note("all-51", (ranked.length === 1 ? L[ranked[0]].code + " carries -51 and no other procedure here can lead: the leading procedure may be logged elsewhere, so its -51 is left as entered"
-        : codesText(ranked) + " all carry -51: the leading procedure may be logged elsewhere, so they are left as entered"));
+      note("all-51", (ranked.length === 1 ? L[ranked[0]].code + " carries -51 and no other procedure" + where + " can lead: the leading procedure may be logged elsewhere, so its -51 is left as entered"
+        : codesText(ranked) + " all carry -51" + whereM + ": the leading procedure may be logged elsewhere, so they are left as entered"));
       return;
     }
     var bil = function(i) { return L[i].has50 && L[i].pol.bilat === "1" ? 1.5 : 1; };
@@ -2092,17 +2128,32 @@ function proposeCaseModifiers(lines) {
     var rankF = function(i) { return Math.round(L[i].pol.facTotal * bil(i) * 1e4); };
     // The work leader: work RVU, then a line without -51, then the facility
     // total. The facility leader: facility total, then work RVU, then a line
-    // without -51. The earlier line keeps whatever is still tied.
+    // that is not a line of an endoscopy family of two or more carrying -51,
+    // then a line without -51 (so the -51 that the main proposal puts on an
+    // outside line never hands the facility lead to a family line that
+    // carries -51, which would make the other order disappear after Apply;
+    // every other tie is decided as before). The earlier line keeps whatever
+    // is still tied.
+    var famWith51 = function(i) { return inFamily(i) && L[i].has51; };
     var beatsWork = function(i, j) { return rankW(i) !== rankW(j) ? rankW(i) > rankW(j) : L[i].has51 !== L[j].has51 ? !L[i].has51 : rankF(i) > rankF(j); };
-    var beatsFac = function(i, j) { return rankF(i) !== rankF(j) ? rankF(i) > rankF(j) : rankW(i) !== rankW(j) ? rankW(i) > rankW(j) : !L[i].has51 && L[j].has51; };
+    var beatsFac = function(i, j) { return rankF(i) !== rankF(j) ? rankF(i) > rankF(j) : rankW(i) !== rankW(j) ? rankW(i) > rankW(j) : famWith51(i) !== famWith51(j) ? !famWith51(i) : !L[i].has51 && L[j].has51; };
     var lead = ranked[0], leadFac = ranked[0];
     ranked.forEach(function(i) { if (beatsWork(i, lead)) lead = i; if (beatsFac(i, leadFac)) leadFac = i; });
     var nameOf = function(i) { return L[i].code + (bil(i) === 1.5 ? " (with -50, counted 1.5 times)" : ""); };
-    var leadText = function(i) { return bil(i) === 1.5 ? L[i].code + " leads here (with -50 its work RVU counts 1.5 times), so it should not carry -51" : L[i].code + " has the highest work RVU here, so it leads and should not carry -51"; };
+    var leadText = function(i) { return bil(i) === 1.5 ? L[i].code + " leads" + where + " (with -50 its work RVU counts 1.5 times), so it should not carry -51"
+      : multi ? L[i].code + " leads" + where + ", so it should not carry -51" : L[i].code + " has the highest work RVU here, so it leads and should not carry -51"; };
+    // Where the facility total names another leader but that order cannot be
+    // offered, a note says so and why - never when both leaders are family
+    // lines (both orders leave them as entered), nor when the two tie in
+    // facility total (the facility total then names no other leader).
+    var notOffered = function(why) {
+      if (leadFac !== lead && rankF(leadFac) !== rankF(lead) && !(inFamily(lead) && inFamily(leadFac))) note("measures-not-offered", "By work RVU " + nameOf(lead) + " leads" + whereM + "; by CMS's facility total " + nameOf(leadFac) + " would lead, but that order is not offered: " + why);
+    };
     L[lead].lead = true;
     if (inFamily(lead) && L[lead].has51) {
       L[lead].flags.push({ kind: "51-on-family-lead", text: leadText(lead) + " (it is in an endoscopy family, so it is left as entered)" });
-      if (ranked.some(function(i) { return !inFamily(i); })) note("family-lead", "The leading procedure " + L[lead].code + " carries -51 and is in an endoscopy family, so no -51 is proposed for the other procedures here");
+      if (ranked.some(function(i) { return !inFamily(i); })) note("family-lead", "The leading procedure " + L[lead].code + " carries -51 and is in an endoscopy family, so no -51 is proposed for the other procedures" + where);
+      notOffered(L[lead].code + " carries -51 and is in an endoscopy family, so it is left as entered");
       return;
     }
     ranked.forEach(function(i) {
@@ -2116,11 +2167,19 @@ function proposeCaseModifiers(lines) {
     // not when the two leaders tie in work RVU; not when a family line has
     // the leader's work RVU (the leader itself, or a line that would lead as
     // soon as the leader takes -51); not when the facility leader is a family
-    // line that carries -51 (it could not lose it).
+    // line that carries -51 (it could not lose it). Each of the three has its
+    // reason in the note. In a work tie the work leader is the line without
+    // -51 (the facility leader has the higher facility total, so only the -51
+    // test can have put the other line first).
     var famTie = ranked.some(function(i) { return inFamily(i) && rankW(i) === rankW(lead); });
     if (leadFac !== lead && rankW(leadFac) !== rankW(lead) && !famTie && !(inFamily(leadFac) && L[leadFac].has51)) {
-      altLead.push({ ranked: ranked.filter(function(i) { return !inFamily(i); }), lead: leadFac, mainLead: lead });
-      note("measures-disagree", "By work RVU " + nameOf(lead) + " leads; by CMS's facility total " + nameOf(leadFac) + " would lead");
+      altLead.push({ ranked: ranked.filter(function(i) { return !inFamily(i); }), lead: leadFac, mainLead: lead, idx: idx });
+      note("measures-disagree", "By work RVU " + nameOf(lead) + " leads" + whereM + "; by CMS's facility total " + nameOf(leadFac) + " would lead");
+    } else {
+      var famLine = ranked.filter(function(i) { return inFamily(i) && rankW(i) === rankW(lead); })[0];
+      notOffered(rankW(leadFac) === rankW(lead) ? "the two have the same work RVU and " + L[leadFac].code + " carries -51"
+        : famTie ? (inFamily(lead) ? L[lead].code + " is in an endoscopy family, so it is left as entered" : L[famLine].code + " is in an endoscopy family and has the same work RVU as " + L[lead].code)
+        : L[leadFac].code + " is in an endoscopy family and carries -51, so it is left as entered");
     }
   });
   // Priced with the modifiers the table holds - what calcAdj applies; anything
@@ -2141,9 +2200,13 @@ function proposeCaseModifiers(lines) {
       a.ranked.forEach(function(i) { altMods[i] = i === a.lead ? without51(L[i].mods) : (L[i].has51 ? L[i].mods.slice() : L[i].mods.concat(["-51"])); });
       altIsLead[a.mainLead] = false; altIsLead[a.lead] = true;
     });
+    // followed: the line's group is one alt flips and every ranked line of it
+    // is as alt has it (its family lines are as entered in both orders).
+    var followed = L.map(function() { return false; });
+    altLead.forEach(function(a) { if (a.ranked.every(function(i) { return same(L[i].mods, altMods[i]); })) a.idx.forEach(function(i) { followed[i] = true; }); });
     var alt = { lines: [], totalAfter: 0, changed: false };
     L.forEach(function(l, i) {
-      var row = { proposed: altMods[i], after: price(l, altMods[i]), changed: !same(l.mods, altMods[i]), lead: altIsLead[i] };
+      var row = { proposed: altMods[i], after: price(l, altMods[i]), changed: !same(l.mods, altMods[i]), lead: altIsLead[i], followed: followed[i] };
       alt.lines.push(row);
       alt.totalAfter += row.after;
       if (row.changed) alt.changed = true;
@@ -2158,6 +2221,125 @@ function proposeCaseModifiers(lines) {
     out.settled = groupsOk && L.every(function(l, i) { return inFlipped[i] || asMain[i]; });
   } else out.settled = !out.changed;
   return out;
+}
+
+// Log's lead-code card: its decisions are these helpers (check.js tests
+// each by value), and Log only wires them (check.js Log card C1-C6). None
+// of them prices anything: a typed line's figures are the function's
+// (TODAY's table, as save() prices a new case), a saved case's are its
+// stored ones. The card's lines are the typed rows first, then the saved
+// cases, so a line is typed exactly when its index is below the number of
+// typed rows.
+// caseLinesFromRows(procs, cptMap): Log's rows { id, code, search, mods } as
+// the function's lines, with the base wRVU of the code map Log holds
+// (overrides included) - what save() writes for a row. A row save() skips
+// (no code, or a code the map does not hold) is a line without a code: it
+// takes no part, and only its modifiers are still flagged.
+function caseLinesFromRows(procs, cptMap) {
+  return (Array.isArray(procs) ? procs : []).map(function(p) {
+    var mods = p && Array.isArray(p.mods) ? p.mods.slice() : [];
+    var info = p && typeof p.code === "string" && p.code !== "" && cptMap && typeof cptMap === "object" && cmsOwn(cptMap, p.code) ? cptMap[p.code] : null;
+    return info ? { code: p.code, modifiers: mods, baseRVU: info.wRVU } : { code: "", modifiers: mods, baseRVU: 0 };
+  });
+}
+// caseSavedMates(entries, date, initials): the SAVED cases of the encounter
+// being typed, by History's encounter rule (entryEncounterMates): the same
+// date and exactly the same non-empty encounterId - none without initials.
+// Each is a line the function reads ({ id, code, modifiers (a copy),
+// baseRVU }) plus `stored`, its saved wRVU (shown beside it, never summed),
+// and what a total adds for it: `credited` (creditedRVU of the case) in the
+// credited column, `uncredited` (noCreditRVU) in the no-credit one.
+function caseSavedMates(entries, date, initials) {
+  if (typeof initials !== "string" || initials === "" || typeof date !== "string" || !Array.isArray(entries)) return [];
+  return entries.filter(function(e) { return !!e && typeof e === "object" && e.date === date && e.encounterId === initials; })
+    .map(function(e) { return { id: e.id, code: e.cptCode, modifiers: Array.isArray(e.modifiers) ? e.modifiers.slice() : [], baseRVU: e.baseRVU, stored: e.adjustedRVU, credited: creditedRVU(e), uncredited: noCreditRVU(e) }; });
+}
+// caseCardPlan(r, typed): what the card does with result r (the first
+// `typed` lines typed, the rest saved). Returns
+//   { show, needsTap, settled, main, alt, flags, notes, leads }:
+// - show: "nothing"; "flags" (something to read, nothing to apply);
+//   "proposal" (one order); "both" (both orders). The card opens on its own
+//   for an error flag, a change to propose, a second order, or a note of
+//   kind measures-not-offered, all-51 or not-sequenced; the other kinds
+//   (endoscopy-family, left-alone, family-lead, measures-disagree) are
+//   listed only while it is open for one of those.
+// - needsTap: the case is not settled - a line is as neither order has it
+//   (the save bar's "sequencing suggested"); that line may be a saved one.
+// - main, alt (null without a second order): { applies, savedLines }.
+//   applies: the order changes a line and only typed ones (its button is
+//   offered); savedLines: the saved lines it would change. Such an order is
+//   never applied from Log: the card names those cases, to change in
+//   History.
+// - flags: the error flags, [{ line, kind, text }]. A 51-on-lead flag on a
+//   line whose group follows the other order (alt.lines[i].followed) is
+//   that order's, not an error, and is left out.
+// - notes: the notes to list - every note while the card shows, else none.
+// - leads: per line, whether it leads in the order its group follows.
+function caseCardPlan(r, typed) {
+  var ok = !!r && typeof r === "object" && Array.isArray(r.lines) && Array.isArray(r.notes);
+  var n = typeof typed === "number" && typed >= 0 ? typed : 0;
+  var lines = ok ? r.lines : [], altLines = ok && r.alt && Array.isArray(r.alt.lines) ? r.alt.lines : null;
+  var followed = function(i) { return !!altLines && !!altLines[i] && altLines[i].followed === true; };
+  var orderPlan = function(o) {
+    var saved = [];
+    o.lines.forEach(function(l, i) { if (i >= n && l.changed) saved.push(i); });
+    return { applies: o.changed === true && saved.length === 0, savedLines: saved };
+  };
+  var flags = [];
+  lines.forEach(function(l, i) { l.flags.forEach(function(f) { if (!(f.kind === "51-on-lead" && followed(i))) flags.push({ line: i, kind: f.kind, text: f.text }); }); });
+  var OPENS = { "measures-not-offered": true, "all-51": true, "not-sequenced": true };
+  var open = ok && (flags.length > 0 || r.changed === true || !!altLines || r.notes.some(function(x) { return OPENS[x.kind] === true; }));
+  return {
+    show: !open ? "nothing" : altLines ? "both" : r.changed === true ? "proposal" : "flags",
+    needsTap: ok && r.settled === false, settled: ok && r.settled === true,
+    main: ok ? orderPlan(r) : { applies: false, savedLines: [] }, alt: altLines ? orderPlan(r.alt) : null,
+    flags: flags, notes: open ? r.notes.slice() : [],
+    leads: lines.map(function(l, i) { return followed(i) ? altLines[i].lead : l.lead; })
+  };
+}
+// caseApplyOrder(procs, r, which): Log's rows with order `which` ("main" or
+// "alt") of r applied: a new list where each row that order changes is a
+// copy whose mods are the order's list for it (the modifiers as entered with
+// one -51 put on, or every -51 taken off - every other field and modifier
+// kept), and every other row is the same object. null when that order would
+// change a saved line (Log never writes a saved case, and applying only the
+// typed part could leave every line at -51), when it has nothing to change,
+// or when r was not worked out from these rows (their codes and modifiers).
+function caseApplyOrder(procs, r, which) {
+  var order = !r || typeof r !== "object" || !Array.isArray(r.lines) ? null : which === "alt" ? r.alt : which === "main" ? r : null;
+  if (!order || !Array.isArray(order.lines) || order.lines.length !== r.lines.length || order.changed !== true || !Array.isArray(procs) || procs.length > r.lines.length) return null;
+  var same = function(a, b) { return a.length === b.length && a.every(function(m, i) { return m === b[i] || (m !== m && b[i] !== b[i]); }); };
+  var stale = procs.some(function(p, i) { var l = r.lines[i]; return !same(p && Array.isArray(p.mods) ? p.mods : [], l.modifiers) || (l.code !== "" && !(p && l.code === p.code)); });
+  if (stale || order.lines.some(function(l, i) { return i >= procs.length && l.changed; })) return null;
+  return procs.map(function(p, i) { return order.lines[i].changed ? Object.assign({}, p, { mods: order.lines[i].proposed.slice() }) : p; });
+}
+// caseCardTotals(r, typed, mates, nc): the figures the card prints for
+// r = the result for the first `typed` lines typed and then `mates`
+// (caseSavedMates, in that order). lines[i] = { before, main, alt }: a typed
+// line's are the function's (before, and after in each order); a saved
+// line's are its stored figure while that order leaves it alone, else the
+// function's after (what History's Save writes for that change, for a case
+// whose base wRVU is a number). The totals before / main / alt add the typed
+// lines' figures - as the Encounter Summary totals them, a no-credit
+// encounter's too (Log marks that total "no credit") - and each saved case's
+// figure in the same column: `uncredited` when nc is true (the encounter
+// being typed earns no credit), else `credited`, as History's totals count a
+// case - never a stored adjusted wRVU. An order that would change a saved
+// case has no total (null): Log cannot apply it. alt is null without a
+// second order; the whole answer is null when the inputs do not fit together.
+function caseCardTotals(r, typed, mates, nc) {
+  if (!r || typeof r !== "object" || !Array.isArray(r.lines) || !Array.isArray(mates) || typeof nc !== "boolean" || typeof typed !== "number" || !(typed >= 0) ||
+    typed + mates.length !== r.lines.length || !mates.every(function(m) { return !!m && typeof m === "object"; })) return null;
+  var alt = r.alt && Array.isArray(r.alt.lines) && r.alt.lines.length === r.lines.length ? r.alt : null;
+  var figure = function(o, i) { return i < typed || o.lines[i].changed ? o.lines[i].after : mates[i - typed].stored; };
+  var savedSum = 0;
+  mates.forEach(function(m) { savedSum += nc ? m.uncredited : m.credited; });
+  var typedSum = function(o, key) { var t = 0; for (var i = 0; i < typed; i++) t += o.lines[i][key]; return t; };
+  var total = function(o) { return o.lines.some(function(l, i) { return i >= typed && l.changed; }) ? null : typedSum(o, "after") + savedSum; };
+  return {
+    lines: r.lines.map(function(l, i) { return { before: i < typed ? l.before : mates[i - typed].stored, main: figure(r, i), alt: alt ? figure(alt, i) : null }; }),
+    before: typedSum(r, "before") + savedSum, main: total(r), alt: alt ? total(alt) : null
+  };
 }
 
 // wRVU credit - the ONE rule deciding whether a case counts toward wRVU and

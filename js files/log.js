@@ -20,6 +20,10 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   // id is kept; the site is looked up again on every render and in save().
   const [callSite, setCallSite] = useState(function() { return dr && dr.call && typeof dr.callSite === "string" ? dr.callSite : ""; });
   const [creditOfferHidden, setCreditOfferHidden] = useState(false); // "Keep credit" (this Log visit)
+  // The lead-code card's "Keep as is": the signature (seqSig below) of the
+  // case it was tapped for, or "". Parked in the draft so it survives a tab
+  // switch; the post-save reset clears it (never remembered after a save).
+  const [seqKept, setSeqKept] = useState(function() { return dr && typeof dr.seqKept === "string" ? dr.seqKept : ""; });
   // Procedure templates: PRE-FILL only. applyTemplate composes the exact
   // state manual entry writes (selectCode / companion addSuggestion draft
   // shapes) and then STOPS - it never saves, never touches the save
@@ -139,11 +143,12 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   // initials, notes, the Call toggle) keeps a draft - a date on its own does
   // NOT, so a stale date can never carry into a later case after a save.
   // Skipped while a save is pending (save() already cleared the draft).
+  // The card's Keep as is (seqKept) rides along but never keeps a draft.
   useEffect(function() {
     if (!logDraft || savingRef.current) return;
     var empty = !procs.some(function(p) { return p.code || p.search; }) && !notes && !patientId && !isCall;
-    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, call: isCall, callSite: callSite, nextId: nextId.current };
-  }, [date, patientId, procs, notes, activeProc, isCall, callSite]);
+    logDraft.current = empty ? null : { date: date, patientId: patientId, procs: procs, notes: notes, activeProc: activeProc, call: isCall, callSite: callSite, nextId: nextId.current, seqKept: seqKept };
+  }, [date, patientId, procs, notes, activeProc, isCall, callSite, seqKept]);
 
   var favorites = data.favorites || [];
   var favCodes = useMemo(function() {
@@ -346,6 +351,30 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   useEffect(function() {
     if (canSave && afterSaveRef.current) { afterSaveRef.current = false; if (showUndo) showUndo(null); }
   }, [canSave]);
+  // Lead-code card (under the Encounter Summary). The case is the typed rows,
+  // then the saved cases of the same date and exactly the same initials
+  // (History's encounter). Every decision is a utils.js helper; this wiring
+  // runs by value in check.js Log card C3, and only a tap on the card's
+  // Apply / Use this order changes the rows' modifiers (C1, C4). For a few
+  // minutes after a deploy a phone can hold this file beside the old
+  // utils.js, which has the lead-code function but none of the helpers: the
+  // card then simply does not show.
+  var seqOk = typeof caseLinesFromRows === "function" && typeof caseSavedMates === "function" && typeof caseCardPlan === "function" && typeof caseApplyOrder === "function" && typeof caseCardTotals === "function";
+  var seqOn = seqOk && !saved && canSave;
+  var seqMates = seqOn ? caseSavedMates(data.entries, date, patientId) : [];
+  var seqR = seqOn ? proposeCaseModifiers(caseLinesFromRows(procs, cptMap).concat(seqMates)) : null;
+  var seqPlan = seqOn ? caseCardPlan(seqR, procs.length) : null;
+  // Typed lines count as the Encounter Summary totals them (a no-credit
+  // encounter's too, marked "no credit"); each saved case adds its figure in
+  // the same column - its no-credit figure while this encounter earns no
+  // credit (ncNow), else its credited one.
+  var seqTot = seqOn ? caseCardTotals(seqR, procs.length, seqMates, ncNow) : null;
+  // Keep as is hides the card for these codes and modifiers: the typed rows'
+  // codes and modifiers (a row with neither does not count) and the saved
+  // cases' ids, codes and modifiers. Any change brings the card back.
+  var seqSig = seqOn ? JSON.stringify(procs.filter(function(p) { return p.code || (p.mods && p.mods.length); }).map(function(p) { return [p.code, p.mods]; }).concat(seqMates.map(function(m) { return [m.id, m.code, m.modifiers]; }))) : "";
+  var seqShow = seqOn && !!seqTot && seqPlan.show !== "nothing" && seqSig !== seqKept;
+  var seqHint = seqShow && seqPlan.needsTap; // the save bar's "sequencing suggested"
   var creditOffer = pickedSite && callNoCreditDate(date) ? (payCreditOffers(callSites).filter(function(o) { return o.site.id === pickedSite.id; })[0] || null) : null;
   var applySiteRule = function() {
     if (!creditOffer || !confirm(payCreditConfirm([creditOffer]))) return;
@@ -633,6 +662,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       setProcs([{ id: nextId.current++, code: null, search: "", mods: [] }]);
       setActiveProc(0);
       setNotes("");
+      setSeqKept(""); // the card's Keep as is is not remembered after a save
       // A "Save as template" form left open must not carry this case's note
       // into the next case (it closed only by its own buttons before).
       setTplSaving(false);
@@ -930,7 +960,8 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     {curSel && <><div style={S.selectedCard}><div style={{ display: "flex", justifyContent: "space-between" }}><div style={{ display: "flex", alignItems: "center", gap: 8 }}><span style={S.selectedCode}>{curSel.code}</span><button onClick={function() { toggleFav(curSel.code); }} aria-label={"Favorite " + curSel.code} aria-pressed={isFav(curSel.code)} style={{ ...S.hitBtn, margin: -11, fontSize: 22, color: isFav(curSel.code) ? "var(--accent-star)" : "var(--text-faint)" }}>{isFav(curSel.code) ? "\u2605" : "\u2606"}</button>{usageCounts[curSel.code] > 0 && <span style={{ fontSize: 10, padding: "2px 7px", borderRadius: 10, background: "rgba(14,165,233,0.12)", color: "var(--accent-sky-soft)", fontFamily: "JetBrains Mono", fontWeight: 600 }}>{"x"}{usageCounts[curSel.code]}</span>}</div><button onClick={clearCode} aria-label="Remove code" style={{ ...S.hitBtn, margin: "-9px -14px", color: "var(--text-dim)", fontSize: 18 }}>x</button></div><div style={S.selectedDesc}>{curSel.friendly || curSel.desc}</div>{curSel.friendly && <div style={{ fontSize: 11, color: "var(--text-faint)", marginTop: 2 }}>{curSel.desc}</div>}<div style={{ display: "flex", gap: 16, marginTop: 8 }}><div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Base wRVU</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--text-primary)", fontWeight: 600 }}>{curSel.wRVU}</div></div>{curMods.length > 0 && <div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Adjusted</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-sky)", fontWeight: 600 }}>{calcProcRVU(cur).toFixed(2)}</div></div>}<div><div style={{ fontSize: 11, color: "var(--text-dim)" }}>Compensation</div><div style={{ fontSize: 18, fontFamily: "JetBrains Mono", color: "var(--accent-green)", fontWeight: 600 }}>${(creditedRVU(encPreview(calcProcRVU(cur))) * data.settings.ratePerRVU).toFixed(0)}{ncNow && <span style={{ ...S.ncTag, marginLeft: 6 }}>no credit</span>}</div></div></div></div>
     {(function() {
       var alreadyCodes = procs.map(function(p) { return p.code; }).filter(Boolean);
-      var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes);
+      // The card's saved cases count as in the case for an add-on's primary.
+      var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes, seqOn ? seqMates.map(function(m) { return m.code; }) : []);
       if (suggestions.length === 0) return null;
       var addSuggestion = function(s) {
         var newP = { id: nextId.current++, code: s.code, search: s.code + " - " + (s.friendly || s.desc), mods: [] };
@@ -1009,6 +1040,82 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
         </div>
       </div>
     </div>}
+    {/* Lead-code card: the utils.js helpers' answer for this case (seqPlan,
+        seqTot), in the amber style of the call-site credit card. Only a tap
+        on Apply / Use this order changes the rows' modifiers, and never a
+        saved case's (check.js Log card C1, C4 and C5). */}
+    {seqShow && (function() {
+      var typed = procs.length, show = seqPlan.show;
+      var fig = function(v) { return typeof v === "number" && isFinite(v) ? v.toFixed(2) : "?"; };
+      var nameOf = function(i) { return seqR.lines[i].code + (i >= typed ? " (saved)" : ""); };
+      var listOf = function(a) { return a.length <= 2 ? a.join(" and ") : a.slice(0, -1).join(", ") + " and " + a[a.length - 1]; };
+      var leadText = function(idx) { return idx.length ? listOf(idx.map(nameOf)) + (idx.length === 1 ? " leads" : " lead") : ""; };
+      var needs = function(o) { return "Needs " + listOf(o.savedLines.map(nameOf)) + " changed - edit " + (o.savedLines.length === 1 ? "it" : "them") + " in History"; };
+      // A flag that does not name its line gets the line's code in front; a
+      // saved line's code is marked (saved).
+      var flagText = function(f) {
+        var c = seqR.lines[f.line].code, at = c ? f.text.indexOf(c) : -1;
+        return !c ? f.text : at === -1 ? nameOf(f.line) + ": " + f.text : f.text.slice(0, at) + nameOf(f.line) + f.text.slice(at + c.length);
+      };
+      var cText = { fontSize: 11, color: "var(--text-primary)", lineHeight: 1.5 };
+      var cQuiet = { fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 };
+      var cHead = { fontSize: 12, fontWeight: 700, color: "var(--text-primary)", lineHeight: 1.5 };
+      var cRow = { display: "flex", justifyContent: "space-between", gap: 8 };
+      var cNum = { fontFamily: "JetBrains Mono", whiteSpace: "nowrap" };
+      var cCol = { flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 };
+      var cApply = { flex: 1, minHeight: 44, borderRadius: 8, border: "none", background: "#f59e0b", color: "#0f172a", fontSize: 12, fontWeight: 700, cursor: "pointer" };
+      // The card's three buttons, each built once (the two orders' only
+      // writes of the rows are these taps).
+      var apply = <button onClick={function() { var next = caseApplyOrder(procs, seqR, "main"); if (next) setProcs(next); }} style={show === "both" ? { ...cApply, flex: "none", marginTop: "auto" } : cApply}>Apply</button>;
+      var other = <button onClick={function() { var next = caseApplyOrder(procs, seqR, "alt"); if (next) setProcs(next); }} style={{ ...cApply, flex: "none", marginTop: "auto" }}>Use this order</button>;
+      var keep = <button onClick={function() { setSeqKept(seqSig); }} style={{ minHeight: 44, padding: "0 12px", borderRadius: 8, border: "1px solid var(--border-default)", background: "transparent", color: "var(--text-muted)", fontSize: 12, cursor: "pointer" }}>Keep as is</button>;
+      var nc = ncNow ? " (no credit)" : "";
+      var leads = [], mainLeads = [], altLeads = [];
+      seqPlan.leads.forEach(function(on, i) { if (on) leads.push(i); });
+      if (show === "both") seqR.lines.forEach(function(l, i) { var a = seqR.alt.lines[i]; if (l.lead && !a.lead) mainLeads.push(i); if (a.lead && !l.lead) altLeads.push(i); });
+      // Warnings ("! ") and notes; under "both" its measures-disagree note is
+      // what the two columns show, so it is not repeated.
+      var extra = seqPlan.flags.map(function(f, k) { return <div key={"f" + k} style={{ ...cText, color: "var(--accent-amber)", marginTop: 4 }}>{"! " + flagText(f)}</div>; })
+        .concat(seqPlan.notes.filter(function(n) { return !(show === "both" && n.kind === "measures-disagree"); }).map(function(n, k) { return <div key={"n" + k} style={{ ...cQuiet, marginTop: 4 }}>{n.text}</div>; }));
+      return (<div style={{ marginBottom: 12, padding: "8px 10px", borderRadius: 8, border: "1px solid rgba(245,158,11,0.3)", background: "rgba(245,158,11,0.06)" }}>
+        {show === "proposal" && <>
+          <div style={cHead}>{"Suggested sequencing" + (leads.length ? ": " + leadText(leads) : "")}</div>
+          {seqR.lines.map(function(l, i) {
+            if (i < typed && !l.changed) return null;
+            return (<div key={"l" + i} style={{ ...cRow, ...cText }}><span>{i < typed ? l.code + (l.proposed.length > l.modifiers.length ? ": add -51" : ": remove -51") : nameOf(i)}</span><span style={cNum}>{i < typed ? fig(seqTot.lines[i].before) + " \u2192 " + fig(seqTot.lines[i].main) : fig(seqTot.lines[i].before)}</span></div>);
+          })}
+          <div style={{ ...cRow, ...cText, fontWeight: 700, marginTop: 4 }}><span>{"Case total" + nc}</span><span style={cNum}>{fig(seqTot.before) + (seqTot.main === null ? "" : " \u2192 " + fig(seqTot.main)) + " wRVU"}</span></div>
+          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>
+            {seqPlan.main.applies ? apply
+              : seqPlan.main.savedLines.length ? <div style={{ ...cQuiet, flex: 1, alignSelf: "center" }}>{needs(seqPlan.main)}</div> : null}
+            {keep}
+          </div>
+        </>}
+        {show === "both" && <>
+          <div style={cHead}>Two ways to sequence this case</div>
+          <div style={{ display: "flex", gap: 8, marginTop: 4 }}>
+            <div style={cCol}>
+              <div style={cQuiet}>By work RVU</div>
+              <div style={{ ...cText, fontWeight: 700 }}>{leadText(mainLeads)}</div>
+              <div style={{ ...cText, fontFamily: "JetBrains Mono" }}>{seqTot.main === null ? "" : fig(seqTot.main) + " wRVU" + nc}</div>
+              {seqPlan.main.applies ? apply
+                : <div style={{ ...cQuiet, marginTop: "auto" }}>{seqPlan.main.savedLines.length ? needs(seqPlan.main) : "The case follows this order"}</div>}
+            </div>
+            <div style={cCol}>
+              <div style={cQuiet}>{"By CMS's facility total"}</div>
+              <div style={{ ...cText, fontWeight: 700 }}>{leadText(altLeads)}</div>
+              <div style={{ ...cText, fontFamily: "JetBrains Mono" }}>{seqTot.alt === null ? "" : fig(seqTot.alt) + " wRVU" + nc}</div>
+              {seqPlan.alt.applies ? other
+                : <div style={{ ...cQuiet, marginTop: "auto" }}>{seqPlan.alt.savedLines.length ? needs(seqPlan.alt) : "The case follows this order"}</div>}
+            </div>
+          </div>
+          <div style={{ display: "flex", gap: 6, marginTop: 6 }}>{keep}</div>
+        </>}
+        {show === "flags" && <div style={cHead}>Check this case</div>}
+        {extra}
+        {show === "flags" && <div style={{ display: "flex", gap: 6, marginTop: 6 }}>{keep}</div>}
+      </div>);
+    })()}
 
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Case Notes (optional)</label><textarea value={notes} onChange={function(e) { setNotes(e.target.value); }} placeholder="Complexity, attending, indication, complications..." style={S.notesInput} rows={2} /></div>
     {/* Save bar - the ONE Save control (Call Pay precedent, callpay.js).
@@ -1022,7 +1129,7 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       var mode = isCall ? "Call" + (pickedSite ? " - " + pickedSite.name : callSite === CALL_SITE_OTHER ? " - other site" : "") : "Private";
       var fix = saved ? "" : !isYMD(date) ? "Pick a valid date" : needSite ? "Pick the call site" : "";
       var toTop = function() { var sc = document.querySelector(".rvu-content"); if (sc) sc.scrollTop = 0; };
-      var line1 = <div style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nCodes + " code" + (nCodes === 1 ? "" : "s") + " \u00B7 " + mode}</div>;
+      var line1 = <div style={{ fontSize: 11, color: "var(--text-muted)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{nCodes + " code" + (nCodes === 1 ? "" : "s") + " \u00B7 " + mode}{seqHint && <span style={{ color: "var(--accent-amber)" }}>{" \u00B7 sequencing suggested"}</span>}</div>;
       return (<div style={{ position: barPinned ? "sticky" : "static", bottom: 0, zIndex: 5, height: 64, boxSizing: "border-box", display: "flex", alignItems: "center", gap: 10, marginTop: 8, background: "var(--bg-base)", borderTop: "1px solid var(--border-default)" }}>
         {saved ? <div style={{ flex: 1, minWidth: 0, fontSize: 13, fontWeight: 600, color: "var(--accent-green)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>{saved}</div>
         : fix ? <button onClick={toTop} style={{ flex: 1, minWidth: 0, minHeight: 44, textAlign: "left", background: "none", border: "none", padding: 0, cursor: "pointer" }}>{line1}<div style={{ fontSize: 13, fontWeight: 600, color: "var(--accent-amber)" }}>{fix + " \u2191"}</div></button>
