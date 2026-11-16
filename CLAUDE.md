@@ -157,8 +157,10 @@ the per-file gates below. Run it after EVERY file change.
   their component names.
 - Hooks before any conditional return — a hook below an early return
   crashes the view (this bug shipped once in analytics.js).
-  A hook inside JSX that renders only sometimes (an IIFE such as Log's
-  lead-code card) is a conditional hook too (check.js Log card C2).
+  A hook inside any function nested in a component's JSX (an IIFE such as
+  Log's lead-code card or "Also add?" block, a map callback, a tap handler)
+  is a conditional hook too (check.js Log hooks checks every function in
+  LogProc's JSX; Log card C2 and Log hernia picker P2 their guards).
 - KEYWORD_SUPPLEMENT and FRIENDLY_DESC must stay above
   CPT_DATABASE_DEFAULT in utils.js.
 - All date math from LOCAL parts: `todayLocal()`/`localYMD()`, month keys
@@ -609,7 +611,10 @@ the per-file gates below. Run it after EVERY file change.
   renders only while the ACTIVE procedure has no picked code
   (`{!curSel && <div style={S.catRow}>}`, the same !curSel both result
   lists lead with, so a category filter is never hidden while a list shows;
-  with a code picked the selected card sits right under the search box).
+  with a code picked the selected card sits right under the search box - or
+  under the hernia picker's line or card when the code is one of the twelve
+  ventral hernia repairs; with no code picked that line or card sits between
+  the search box and the chip row).
   '+ Add' and the card's x bring it back on Favorites (showFavList resets
   the category to All); typing in the search box, or a Proc tab / proc
   removal that leaves a code-less procedure active, brings it back with the
@@ -636,7 +641,9 @@ the per-file gates below. Run it after EVERY file change.
   Private / Call (Log and History's edit panel), History's Back buttons and
   the row Delete are 44px tall (Delete grows up over the $ line - the row
   clips below). The chip rows (S.catBtn, History filters) stay 27-32px by
-  the owner's choice (check.js 5f-17).
+  the owner's choice (check.js 5f-17). The hernia picker's buttons are at
+  least 44px and its two big buttons 64px; its Close is a text button, not
+  S.hitBtn (the S.hitBtn count in log.js stays 10).
 - Trends' Goal Pace card (Current only, like Home's pace line) uses Home's
   Tracked OR pace: Projected Annual = compProjection({ trackedWRVU: ytdRVU,
   trackedDays: daysPassed }).trackedPace with Home's inputs (logged credited
@@ -706,7 +713,8 @@ the per-file gates below. Run it after EVERY file change.
 - Unsaved forms survive a tab switch through App's MEMORY-ONLY refs (never
   persisted): Log's encounter (logDraft, which also parks the lead-code
   card's Keep as is, seqKept: it never keeps a draft on its own and the
-  post-save reset clears it) and Call Pay's shift form
+  post-save reset clears it; the hernia picker's open card is never parked,
+  check.js Log hernia picker P4) and Call Pay's shift form
   (callPayDraft, passed as `keep`). CallPay reads keep.current ONCE in a
   useState initialiser that clears it and returns utils.js payParkedDraft
   (the same site-list object - ANY paySites write drops the form, fail-safe:
@@ -987,9 +995,12 @@ the per-file gates below. Run it after EVERY file change.
   nothing (check.js runs that too). Typed
   codes are held out by three pins beside the gate: the lookups sit between
   the two markers, the literals of that stretch are the pinned ones, and the
-  code-shaped tokens of utils.js outside its three curated tables, and of
-  every other file, are the pinned ones. A token is any five characters
-  shaped like a code, so a code typed WHOLE anywhere moves a pin - and so
+  code-shaped tokens of utils.js outside its four curated tables
+  (KEYWORD_SUPPLEMENT, FRIENDLY_DESC, COMPANION_CODES and HERNIA_PICK, Log's
+  hernia picker), and of every other file, are the pinned ones. The
+  builder's dangling-reference list scans the same four. A token is any
+  five characters shaped like a code, so a code typed WHOLE anywhere moves
+  a pin - and so
   does a plain five-digit number or a word in a comment (write a new number
   that is no code as a product, 15 * 1000; the failure line names the token
   and its line). A prefix test or a code put together from pieces is not
@@ -1008,7 +1019,10 @@ the per-file gates below. Run it after EVERY file change.
   lap beside another open abdominal operation, are not billed apart;
   extensive adhesiolysis is -22 on the main code), and 38525 reads
   "Sentinel/deep axillary node" under 19301 and 38900 (38745 keeps "Axillary
-  dissection"); check.js pins these by value.
+  dissection"); check.js pins these by value. The ventral hernia repairs'
+  mesh add-ons are offered by the hernia picker, not as chips (11008 would
+  warn at once); a mesh line adds its row through the chips' own writer,
+  addSuggestion, at LogProc's top level.
 - Lead code and -51 have ONE rule, utils.js proposeCaseModifiers. It is pure:
   it proposes and flags, writes nothing and leaves its input untouched, and
   a caller applies a proposal only on the user's tap. Its one caller is
@@ -1107,6 +1121,33 @@ the per-file gates below. Run it after EVERY file change.
   the four worked cases with their CY2026 figures, one case per rule, every
   flag and note text word for word, the result's shape, and every card
   helper by value.
+- Log's hernia picker (ASSET_V 69) sits directly under the search box, sky
+  like Private / Call (amber means a warning). utils.js decides: HERNIA_PICK
+  (the fourth curated table: the twelve anterior abdominal wall repairs
+  49591-49596 / 49613-49618 by initial or recurrent, size and reducible or
+  incarcerated, the mesh-removal add-ons 49623 and 11008, and the words for
+  11008's CMS primaries) and herniaPickerFor(cptMap, code, query), pure:
+  null, or the grid with each code's wRVU from the code map (overrides
+  apply), `at` (the picked code's cell) and the mesh add-ons, the infected
+  one with the primaries CMS lists (addOnRule) and the line Log shows. It
+  shows for a picked code of the twelve, or with no code picked for a search
+  that uses a hernia word (a typed word starting with hern, ventral,
+  incisional, umbilic, epigastr or spigel; part of one, such as "vent" or
+  "incision", is not) AND finds one of the twelve (so inguinal, femoral,
+  hiatal and parastomal searches show nothing); never when one of the
+  twelve is missing from the map; without CMS's add-on list it offers
+  no 11008. Log only wires it: ONE typeof guard (a new log.js beside an
+  older utils.js shows nothing);
+  its value is held back in the post-save window (!saved); its state
+  { id, kind, size } is memory only and keyed to the active row, and one
+  effect on cur.id closes it whenever the active row changes (a Proc tab,
+  + Add, a mesh line, the post-save reset); a big button is exactly the
+  search-result tap (`selectCode(cptMap[code]); setShowFavs(false);` -
+  modifiers carry over) and a mesh line exactly the "Also add?" writer.
+  check.js: HERNIA_PICK by value against the CMS data, herniaPickerFor by
+  value, Log hernia picker P1-P4 (taps, guard, place, state) and Log hooks.
+  The card's words are not tested: review them by eye. Not in History's
+  + Add.
 - MODIFIERS since ASSET_V 67: -22 counts 1.0 and its chip reads "no wRVU
   change" (cases saved at 1.2 keep their stored figure - the History keep
   rule - so the panel of such a case shows that chip beside the kept

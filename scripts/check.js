@@ -2702,6 +2702,209 @@ const COMP_MONEY_PIN = 8;
     bad2.length === 0, bad2.join("; "));
 }
 
+// Log hernia picker P1-P4 and Log hooks P5 (Batch 3), in the style of Log
+// card C1-C6: the picker under the search box (utils.js herniaPickerFor
+// decides when it shows and gives the codes and figures; log.js only wires
+// it; its values are tested further down).
+// P1, tap-only: inside the picker every state write sits in an onClick; a
+// code is picked only as the search-result tap - an onClick whose whole body
+// is `selectCode(cptMap[...]); setShowFavs(false);` (the row keeps its
+// modifiers, as with a result) - and a mesh line adds a row only through
+// addSuggestion, an onClick whose whole body is `addSuggestion(cptMap[...]);`.
+// No other row writer is called there. addSuggestion is ONE function at
+// LogProc's top level, the text the "Also add?" block held (a new row with
+// the code, made active), and the chips call it too.
+// P2, the update window: for a few minutes after a deploy a phone can hold
+// the new log.js beside the old utils.js (no herniaPickerFor), so the picker
+// shows only under ONE `typeof herniaPickerFor === "function"` guard; its one
+// call and every use of the value it gives sit under it (C2's rule: inside a
+// `g ? .. : ..` whose test is a guard name, or the right of an && chain that
+// leads with one; a guard name is the typeof guard or a name declared as an
+// && chain leading with a guard name), and no hook does.
+// P3, its place: the picker is the run of {<guard> && ...} children of
+// LogProc's page directly after the search box's field group and before the
+// category row (with only comments between), and none of it is styled
+// S.catRow, S.resultsList or S.selectedCard or calls setCat (5f-12's row,
+// lists and card stay as they are).
+// P4, its state: ONE useState(null) pair whose setter is the only one the
+// picker calls besides the pick's setShowFavs, always with null or an object
+// whose id is cur.id; not a seq* name (Log card C3-C5 own those); never in
+// the draft (logDraft); and the card opens only for the active row (a guard
+// name declared with `<state>.id === cur.id`), so a Proc tab, + Add, a mesh
+// tap and the post-save reset (each a new active row) hide it; ONE top-level
+// effect on cur.id closes it then, so going back to a row never finds it
+// open; and the guard of its value holds !saved (hidden in the post-save
+// window, as the lead-code card is).
+// P5 (Log hooks): no use* call inside ANY function nested in LogProc's JSX -
+// an IIFE, a map callback or a tap handler runs only sometimes, so a hook
+// there is a conditional hook. The hooks check above skips nested functions
+// and Log card C2 sees only the ones under the card's guard.
+{
+  const isId = (n, name) => !!n && n.type === "Identifier" && n.name === name;
+  const isMem = (n, o, p) => !!n && n.type === "MemberExpression" && !n.computed && isId(n.object, o) && !!n.property && n.property.name === p;
+  const isFn = n => !!n && (n.type === "FunctionExpression" || n.type === "ArrowFunctionExpression" || n.type === "FunctionDeclaration");
+  const bad1 = [], bad2 = [], bad3 = [], bad4 = [], bad5 = [], every = [bad1, bad2, bad3, bad4, bad5];
+  let lsrc = "", lprog = null;
+  try { lsrc = fs.readFileSync(path.join(JS_DIR, "log.js"), "utf8"); lprog = parser.parse(lsrc, AST_OPTS).program; } catch (e) { every.forEach(b => b.push("parse log.js")); }
+  const srcOf = n => n ? lsrc.slice(n.start, n.end).replace(/\s+/g, " ") : "";
+  const parent = new Map();
+  const link = (n, p) => {
+    if (!n || typeof n !== "object") return;
+    if (Array.isArray(n)) { n.forEach(x => link(x, p)); return; }
+    if (!n.type) return;
+    if (p) parent.set(n, p);
+    for (const k in n) { if (k === "loc" || k === "start" || k === "end" || k === "extra" || /Comments$/.test(k)) continue; link(n[k], n); }
+  };
+  if (lprog) link(lprog, null);
+  const deep = (root, pred) => { const out = []; walk(root, n => { if (pred(n)) out.push(n); }); return out; };
+  const within = (n, root) => { for (let p = n; p; p = parent.get(p)) if (p === root) return true; return false; };
+  const logFn = lprog ? lprog.body.filter(n => n.type === "FunctionDeclaration" && isId(n.id, "LogProc"))[0] || null : null;
+  if (lprog && !logFn) every.forEach(b => b.push("no LogProc in log.js"));
+  const decls = logFn ? deep(logFn, n => n.type === "VariableDeclarator" && n.id.type === "Identifier") : [];
+  const callsOf = name => lprog ? deep(lprog, n => n.type === "CallExpression" && isId(n.callee, name)) : [];
+  const isRef = n => { const p = parent.get(n); return !(p && ((p.type === "VariableDeclarator" && p.id === n) || (p.type === "MemberExpression" && p.property === n && !p.computed) || (p.type === "ObjectProperty" && p.key === n && !p.computed && !p.shorthand))); };
+  const refsOf = name => lprog ? deep(lprog, n => isId(n, name) && isRef(n)) : [];
+  const typeofOf = e => e && e.type === "BinaryExpression" && e.operator === "===" && e.left.type === "UnaryExpression" && e.left.operator === "typeof" && e.left.argument.type === "Identifier" && e.right.type === "StringLiteral" && e.right.value === "function" ? e.left.argument.name : null;
+  const andList = e => e && e.type === "LogicalExpression" && e.operator === "&&" ? andList(e.left).concat(andList(e.right)) : [e];
+  const leftmost = e => { while (e && e.type === "LogicalExpression" && e.operator === "&&") e = e.left; return e; };
+  const hookName = c => c.type === "Identifier" ? c.name : (c.type === "MemberExpression" && !c.computed && c.property ? c.property.name : "");
+  const isHook = n => n.type === "CallExpression" && /^use[A-Z]/.test(hookName(n.callee));
+  // P2.
+  const guards = decls.filter(d => d.init && andList(d.init).some(e => typeofOf(e) === "herniaPickerFor"));
+  const gd = guards.length === 1 ? guards[0] : null;
+  if (logFn && !gd) bad2.push("LogProc has " + guards.length + " typeof guards of herniaPickerFor, want ONE");
+  else if (gd && typeofOf(gd.init) !== "herniaPickerFor") bad2.push("the guard " + gd.id.name + " is `" + srcOf(gd.init) + "`, want exactly typeof herniaPickerFor === \"function\"");
+  const G = {};
+  if (gd) G[gd.id.name] = true;
+  for (let grew = true; grew;) { grew = false; decls.forEach(d => { const l = leftmost(d.init); if (d.init && d.init.type === "LogicalExpression" && l && l.type === "Identifier" && G[l.name] && !G[d.id.name]) { G[d.id.name] = true; grew = true; } }); }
+  const underGuard = n => {
+    for (let c = n, p = parent.get(n); p && p !== logFn; c = p, p = parent.get(p)) {
+      if (p.type === "ConditionalExpression" && p.test.type === "Identifier" && G[p.test.name] && within(n, p.consequent)) return true;
+      if (p.type === "LogicalExpression" && p.operator === "&&" && p.right === c && leftmost(p) && leftmost(p).type === "Identifier" && G[leftmost(p).name]) return true;
+    }
+    return false;
+  };
+  const hpCalls = callsOf("herniaPickerFor");
+  if (hpCalls.length !== 1) bad2.push("herniaPickerFor is called " + hpCalls.length + " times in log.js, want 1");
+  hpCalls.forEach(c => { if (!logFn || !within(c, logFn) || !underGuard(c)) bad2.push("herniaPickerFor at line " + c.loc.start.line + " is not under the guard"); });
+  const gIds = gd ? deep(gd.init, n => n.type === "Identifier") : [];
+  refsOf("herniaPickerFor").filter(n => gIds.indexOf(n) === -1).forEach(n => { const p = parent.get(n); if (!(p && p.type === "CallExpression" && p.callee === n)) bad2.push("herniaPickerFor is named other than as the callee of its call (or in the guard) at line " + n.loc.start.line); });
+  // The value the call gives: a name declared as `<guard> ? herniaPickerFor(...) : ...`.
+  const D = decls.filter(d => d.init && d.init.type === "ConditionalExpression" && d.init.test.type === "Identifier" && G[d.init.test.name]).map(d => d.id.name);
+  const valName = hpCalls.length === 1 ? (() => { const p = parent.get(hpCalls[0]), d = p && parent.get(p); return p && p.type === "ConditionalExpression" && p.consequent === hpCalls[0] && d && d.type === "VariableDeclarator" && d.init === p && d.id.type === "Identifier" ? d.id.name : ""; })() : "";
+  if (hpCalls.length === 1 && (!valName || D.indexOf(valName) === -1)) bad2.push("herniaPickerFor's value is not declared as `<guard> ? herniaPickerFor(...) : ...`");
+  D.forEach(name => refsOf(name).forEach(n => { if (!underGuard(n)) bad2.push(name + " is used outside the guard at line " + n.loc.start.line); }));
+  if (logFn) deep(logFn, isHook).forEach(c => { if (underGuard(c)) bad2.push("hook " + hookName(c.callee) + " under the guard at line " + c.loc.start.line); });
+  // P3. The picker: the outermost {<guard name> && ...} containers in LogProc.
+  const ledByGuard = e => !!e && e.type === "LogicalExpression" && e.operator === "&&" && !!leftmost(e) && leftmost(e).type === "Identifier" && !!G[leftmost(e).name];
+  const boxes = logFn && gd ? deep(logFn, n => n.type === "JSXExpressionContainer" && ledByGuard(n.expression)) : [];
+  const pick = boxes.filter(n => !boxes.some(m => m !== n && within(n, m)));
+  if (logFn && gd && !pick.length) [bad1, bad3].forEach(b => b.push("no {<guard> && ...} picker in LogProc's JSX"));
+  const attrOf = (el, name) => el.openingElement.attributes.filter(a => a.type === "JSXAttribute" && a.name && a.name.name === name)[0];
+  const styled = (n, key) => { if (!n || n.type !== "JSXElement") return false; const a = attrOf(n, "style"); const e = a && a.value && a.value.expression; return !!e && (isMem(e, "S", key) || (e.type === "ObjectExpression" && e.properties.some(p => p.type === "SpreadElement" && isMem(p.argument, "S", key)))); };
+  const ret = logFn ? logFn.body.body.filter(s => s.type === "ReturnStatement" && s.argument && s.argument.type === "JSXElement").pop() : null;
+  const kids = ret ? ret.argument.children : [];
+  const iSearch = kids.findIndex(c => c.type === "JSXElement" && styled(c, "fieldGroup") && deep(c, m => m.type === "JSXAttribute" && m.name && m.name.name === "value" && m.value && m.value.type === "JSXExpressionContainer" && isId(m.value.expression, "curSearch")).length > 0);
+  const iRow = kids.findIndex(c => c.type === "JSXExpressionContainer" && c.expression && c.expression.type === "LogicalExpression" && styled(c.expression.right, "catRow"));
+  if (logFn && (iSearch === -1 || iRow === -1 || iRow < iSearch)) bad3.push("LogProc's page has no search box field group followed by the category row (" + iSearch + ", " + iRow + ")");
+  else if (logFn) {
+    const between = kids.slice(iSearch + 1, iRow);
+    between.filter(c => !(c.type === "JSXText" && !c.value.trim()) && !(c.type === "JSXExpressionContainer" && c.expression.type === "JSXEmptyExpression") && pick.indexOf(c) === -1)
+      .forEach(c => bad3.push("between the search box and the category row: " + srcOf(c).slice(0, 60) + " (line " + c.loc.start.line + ")"));
+    pick.forEach(c => { if (between.indexOf(c) === -1) bad3.push("picker JSX at line " + c.loc.start.line + " is not between the search box and the category row"); });
+  }
+  pick.forEach(c => {
+    deep(c, n => ["catRow", "resultsList", "selectedCard"].some(k => styled(n, k))).forEach(n => bad3.push("picker JSX styled S.catRow, S.resultsList or S.selectedCard at line " + n.loc.start.line));
+    deep(c, n => n.type === "CallExpression" && isId(n.callee, "setCat")).forEach(n => bad3.push("setCat in the picker at line " + n.loc.start.line));
+  });
+  // P1. Inside the picker every state write sits in an onClick (the nearest
+  // function around it is an onClick value).
+  const clickFn = n => { for (let p = parent.get(n); p; p = parent.get(p)) { if (p.type === "FunctionExpression" || p.type === "ArrowFunctionExpression") { const b = parent.get(p), a = b && parent.get(b); return b && b.type === "JSXExpressionContainer" && b.expression === p && a && a.type === "JSXAttribute" && a.name && a.name.name === "onClick" ? p : null; } } return null; };
+  const WRITERS = ["selectCode", "addSuggestion", "updateProc", "toggleMod", "clearCode", "addProc", "removeProc", "applyTemplate", "showFavList", "toggleFav", "moveFav", "upd", "save", "setProcs", "setActiveProc"];
+  const isWrite = n => n.type === "CallExpression" && n.callee.type === "Identifier" && (/^set[A-Z]/.test(n.callee.name) || WRITERS.indexOf(n.callee.name) !== -1);
+  const stmtCall = (s, name) => s && s.type === "ExpressionStatement" && s.expression.type === "CallExpression" && isId(s.expression.callee, name) ? s.expression : null;
+  const fromMap = a => !!a && a.type === "MemberExpression" && a.computed && isId(a.object, "cptMap");
+  let picks = 0, meshes = 0;
+  const setters = {};
+  pick.forEach(box => deep(box, isWrite).forEach(c => {
+    const name = c.callee.name, fn = clickFn(c), at = name + " at line " + c.loc.start.line;
+    if (!fn) { bad1.push(at + " is not in an onClick"); return; }
+    const body = fn.body && fn.body.type === "BlockStatement" ? fn.body.body : [];
+    if (name === "selectCode") {
+      const s1 = stmtCall(body[1], "setShowFavs");
+      if (!(body.length === 2 && stmtCall(body[0], "selectCode") === c && c.arguments.length === 1 && fromMap(c.arguments[0]) && s1 && s1.arguments.length === 1 && s1.arguments[0].type === "BooleanLiteral" && s1.arguments[0].value === false))
+        bad1.push(at + ": its onClick is not `selectCode(cptMap[...]); setShowFavs(false);` and nothing more (" + srcOf(fn.body) + ")");
+      else picks++;
+    } else if (name === "addSuggestion") {
+      if (!(body.length === 1 && stmtCall(body[0], "addSuggestion") === c && c.arguments.length === 1 && fromMap(c.arguments[0]))) bad1.push(at + ": its onClick is not `addSuggestion(cptMap[...]);` and nothing more (" + srcOf(fn.body) + ")");
+      else meshes++;
+    } else if (name === "setShowFavs") {
+      if (!(body.length === 2 && stmtCall(body[1], "setShowFavs") === c && stmtCall(body[0], "selectCode"))) bad1.push(at + ": setShowFavs outside a pick (" + srcOf(fn.body) + ")");
+    } else if (WRITERS.indexOf(name) === -1) setters[name] = (setters[name] || 0) + 1;
+    else bad1.push(at + ": the picker calls " + name + " (it picks only as a search result does and adds a row only through addSuggestion)");
+  }));
+  if (pick.length && !picks) bad1.push("no pick (selectCode) in the picker");
+  if (pick.length && !meshes) bad1.push("no mesh line (addSuggestion) in the picker");
+  const ADD_TEXT = 'function(s) { var newP = { id: nextId.current++, code: s.code, search: s.code + " - " + (s.friendly || s.desc), mods: [] }; setProcs(function(prev) { return prev.concat([newP]); }); setActiveProc(procs.length); }';
+  const addDecls = lprog ? deep(lprog, n => n.type === "VariableDeclarator" && isId(n.id, "addSuggestion")) : [];
+  const topLevel = d => { const v = parent.get(d); return !!v && v.type === "VariableDeclaration" && !!logFn && logFn.body.body.indexOf(v) !== -1; };
+  if (!(addDecls.length === 1 && topLevel(addDecls[0]) && srcOf(addDecls[0].init) === ADD_TEXT)) bad1.push("addSuggestion is not ONE function at LogProc's top level with the \"Also add?\" block's text (" + addDecls.map(d => srcOf(d.init)).join(" | ") + ")");
+  refsOf("addSuggestion").forEach(n => { const p = parent.get(n); if (!(p && p.type === "CallExpression" && p.callee === n)) bad1.push("addSuggestion is named other than as a callee at line " + n.loc.start.line); });
+  const chipCalls = callsOf("addSuggestion").filter(c => !pick.some(b => within(c, b)));
+  if (!chipCalls.length || chipCalls.some(c => !clickFn(c))) bad1.push("the \"Also add?\" chips do not call addSuggestion, each in an onClick (" + chipCalls.length + " calls outside the picker)");
+  // P4.
+  const setNames = Object.keys(setters);
+  if (pick.length && setNames.length !== 1) bad4.push("the picker calls the setters " + JSON.stringify(setNames) + " besides the pick's, want its ONE state's");
+  const SET = setNames.length === 1 ? setNames[0] : "";
+  const pairs = logFn && SET ? deep(logFn, n => n.type === "VariableDeclarator" && n.id.type === "ArrayPattern" && n.id.elements.length === 2 && n.id.elements.every(e => e && e.type === "Identifier") && isId(n.id.elements[1], SET)) : [];
+  const pair = pairs.length === 1 ? pairs[0] : null;
+  const STATE = pair ? pair.id.elements[0].name : "";
+  if (SET && !pair) bad4.push(SET + " is not one `const [x, " + SET + "] = useState(...)` in LogProc");
+  if (pair && !(pair.init && pair.init.type === "CallExpression" && isId(pair.init.callee, "useState") && pair.init.arguments.length === 1 && pair.init.arguments[0].type === "NullLiteral")) bad4.push("the picker's state starts as `" + srcOf(pair.init) + "`, want useState(null) (closed, nothing read from the draft)");
+  if (pair && (/^seq/i.test(STATE) || /^setseq/i.test(SET))) bad4.push("the picker's state is named " + STATE + " / " + SET + " (seq* names are the lead-code card's: Log card C3-C5)");
+  if (SET) callsOf(SET).forEach(c => {
+    const a = c.arguments[0], idv = a && a.type === "ObjectExpression" ? a.properties.filter(p => p.type === "ObjectProperty" && isId(p.key, "id"))[0] : null;
+    if (!(c.arguments.length === 1 && (a.type === "NullLiteral" || (idv && isMem(idv.value, "cur", "id"))))) bad4.push(SET + " at line " + c.loc.start.line + " is given `" + srcOf(a) + "`, want null or an object whose id is cur.id");
+  });
+  if (logFn && STATE) walk(logFn, n => {
+    if (n.type === "AssignmentExpression" && isMem(n.left, "logDraft", "current") && deep(n.right, m => isId(m, STATE)).length) bad4.push("the picker's state " + STATE + " is parked in the draft at line " + n.loc.start.line);
+  });
+  const keyed = !!STATE && decls.some(d => G[d.id.name] && d.init && andList(d.init).some(e => e && e.type === "BinaryExpression" && e.operator === "===" && ((isMem(e.left, STATE, "id") && isMem(e.right, "cur", "id")) || (isMem(e.right, STATE, "id") && isMem(e.left, "cur", "id")))));
+  if (STATE && !keyed) bad4.push("no picker guard opens the card only for the active row (" + STATE + ".id === cur.id)");
+  // ...it is held back in the post-save window (the guard of its value holds
+  // !saved, as the lead-code card's seqOn does), and ONE top-level effect
+  // closes it whenever the active row changes, so going back to a row never
+  // finds it open.
+  const valDecl = valName ? decls.filter(d => isId(d.id, valName))[0] : null;
+  const valGuard = valDecl && valDecl.init && valDecl.init.type === "ConditionalExpression" && valDecl.init.test.type === "Identifier" ? decls.filter(d => isId(d.id, valDecl.init.test.name))[0] : null;
+  if (pick.length && !(valGuard && valGuard.init && andList(valGuard.init).some(e => e && e.type === "UnaryExpression" && e.operator === "!" && isId(e.argument, "saved"))))
+    bad4.push("the picker's value is not held back in the post-save window (the guard of " + (valName || "its value") + " holds no !saved)");
+  const resets = logFn && SET ? logFn.body.body.filter(s => {
+    const call = s.type === "ExpressionStatement" && s.expression.type === "CallExpression" && isId(s.expression.callee, "useEffect") ? s.expression : null;
+    const f = call ? call.arguments[0] : null, deps = call ? call.arguments[1] : null;
+    const b = f && isFn(f) && f.body.type === "BlockStatement" ? f.body.body : [];
+    const one = b.length === 1 ? stmtCall(b[0], SET) : null;
+    return !!one && one.arguments.length === 1 && one.arguments[0].type === "NullLiteral" && !!deps && deps.type === "ArrayExpression" && deps.elements.length === 1 && isMem(deps.elements[0], "cur", "id");
+  }) : [];
+  if (SET && resets.length !== 1) bad4.push("want ONE top-level `useEffect(function() { " + SET + "(null); }, [cur.id]);` (the card closes when the active row changes), found " + resets.length);
+  // P5.
+  if (logFn) {
+    const inJsx = n => { for (let p = parent.get(n); p && p !== logFn; p = parent.get(p)) if (/^JSX/.test(p.type)) return true; return false; };
+    const seen = new Set();
+    deep(logFn, n => isFn(n) && n !== logFn && inJsx(n)).forEach(f => deep(f.body, isHook).forEach(c => { if (!seen.has(c.start)) { seen.add(c.start); bad5.push("hook " + hookName(c.callee) + " at line " + c.loc.start.line + " inside a function nested in LogProc's JSX"); } }));
+  }
+  check("Log hernia picker P1: a code is picked only on a tap and exactly as a search result is (an onClick that is `selectCode(cptMap[...]); setShowFavs(false);`), a mesh line adds a row only through addSuggestion (an onClick that is `addSuggestion(cptMap[...]);`) - ONE function at LogProc's top level with the \"Also add?\" block's text, which the chips call too; inside the picker every state write sits in an onClick and no other row writer is called",
+    bad1.length === 0, bad1.join("; "));
+  check("Log hernia picker P2: the picker shows only when utils.js has herniaPickerFor - LogProc declares ONE typeof guard of it; its one call and every use of the value it gives sit under the guard, and no hook does",
+    bad2.length === 0, bad2.join("; "));
+  check("Log hernia picker P3: the picker sits directly under the search box (after its field group, before the category row, in LogProc's page) and uses none of S.catRow, S.resultsList or S.selectedCard and no setCat",
+    bad3.length === 0, bad3.join("; "));
+  check("Log hernia picker P4: its state is ONE useState(null) pair, set only to null or an object for cur.id, not a seq* name and never parked in the draft; the card opens only for the active row (<state>.id === cur.id), closes when the active row changes (one effect on cur.id) and is held back in the post-save window (!saved)",
+    bad4.length === 0, bad4.join("; "));
+  check("Log hooks: no hook call inside any function nested in LogProc's JSX (an IIFE, a map callback or a tap handler runs only sometimes)",
+    bad5.length === 0, bad5.join("; "));
+}
+
 // 5f-20. A modifier chip says what the modifier does to the wRVU: in Log and
 // in History's edit / add panel every chip of the grid prints the table's
 // code, label AND desc ("no wRVU change" for -22, "16% of base" for -82), in
@@ -3601,9 +3804,11 @@ check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_R
 // sit INSIDE the stretch (a marker cannot be moved around them); every text,
 // number and pattern literal in the stretch is one of today's (a code built
 // from pieces, a pattern or arithmetic is a new literal); and the code-shaped
-// tokens of utils.js OUTSIDE its three curated tables, and per other file, are
-// today's (a typed code in proposeCaseModifiers, or a typed list in a view,
-// moves a pin). Move a pin only for a code that is curated on purpose.
+// tokens of utils.js OUTSIDE its four curated tables (HERNIA_PICK, Log's
+// hernia picker, joined KEYWORD_SUPPLEMENT, FRIENDLY_DESC and COMPANION_CODES
+// in Batch 3), and per other file, are today's (a typed code in
+// proposeCaseModifiers, or a typed list in a view, moves a pin). Move a pin
+// only for a code that is curated on purpose.
 // The scan reads each file as plain text: a token is five characters SHAPED
 // like a code (five digits, four digits and a capital, a capital and four
 // digits), so a plain five-digit number and a word in a comment count too.
@@ -3634,7 +3839,7 @@ check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_R
     "s:var(--global-0)", "s:var(--global-10)", "s:var(--global-90)"];
   const TOKEN_G = new RegExp(CODE_TOKEN.source, "g");
   const cut = name => { const a = utilsLf.indexOf("var " + name + " = {"), b = utilsLf.indexOf("\n};", a); return a === -1 || b === -1 ? null : [a, b]; };
-  const tabs = ["KEYWORD_SUPPLEMENT", "FRIENDLY_DESC", "COMPANION_CODES"].map(cut);
+  const tabs = ["KEYWORD_SUPPLEMENT", "FRIENDLY_DESC", "COMPANION_CODES", "HERNIA_PICK"].map(cut);
   // Every token is kept with its line ([token, line]), so the failure line
   // can name it.
   const tokensOf = (text, skip) => { const out = []; let m; TOKEN_G.lastIndex = 0; while ((m = TOKEN_G.exec(text))) { if (!skip || !skip(m.index)) out.push([m[2], text.slice(0, m.index + m[1].length).split("\n").length]); } return out; };
@@ -3665,9 +3870,9 @@ check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_R
   const newLits = litsSeen.filter(x => LITS_PIN.indexOf(x) === -1), goneLits = LITS_PIN.filter(x => litsSeen.indexOf(x) === -1);
   const typedWhy = (outside.length ? ["not between the two markers exactly once: " + outside.join(", ")] : [])
     .concat(newLits.length || goneLits.length ? ["literals between the markers (s: text, n: number, r: pattern) - new: " + (newLits.join(", ") || "none") + "; gone: " + (goneLits.join(", ") || "none") + " - a code must not be typed there; anything else goes into LITS_PIN"] : [])
-    .concat(tabsOk ? [] : ["a curated table of utils.js (KEYWORD_SUPPLEMENT, FRIENDLY_DESC or COMPANION_CODES) was not found as `var NAME = {` ... `};`, so the tokens outside the three could not be read"])
+    .concat(tabsOk ? [] : ["a curated table of utils.js (KEYWORD_SUPPLEMENT, FRIENDLY_DESC, COMPANION_CODES or HERNIA_PICK) was not found as `var NAME = {` ... `};`, so the tokens outside the four could not be read"])
     .concat(tokenWhy.length ? ["code-shaped tokens - " + tokenWhy.join("; ") + " - any five characters shaped like a code count, a plain five-digit number and a word in a comment too. A new number that is no code: write it as a product (15 * 1000) and no pin moves. A token that is gone: take it out of its pin (LOOSE_PIN lists utils.js token by token, FILE_TOKENS_PIN counts per file). Add to a pin only for a code typed on purpose"] : []);
-  check("typed codes: the nine CMS lookups sit between the two markers, once each; the literals between the markers are the pinned ones; the code-shaped tokens of utils.js outside its three curated tables, and of every other file, are the pinned ones",
+  check("typed codes: the nine CMS lookups sit between the two markers, once each; the literals between the markers are the pinned ones; the code-shaped tokens of utils.js outside its four curated tables, and of every other file, are the pinned ones",
     outside.length === 0 && JSON.stringify(litsSeen) === JSON.stringify(LITS_PIN) && tabsOk && JSON.stringify(loose) === JSON.stringify(LOOSE_PIN) && JSON.stringify(perFileTokens) === JSON.stringify(FILE_TOKENS_PIN),
     typedWhy.join(" | ") || "a pin holds today's values in another order: keep each pin sorted");
 }
@@ -4809,6 +5014,134 @@ if (sb) {
     check("curated tables (Batch 3), by value: no KEYWORD_SUPPLEMENT line for 44141, 44640, 44620 or the nine hernia codes, and 38525's names the sentinel/deep node; COMPANION_CODES without 49568 (49595), 19281 (19120) or any chip for 44620, 44640 and 49000, and 38525 never called a dissection (38745 keeps the label)",
       b3t.length === 0, b3t.join(" || "));
   } catch (e) { check("\"Also add?\" chips: their tests ran to their end", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
+  // Log's hernia picker (Batch 3). HERNIA_PICK, the fourth curated table, by
+  // value against the CMS data - the plan's codes: initial 49591-49596,
+  // recurrent 49613-49618, old mesh removed 49623 (not infected) and 11008
+  // (infected). Each of the twelve is a database code, a 0-day global (000)
+  // and no add-on, and sits in the cell its OWN row names (initial or
+  // recurrent, under 3 / 3 to 10 / over 10 cm, reducible or incarcerated:
+  // read from its descriptor and checked against its keywords, never typed
+  // here), one code per cell. CMS allows 49623 beside all twelve and 11008
+  // beside none: its primaries are 10180 and 11004 to 11006 (the plan's rule).
+  // Then herniaPickerFor by value: it shows for a picked code of the twelve
+  // (at that code's cell) and, with no code picked, for a search that uses a
+  // hernia word and finds one of the twelve; never for an inguinal, femoral,
+  // hiatal or parastomal hernia search, "her", "ven", "recurrent" (the twelve,
+  // but no hernia word), an empty search or another code. The grid carries
+  // the wRVUs of the map it is given (an override map's), and the 11008 line
+  // is the plan's word for word. No picker when one of the twelve is missing,
+  // for bad input, or with no data file; beside a data file without CMS's
+  // add-on list, the grid and no 11008 line. Its inputs and HERNIA_PICK stay
+  // untouched, and a result its caller changes does not change the next one.
+  try {
+    const J = x => JSON.stringify(x);
+    // Objects compared by content, key order ignored.
+    const C = x => JSON.stringify(x, (k, v) => v && typeof v === "object" && !Array.isArray(v) ? Object.keys(v).sort().reduce((o, key) => { o[key] = v[key]; return o; }, {}) : v);
+    const HP = sb.HERNIA_PICK, tb = [], hb = [];
+    const TWELVE = ["49591", "49592", "49593", "49594", "49595", "49596", "49613", "49614", "49615", "49616", "49617", "49618"];
+    const rowOf = {};
+    (rows || []).forEach(r => { rowOf[r[0]] = r; });
+    if (!rows) tb.push("the data file did not load");
+    // A code's cell, read from its own row: the descriptor names it and the
+    // keywords must agree (recurrent, the size word, reducible / incarcerated).
+    const cellOfRow = code => {
+      const r = rowOf[code];
+      const m = r && /^Rpr ant abd hrn (init|recur) (<3cm|3-10cm|>10cm) (reducible|incarcerated)$/.exec(r[1]);
+      if (!m) return null;
+      const cell = [["init", "recur"].indexOf(m[1]), ["<3cm", "3-10cm", ">10cm"].indexOf(m[2]), ["reducible", "incarcerated"].indexOf(m[3])];
+      const kw = " " + String(r[4]).toLowerCase() + " ", has = w => kw.indexOf(" " + w + " ") !== -1;
+      const kwOk = has("recurrent") === (cell[0] === 1) && ["small", "medium", "large"].every((w, i) => has(w) === (cell[1] === i)) && has("reducible") === (cell[2] === 0) && has("incarcerated") === (cell[2] === 1);
+      return kwOk ? cell : "its keywords " + J(r[4]) + " disagree with its descriptor " + J(r[1]);
+    };
+    const byCell = [[[null, null], [null, null], [null, null]], [[null, null], [null, null], [null, null]]];
+    TWELVE.forEach(c => {
+      const r = rowOf[c], cell = cellOfRow(c);
+      if (!r) { tb.push(c + " is not a database code"); return; }
+      if (r[5] !== "000") tb.push(c + " has global " + J(r[5]) + ", want 000");
+      if (sb.addOnRule(c) !== null) tb.push(c + " is an add-on code");
+      if (!Array.isArray(cell)) { tb.push(c + ": " + (cell || "its descriptor " + J(r[1]) + " names no cell")); return; }
+      if (byCell[cell[0]][cell[1]][cell[2]]) tb.push(c + " and " + byCell[cell[0]][cell[1]][cell[2]] + " name the same cell");
+      byCell[cell[0]][cell[1]][cell[2]] = c;
+    });
+    const want = { initial: byCell[0], recurrent: byCell[1], meshClean: "49623", meshInfected: "11008" };
+    const keys = HP && typeof HP === "object" ? Object.keys(HP).sort() : [];
+    if (J(keys) !== J(["initial", "meshClean", "meshInfected", "meshInfectedWith", "recurrent"])) tb.push("HERNIA_PICK's keys are " + J(keys));
+    ["initial", "recurrent", "meshClean", "meshInfected"].forEach(k => { if (!HP || J(HP[k]) !== J(want[k])) tb.push("HERNIA_PICK." + k + " is " + J(HP && HP[k]) + ", want " + J(want[k]) + " (each code where its own row puts it)"); });
+    const flat = HP && Array.isArray(HP.initial) && Array.isArray(HP.recurrent) ? [].concat.apply([], HP.initial.concat(HP.recurrent)) : [];
+    if (J(flat.slice().sort()) !== J(TWELVE) || new Set(flat).size !== 12) tb.push("HERNIA_PICK's grid holds " + J(flat) + ", want the twelve, once each");
+    ["49623", "11008"].forEach(c => { if (!rowOf[c] || rowOf[c][5] !== "ZZZ") tb.push(c + " is not a database add-on code (global ZZZ)"); });
+    const cleanNo = TWELVE.filter(c => sb.addOnAllows("49623", c) !== true), infYes = TWELVE.filter(c => sb.addOnAllows("11008", c) !== false);
+    if (cleanNo.length) tb.push("CMS does not allow 49623 beside " + cleanNo.join(", "));
+    if (infYes.length) tb.push("CMS allows 11008 (or lists nothing for it) beside " + infYes.join(", "));
+    const r11 = sb.addOnRule("11008");
+    if (!(r11 && r11.type === "1" && J(r11.tokens) === J(["10180", "11004-11006"]))) tb.push("11008's CMS rule is " + J(r11) + ", want type 1 listing 10180 and 11004-11006");
+    if (!(HP && Array.isArray(HP.meshInfectedWith) && HP.meshInfectedWith.length === 2 && HP.meshInfectedWith.every(w => typeof w === "string" && w !== ""))) tb.push("meshInfectedWith is " + J(HP && HP.meshInfectedWith) + ", want two phrases, one per primary CMS lists for 11008");
+    check("hernia picker table (HERNIA_PICK), by value against the CMS data: the twelve (49591-49596, 49613-49618) once each, every one a database code with a 0-day global and no add-on, each in the cell its own descriptor and keywords name (initial / recurrent, under 3 / 3 to 10 / over 10 cm, reducible / incarcerated); 49623 (not infected) an add-on CMS allows beside all twelve, 11008 (infected) one it allows beside none, listing 10180 and 11004-11006",
+      tb.length === 0, tb.join(" || "));
+    const map = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", sb);
+    const H = (m, c, q) => { try { return sb.herniaPickerFor(m, c, q); } catch (e) { return { threw: String(e && e.message) }; } };
+    const PLAN_11008 = "CMS pays 11008 only with a complex I&D of an infected wound (10180) or a debridement of a necrotizing soft-tissue infection (11004 to 11006)";
+    const atOf = c => { for (let k = 0; k < 2; k++) for (let s = 0; s < 3; s++) for (let t = 0; t < 2; t++) if (byCell[k][s][t] === c) return [k, s, t]; return null; };
+    // What the picker should give for a map: the grid as the rows place the
+    // codes, each wRVU the map's, and the two mesh lines.
+    const full = (m, at) => ({ at: at, grid: byCell.map(k => k.map(s => s.map(c => ({ code: c, wRVU: m[c] ? m[c].wRVU : null })))),
+      clean: { code: "49623", wRVU: m["49623"] ? m["49623"].wRVU : null }, infected: { code: "11008", wRVU: m["11008"] ? m["11008"].wRVU : null, needs: ["10180", "11004-11006"], text: PLAN_11008 } });
+    const snap = () => C([TWELVE.concat(["49623", "11008"]).map(c => map[c]), Object.keys(map).length, HP]);
+    const before = snap();
+    // Each stem alone too (hern, ventral, incisional, umbilic, epigastr,
+    // spigel). Part of a stem is no hernia word ("her", "vent", "inci",
+    // "umbi"...), though each finds the twelve too, and neither is
+    // "incision": typing "incision and drainage" finds the twelve at
+    // "incision an" ("anterior") and must not show the line.
+    ["hernia", "ventral hernia", "incisional hernia", "umbilical hernia", "ventral hernia repair", "lap ventral hernia", "lap hernia", "epigastric hernia", "spigelian hernia", "Umbilical Hernia", "  incisional   hernia ",
+      "ventral", "incisional", "umbilical", "epigastric", "spigelian", "hern", "umbilic", "epigastr", "spigel"].forEach(q => {
+      const got = H(map, null, q);
+      if (C(got) !== C(full(map, null))) hb.push(J(q) + " with no code picked -> " + J(got));
+    });
+    if (C(H(map, "", "hernia")) !== C(full(map, null))) hb.push("\"hernia\" with the code \"\" -> " + J(H(map, "", "hernia")));
+    const partStems = ["her", "ven", "inc", "vent", "inci", "umbi", "epig", "spig", "ventra", "umbili", "epigast", "spige", "incisiona", "incision", "incision an"];
+    partStems.filter(q => !TWELVE.some(c => sb.matchesCPTQuery(map[c], q))).forEach(q => hb.push(J(q) + " no longer finds any of the twelve, so it no longer tests the stem rule"));
+    ["inguinal hernia", "femoral hernia", "hiatal hernia", "parastomal hernia", "recurrent", "mesh removal", "lap chole", "", "   "].concat(partStems).forEach(q => { const got = H(map, null, q); if (got !== null) hb.push(J(q) + " with no code picked shows the picker -> " + J(got)); });
+    // A stem inside a longer word is no hernia word: on a made-up map whose
+    // twelve also hold "paraumbilical", that search finds them and shows
+    // nothing, while "umbilical" still shows the picker.
+    const para = Object.assign({}, map);
+    TWELVE.forEach(c => { para[c] = Object.assign({}, map[c], { keywords: map[c].keywords + " paraumbilical" }); });
+    if (!TWELVE.every(c => sb.matchesCPTQuery(para[c], "paraumbilical"))) hb.push("the made-up map's twelve do not match \"paraumbilical\"");
+    if (H(para, null, "paraumbilical") !== null) hb.push("\"paraumbilical\" (a stem inside a word) shows the picker -> " + J(H(para, null, "paraumbilical")));
+    if (C(H(para, null, "umbilical")) !== C(full(para, null))) hb.push("\"umbilical\" on the made-up map -> " + J(H(para, null, "umbilical")));
+    TWELVE.forEach(c => { const got = H(map, c, "lap chole"); if (C(got) !== C(full(map, atOf(c)))) hb.push(c + " picked -> " + J(got)); });
+    ["47562", "49650", "49621", "49600", "49623", "11008"].forEach(c => { const got = H(map, c, "ventral hernia"); if (got !== null) hb.push(c + " picked shows the picker -> " + J(got)); });
+    const ov = vm.runInContext("buildCPTMap(getDB({ \"49615\": 12.34, \"49623\": 4.44, \"11008\": 5.55 }))", sb), og = H(ov, null, "ventral hernia"), a15 = atOf("49615");
+    if (!(og && a15 && C(og) === C(full(ov, null)) && og.grid[a15[0]][a15[1]][a15[2]].wRVU === 12.34 && og.clean.wRVU === 4.44 && og.infected.wRVU === 5.55)) hb.push("an override map (49615 12.34, 49623 4.44, 11008 5.55): the wRVUs shown are not the map's -> " + J(og));
+    const drop = (m, c) => { const o = Object.assign({}, m); delete o[c]; return o; };
+    if (H(drop(map, "49618"), null, "hernia") !== null || H(drop(map, "49618"), "49591", "") !== null) hb.push("a map without 49618 still shows the picker");
+    const noInf = H(drop(map, "11008"), "49591", ""), noClean = H(drop(map, "49623"), "49591", "");
+    if (!(noInf && noInf.infected === null && C(noInf.clean) === C(full(map, null).clean))) hb.push("a map without 11008: want the picker without the infected line -> " + J(noInf));
+    if (!(noClean && noClean.clean === null && C(noClean.infected) === C(full(map, null).infected))) hb.push("a map without 49623: want the picker without the clean line -> " + J(noClean));
+    [[null, null, "hernia"], [undefined, null, "hernia"], ["map", null, "hernia"], [5, "49591", ""], [[], null, "hernia"], [{}, null, "hernia"], [map, 49615, "hernia"], [map, {}, "hernia"], [map, ["49615"], "hernia"], [map, true, "hernia"],
+      [map, null, 5], [map, null, null], [map, null, {}], [map, null, ["hernia"]], [Object.assign({}, map, { "49591": null }), null, "hernia"], [Object.assign({}, map, { "49591": "x" }), "49591", ""]
+    ].forEach((a, i) => { const got = H(a[0], a[1], a[2]); if (got !== null) hb.push("bad input #" + i + " (" + (a[0] === map ? "the map" : J(a[0] === undefined ? "undefined" : a[0]).slice(0, 20)) + ", " + J(a[1]) + ", " + J(a[2]) + ") -> " + J(got)); });
+    const r1 = H(map, "49591", "");
+    if (r1 && r1.grid && r1.infected && r1.at) { r1.grid[0][0][0].code = "x"; r1.grid[0][0].push(1); r1.infected.needs.push("y"); r1.at[0] = 9; }
+    if (C(H(map, "49591", "")) !== C(full(map, atOf("49591")))) hb.push("a result its caller changed changes the next one -> " + J(H(map, "49591", "")));
+    if (snap() !== before) hb.push("the code map or HERNIA_PICK changed");
+    // Beside a data file without CMS's add-on list (six elements a row, no
+    // CMS_MORE): the grid and the clean line, no 11008 line (its rule could
+    // not be shown). With no data file at all: no picker.
+    if (rows) {
+      const noop = () => {};
+      const ctxWith = dataText => { const c2 = vm.createContext({ console, React: {}, localStorage: { getItem: () => null, setItem: noop, removeItem: noop },
+        document: { createElement: () => ({ style: {}, appendChild: noop, setAttribute: noop }), head: { appendChild: noop }, body: { appendChild: noop }, getElementById: () => null } });
+        vm.runInContext(dataText, c2, { filename: "cpt-data-older.js" }); vm.runInContext(utils, c2, { filename: "utils.js" }); return c2; };
+      const six = ctxWith("const CMS_RAW=" + JSON.stringify(rows.map(r => r.slice(0, 6))) + ";\n"), m6 = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", six), g6 = six.herniaPickerFor(m6, null, "hernia");
+      if (C(g6) !== C(Object.assign(full(m6, null), { infected: null }))) hb.push("beside a data file without CMS's add-on list: want the grid and the clean line, no 11008 line -> " + J(g6));
+      const none = ctxWith("var CMS_RAW=[];\n"), m0 = vm.runInContext("buildCPTMap(CPT_DATABASE_DEFAULT)", none);
+      if (none.herniaPickerFor(m0, null, "hernia") !== null || none.herniaPickerFor(m0, "49591", "") !== null) hb.push("with no data file the picker shows");
+    }
+    check("herniaPickerFor (Log's hernia picker), by value: shows for a picked code of the twelve (at its own cell) and, with no code picked, for a search with a hernia word that finds one of the twelve (hernia; ventral, incisional, umbilical, epigastric, spigelian, alone or with hernia; ventral hernia repair; lap ventral hernia; lap hernia; each stem alone: hern, umbilic, epigastr, spigel); never for inguinal, femoral, hiatal or parastomal hernia, part of a stem (her, ven, inc, vent, inci, umbi, epig, spig; each stem less its last letter: ventra, umbili, epigast, spige, incisiona), incision or incision an (typing an I&D), a stem inside a word (paraumbilical, made-up map), recurrent, an empty search or another code; the wRVUs are the given map's (overrides), the 11008 line the plan's word for word; null without one of the twelve, for bad input and with no data file; no 11008 line beside a data file without CMS's add-on list; inputs untouched, nothing shared between calls",
+      hb.length === 0, hb.join(" || "));
+  } catch (e) { check("hernia picker (HERNIA_PICK, herniaPickerFor): their tests ran to their end", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
   // CSV import never reads the exports' Credit column back into a mark - it
   // warns instead - and never takes a wRVU from the file's own adjusted
   // column: when a row will come in at another figure than the file shows,

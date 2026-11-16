@@ -590,6 +590,28 @@ var COMPANION_CODES = {
   "27880": [{ code: "27590", label: "AKA" }],
 };
 
+// =======================================
+// HERNIA PICKER (Log)
+// The fourth curated table: the anterior abdominal wall hernia repairs by
+// type, size and state, and the two mesh-removal add-ons Log's picker offers
+// beside them (herniaPickerFor, below getCompanionSuggestions). check.js
+// holds it to the CMS data.
+// =======================================
+var HERNIA_PICK = {
+  // [reducible, incarcerated or strangulated] for each size - under 3 cm,
+  // 3 to 10 cm, over 10 cm - of an initial repair (49591-49596) and of a
+  // recurrent one, repaired before at this site (49613-49618).
+  initial: [["49591", "49592"], ["49593", "49594"], ["49595", "49596"]],
+  recurrent: [["49613", "49614"], ["49615", "49616"], ["49617", "49618"]],
+  // Old mesh removed: not infected (49623, an add-on CMS lists beside each of
+  // the twelve) or infected (11008, which CMS pays only beside its own primary
+  // codes: herniaPickerFor reads them from addOnRule and names them with these
+  // words, in the order CMS lists them).
+  meshClean: "49623",
+  meshInfected: "11008",
+  meshInfectedWith: ["a complex I&D of an infected wound", "a debridement of a necrotizing soft-tissue infection"]
+};
+
 // Get companion suggestions combining clinical rules + user history.
 // savedCodes: the codes of the encounter's saved cases (Log passes those of
 // the same date and exactly the same initials, as its card counts them).
@@ -654,6 +676,68 @@ function getCompanionSuggestions(code, entries, cptMap, alreadySelected, savedCo
   }
 
   return results;
+}
+
+// herniaPickerFor(cptMap, code, query): what Log's hernia picker shows, or
+// null for no picker. It shows for a `code` that is one of HERNIA_PICK's
+// twelve (`at` = [kind, size, state] of its cell: the card opens there), or,
+// with no code picked (null or ""), for a search that uses a hernia word AND
+// finds one of the twelve by matchesCPTQuery, the search's own rule - so
+// "inguinal hernia" or "hiatal hernia" shows nothing. A hernia word is a
+// typed word that starts with one of the stems below; part of a stem is not
+// one ("vent", "inci"), so typing "incision and drainage" never shows it.
+// grid[kind][size][state] = { code, wRVU }: kind 0 initial, 1 recurrent; size
+// 0 under 3 cm, 1 3 to 10 cm, 2 over 10 cm; state 0 reducible, 1
+// incarcerated / strangulated. The wRVU is the code map's, so the user's
+// overrides apply. No picker when one of the twelve is not in the map.
+// clean / infected: the mesh-removal add-ons, { code, wRVU }, null when the
+// map lacks the code. The infected one also carries `needs`, the primary
+// codes CMS lists for it (addOnRule's tokens, as CMS lists them), and `text`,
+// the line Log shows under it; it is null when CMS lists no primaries for it
+// (an older data file), since the rule could not be shown. Pure: it writes
+// nothing and never throws for anything JSON can hold.
+function herniaPickerFor(cptMap, code, query) {
+  if (!cptMap || typeof cptMap !== "object") return null;
+  var picked = typeof code === "string" && code !== "";
+  if (!picked && code !== null && code !== undefined && code !== "") return null;
+  var P = HERNIA_PICK;
+  var cellOf = function(c) {
+    var r = typeof c === "string" && Object.prototype.hasOwnProperty.call(cptMap, c) ? cptMap[c] : null;
+    return r && typeof r === "object" ? { code: c, wRVU: r.wRVU } : null;
+  };
+  var kinds = [P.initial, P.recurrent], grid = [], all = [], at = null;
+  for (var k = 0; k < kinds.length; k++) {
+    if (!Array.isArray(kinds[k]) || kinds[k].length !== 3) return null;
+    grid.push([]);
+    for (var s = 0; s < 3; s++) {
+      if (!Array.isArray(kinds[k][s]) || kinds[k][s].length !== 2) return null;
+      grid[k].push([]);
+      for (var t = 0; t < 2; t++) {
+        var cell = cellOf(kinds[k][s][t]);
+        if (!cell) return null;
+        grid[k][s].push(cell);
+        all.push(cell.code);
+        if (picked && cell.code === code) at = [k, s, t];
+      }
+    }
+  }
+  if (picked && !at) return null;
+  if (!picked) {
+    var stems = ["hern", "ventral", "incisional", "umbilic", "epigastr", "spigel"];
+    var words = typeof query === "string" ? query.toLowerCase().split(/\s+/) : [];
+    var herniaWord = words.some(function(w) { return w !== "" && stems.some(function(st) { return w.indexOf(st) === 0; }); });
+    if (!herniaWord || !all.some(function(c) { return matchesCPTQuery(cptMap[c], query); })) return null;
+  }
+  var clean = cellOf(P.meshClean), inf = cellOf(P.meshInfected), rule = inf ? addOnRule(inf.code) : null, infected = null;
+  if (rule && rule.type === "1" && rule.tokens.length > 0) {
+    var named = function(tk) { return tk.indexOf("-") === -1 ? tk : tk.slice(0, 5) + " to " + tk.slice(6); };
+    var phrases = P.meshInfectedWith;
+    var says = Array.isArray(phrases) && phrases.length === rule.tokens.length && phrases.every(function(x) { return typeof x === "string" && x !== ""; })
+      ? rule.tokens.map(function(tk, i) { return phrases[i] + " (" + named(tk) + ")"; }).join(" or ")
+      : "one of its primary codes (" + rule.tokens.map(named).join(", ") + ")";
+    infected = { code: inf.code, wRVU: inf.wRVU, needs: rule.tokens.slice(), text: "CMS pays " + inf.code + " only with " + says };
+  }
+  return { at: at, grid: grid, clean: clean, infected: infected };
 }
 
 const CPT_DATABASE_DEFAULT=CMS_RAW.map(function(r){var kw=r[4]||"";var extra=KEYWORD_SUPPLEMENT[r[0]];if(extra)kw=kw?(kw+" "+extra):extra;var fr=FRIENDLY_DESC[r[0]];if(fr)kw=kw?(kw+" "+fr):fr;return {code:r[0],desc:r[1],wRVU:r[2],category:r[3],keywords:kw,friendly:fr}});

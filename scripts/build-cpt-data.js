@@ -637,7 +637,10 @@ const refSections = {
   KEYWORD_SUPPLEMENT: sectionCodes(utilsSrc, "var KEYWORD_SUPPLEMENT", "var FRIENDLY_DESC", /"([0-9A-Z]{5})"\s*:/g),
   FRIENDLY_DESC: sectionCodes(utilsSrc, "var FRIENDLY_DESC", "var COMPANION_CODES", /"([0-9A-Z]{5})"\s*:/g),
   COMPANION_CODES_keys: sectionCodes(utilsSrc, "var COMPANION_CODES", "\nfunction", /"([0-9A-Z]{5})"\s*:/g),
-  COMPANION_CODES_targets: sectionCodes(utilsSrc, "var COMPANION_CODES", "\nfunction", /code:\s*"([0-9A-Z]{5})"/g)
+  COMPANION_CODES_targets: sectionCodes(utilsSrc, "var COMPANION_CODES", "\nfunction", /code:\s*"([0-9A-Z]{5})"/g),
+  // Log's hernia picker (the fourth curated table): its codes are plain
+  // strings in lists, which the two patterns above never match.
+  HERNIA_PICK: sectionCodes(utilsSrc, "var HERNIA_PICK", "\n};", /"([0-9A-Z]{5})"/g)
 };
 const removedSet = new Set(report.removed.map(r => r.code));
 const dangling = [];

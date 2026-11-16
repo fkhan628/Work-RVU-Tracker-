@@ -24,6 +24,12 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
   // case it was tapped for, or "". Parked in the draft so it survives a tab
   // switch; the post-save reset clears it (never remembered after a save).
   const [seqKept, setSeqKept] = useState(function() { return dr && typeof dr.seqKept === "string" ? dr.seqKept : ""; });
+  // The hernia picker's card (under the search box): null when closed, else
+  // { id, kind, size } - the procedure row it is open for and the type and
+  // size chosen there. Keyed to the row, so another Proc tab, + Add, an "Also
+  // add?" or mesh tap (a new row, made active) and the post-save reset (a new
+  // row) close it. Memory only: never parked in the draft.
+  const [herniaOpen, setHerniaOpen] = useState(null);
   // Procedure templates: PRE-FILL only. applyTemplate composes the exact
   // state manual entry writes (selectCode / companion addSuggestion draft
   // shapes) and then STOPS - it never saves, never touches the save
@@ -259,6 +265,36 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     setActiveProc(procs.length);
     showFavList();
   };
+
+  // An "Also add?" chip or a hernia picker mesh line: a NEW procedure row
+  // with that code, made active - the current row is never touched. One
+  // writer for both (check.js Log hernia picker P1).
+  var addSuggestion = function(s) {
+    var newP = { id: nextId.current++, code: s.code, search: s.code + " - " + (s.friendly || s.desc), mods: [] };
+    setProcs(function(prev) { return prev.concat([newP]); });
+    setActiveProc(procs.length);
+  };
+
+  // Hernia picker, under the search box. utils.js herniaPickerFor decides
+  // when it shows (a picked code of the twelve, or a ventral hernia search)
+  // and gives the grid, each code's wRVU from the code map, and the mesh
+  // add-ons; Log only wires it. A big button picks exactly as a search
+  // result does, and a mesh line adds a row as an "Also add?" chip does
+  // (check.js Log hernia picker P1-P4). For a few minutes after a deploy a
+  // phone can hold this file beside the old utils.js, which has no helper:
+  // the picker then simply does not show. It is hidden in the post-save
+  // window (as the lead-code card is), and it closes when the active row
+  // changes (a Proc tab, + Add, a mesh line or the post-save reset), so
+  // going back to a row never finds it open.
+  var herniaOk = typeof herniaPickerFor === "function";
+  var herniaOn = herniaOk && !saved;
+  var hernia = herniaOn ? herniaPickerFor(cptMap, cur.code, curSearch) : null;
+  var herniaCard = herniaOn && !!hernia && !!herniaOpen && herniaOpen.id === cur.id;
+  useEffect(function() { setHerniaOpen(null); }, [cur.id]);
+  // The mesh lines: on a row whose code is one of the twelve, each add-on the
+  // case does not hold yet (as "Also add?" skips a code already typed).
+  var herniaClean = herniaCard && !!hernia.at && !!hernia.clean && !procs.some(function(p) { return p.code === hernia.clean.code; });
+  var herniaInfected = herniaCard && !!hernia.at && !!hernia.infected && !procs.some(function(p) { return p.code === hernia.infected.code; });
 
   // Apply a template: resolve codes against the CURRENT db (correct across
   // yearly CPT updates), fill the first empty draft, append the rest as new
@@ -826,6 +862,42 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
 
     {/* Search for active procedure */}
     <div style={S.fieldGroup}><label style={S.fieldLabel}>Search CPT Code or Procedure</label><input type="text" value={curSearch} onChange={function(e) { updateProc(activeProc, { search: e.target.value, code: null }); setShowFavs(false); }} placeholder="e.g. 47562, cholecystectomy, hernia..." autoCorrect="off" autoCapitalize="off" spellCheck={false} style={S.searchInput} onFocus={function() { if (!curSearch.trim()) setShowFavs(true); }} /></div>
+    {/* Hernia picker: the closed line, or the open card, for a picked code of
+        the twelve or a ventral hernia search (utils.js herniaPickerFor). Sky,
+        like Private / Call - amber means a warning in this app. Every button
+        is at least 44px, the two big ones 64px. */}
+    {herniaOk && !!hernia && !herniaCard && <button onClick={function() { setHerniaOpen({ id: cur.id, kind: hernia.at ? hernia.at[0] : null, size: hernia.at ? hernia.at[1] : null }); }} style={{ display: "block", width: "100%", minHeight: 44, marginBottom: 8, padding: "0 12px", borderRadius: 10, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer" }}>{hernia.at ? "Ventral hernia: change type or size, mesh" : "Ventral hernia? Pick by type and size"}</button>}
+    {herniaCard && <div style={{ marginBottom: 12, padding: 12, borderRadius: 12, border: "1px solid rgba(14,165,233,0.3)", background: "rgba(14,165,233,0.06)" }}>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, marginBottom: 10 }}>{"Repaired through another abdominal operation's incision? CMS does not pay it separately."}</div>
+      <div style={{ display: "flex", gap: 6 }}>{["Initial", "Recurrent"].map(function(label, k) {
+        var on = herniaOpen.kind === k;
+        return (<button key={label} aria-pressed={on} onClick={function() { setHerniaOpen({ id: cur.id, kind: k, size: herniaOpen.size }); }} style={{ flex: 1, minHeight: 44, padding: "6px 8px", borderRadius: 10, border: on ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: on ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{label}</button>);
+      })}</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, margin: "6px 0 10px" }}>{"Recurrent: repaired before at this site. If any defect was repaired before, the repair is recurrent. A first repair of an incisional hernia is initial."}</div>
+      <div style={{ display: "flex", gap: 6 }}>{["Under 3 cm", "3 to 10 cm", "Over 10 cm"].map(function(label, sz) {
+        var on = herniaOpen.size === sz;
+        return (<button key={label} aria-pressed={on} onClick={function() { setHerniaOpen({ id: cur.id, kind: herniaOpen.kind, size: sz }); }} style={{ flex: 1, minHeight: 44, padding: "6px 4px", borderRadius: 10, border: on ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.1)" : "var(--bg-card)", color: on ? "var(--accent-sky)" : "var(--text-dim)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>{label}</button>);
+      })}</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, margin: "6px 0 10px" }}>{"Size: the longest distance across all defects, up-down or side to side (not diagonal), outer edge to outer edge, measured before opening. Defects 10 cm or more apart: add each one's size."}</div>
+      <div style={{ display: "flex", gap: 6 }}>{["Reducible", "Incarcerated / strangulated"].map(function(label, st) {
+        // Greyed (no code) until both the type and the size are chosen; the
+        // row's own code is marked.
+        var cell = herniaOpen.kind !== null && herniaOpen.size !== null ? hernia.grid[herniaOpen.kind][herniaOpen.size][st] : null;
+        var on = !!cell && cell.code === cur.code;
+        return (<button key={label} disabled={!cell} aria-pressed={on} onClick={function() { selectCode(cptMap[cell.code]); setShowFavs(false); }} style={{ flex: 1, minHeight: 64, padding: "6px 8px", borderRadius: 10, border: on ? "2px solid #0ea5e9" : "1px solid var(--border-default)", background: on ? "rgba(14,165,233,0.1)" : cell ? "var(--bg-card)" : "transparent", color: on ? "var(--accent-sky)" : cell ? "var(--text-primary)" : "var(--text-faint)", fontSize: 13, fontWeight: 600, cursor: cell ? "pointer" : "default", display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 3 }}>
+          <span>{label}</span>
+          {cell && <span style={{ fontSize: 12, fontFamily: "JetBrains Mono" }}><span style={{ color: "var(--accent-sky)" }}>{cell.code}</span>{" "}<span style={{ color: "var(--accent-green)" }}>{cell.wRVU}</span></span>}
+        </button>);
+      })}</div>
+      <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5, marginTop: 6 }}>{"If any defect was incarcerated, the repair is incarcerated."}</div>
+      {(herniaClean || herniaInfected) && <div style={{ marginTop: 10, paddingTop: 10, borderTop: "1px solid rgba(14,165,233,0.2)" }}>
+        <div style={{ fontSize: 12, fontWeight: 600, color: "var(--text-primary)", marginBottom: 6 }}>Old mesh removed?</div>
+        {herniaClean && <button onClick={function() { addSuggestion(cptMap[hernia.clean.code]); }} style={{ display: "block", width: "100%", minHeight: 44, marginBottom: 6, padding: "6px 12px", borderRadius: 10, border: "1px solid rgba(14,165,233,0.25)", background: "var(--bg-card)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer" }}>{"+ " + hernia.clean.code + ", not infected, all or nearly all (" + hernia.clean.wRVU + ")"}</button>}
+        {herniaInfected && <button onClick={function() { addSuggestion(cptMap[hernia.infected.code]); }} style={{ display: "block", width: "100%", minHeight: 44, marginBottom: 6, padding: "6px 12px", borderRadius: 10, border: "1px solid rgba(14,165,233,0.25)", background: "var(--bg-card)", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, textAlign: "left", cursor: "pointer" }}>{"+ " + hernia.infected.code + ", infected (" + hernia.infected.wRVU + ")"}</button>}
+        {herniaInfected && <div style={{ fontSize: 11, color: "var(--text-muted)", lineHeight: 1.5 }}>{hernia.infected.text}</div>}
+      </div>}
+      <div style={{ display: "flex", justifyContent: "flex-end", marginTop: 4 }}><button onClick={function() { setHerniaOpen(null); }} style={{ minHeight: 44, padding: "0 12px", border: "none", background: "transparent", color: "var(--accent-sky)", fontSize: 13, fontWeight: 600, cursor: "pointer" }}>Close</button></div>
+    </div>}
     {/* Category / Favorites chips: only while the ACTIVE procedure has no
         picked code - the same !curSel both lists below lead with, so a
         filter never hides while a list shows. With a code picked a chip tap
@@ -959,11 +1031,6 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
       // The card's saved cases count as in the case for an add-on's primary.
       var suggestions = getCompanionSuggestions(curSel.code, data.entries, cptMap, alreadyCodes, seqOn ? seqMates.map(function(m) { return m.code; }) : []);
       if (suggestions.length === 0) return null;
-      var addSuggestion = function(s) {
-        var newP = { id: nextId.current++, code: s.code, search: s.code + " - " + (s.friendly || s.desc), mods: [] };
-        setProcs(function(prev) { return prev.concat([newP]); });
-        setActiveProc(procs.length);
-      };
       return (<div style={{ marginBottom: 8, animation: "rvuFadeIn 0.2s ease-out" }}>
         <div style={{ fontSize: 11, color: "var(--text-dim)", marginBottom: 5, fontWeight: 600 }}>Also add?</div>
         <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
