@@ -282,8 +282,17 @@ the per-file gates below. Run it after EVERY file change.
   repairData fixed point (contract tests). callpay.js: versionSummary is the
   only caller of rateSummary (legacy branch); a null date reads "Original".
 - CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
-  rankCPTMatches only reorders them (exact, prefix, usage, favorites,
-  CPT order). Log and History both use it; check.js pins it.
+  rankCPTMatches only reorders them (exact, prefix, usage, favorites, the
+  short-word step, CPT order). The short-word step (ASSET_V 69) looks only
+  at typed words of 3 characters or fewer that are not all digits (so
+  typing a code keeps the order of the earlier steps), in the text
+  matchesCPTQuery reads:
+  a whole word first, then a word start, then only inside a word ("hra" in
+  "urethra"; letters and digits are word characters, so "a1" only starts a
+  word in "a13"); each word counts at its best place, the worst such word
+  decides, and a longer word never reorders anything. Log and History both
+  use it; check.js pins it (the order on made-up rows, 6b-order; the owner's
+  search terms on the real data as a fresh install, 6b-terms).
 - wRVU credit has ONE rule, in utils.js: isNoCredit(e) is the only
   no-credit test (strict e.noCredit === true); creditedRVU(e) feeds every
   wRVU or comp SUM (the snapshot adjustedRVU, uncoerced, or 0);
@@ -910,7 +919,20 @@ the per-file gates below. Run it after EVERY file change.
   real 0.00. Never hand-edit any of them.
   The curated fields - descriptor (r[1]), category (r[3]), keywords (r[4]) -
   may be edited in place; the generator carries them forward on its next run
-  (and its swap checklist edits them in the candidate). A second constant,
+  (and its swap checklist edits them in the candidate). Edit them with the
+  builder's own row writer (jsStr, emitNum, emitRow), never by hand: plain
+  ASCII wording, no < > " or backslash. check.js fingerprints them
+  (CURATED_HASH_BASELINE: every row's code|r[1]|r[3]|r[4]), so an edit sets
+  the new value in the same commit, deliberately - and so does a yearly swap
+  (CMS's new short text for codes never curated, codes added and removed;
+  take the value from the check's failure line once the builder's report of
+  descriptor changes is reviewed). The 53 rows reworded in ASSET_V 69 are
+  also pinned word for word, and the five newborn repairs 49600-49611 sit
+  under Abdomen/Peritoneum (search reads the category: under Hernia/Abdomen
+  "large hernia" listed one). Wording never names what a code is NOT (search
+  matches those words too; CMS's own "non-infected" is the one exception)
+  and leads with the words that tell neighbours apart (Home's Recent list
+  shows about 33 characters). A second constant,
   CMS_MORE, follows the rows: `addon` (CMS's NCCI add-on code edits for the
   app's codes, "<type>" or "<type>:<tokens>", a token being one primary code
   or a range A-B in string order), `endo` (endoscopy families by base code),
@@ -921,11 +943,12 @@ the per-file gates below. Run it after EVERY file change.
   always the file the data was built from: the run stops when its title
   names another year than --year or the year before, or when a code it
   keeps has no row there. CMS_ROW_BASELINE, GLOB_BASELINE,
-  IND_BASELINE, FAC_SUM_BASELINE, POLICY_HASH_BASELINE, PRIOR_BASELINE and
-  MORE_BASELINE live in check.js and change together with the data file,
-  deliberately. The row fingerprint covers every CMS element of every row -
-  wRVU, global, indicators, facility total, prior-year value - and the two
-  table fingerprints every table entry, so a hand edit of any of them fails;
+  IND_BASELINE, FAC_SUM_BASELINE, POLICY_HASH_BASELINE, CURATED_HASH_BASELINE,
+  PRIOR_BASELINE and MORE_BASELINE live in check.js and change together with
+  the data file, deliberately. The row fingerprint covers every CMS element
+  of every row - wRVU, global, indicators, facility total, prior-year value -
+  the two table fingerprints every table entry, and the curated fingerprint
+  every descriptor, category and keywords, so a hand edit of any of them fails;
   check.js also holds the file to the builder's exact text: every row line
   as the builder's row writer prints it, each table key once. For that it
   carries a COPY of the writer (jsStr, emitNum, emitRow) and holds the copy
@@ -978,6 +1001,14 @@ the per-file gates below. Run it after EVERY file change.
   holds back only 38900; a "Logged together" chip from the user's own
   history waits the same way (44121 after 47562, say, until 44120 is in the
   case). Type 2 and 3 add-ons and every other suggestion are unchanged.
+  Every key and code of the table is a database code (check.js). ASSET_V 69
+  removed the deleted 49568 (under 49595), 19281 under 19120 (a marker placed
+  by imaging makes the case 19125), the adhesiolysis chips of 44620 and
+  44640 and every chip of 49000 (CMS's NCCI manual: enterolysis, and an ex
+  lap beside another open abdominal operation, are not billed apart;
+  extensive adhesiolysis is -22 on the main code), and 38525 reads
+  "Sentinel/deep axillary node" under 19301 and 38900 (38745 keeps "Axillary
+  dissection"); check.js pins these by value.
 - Lead code and -51 have ONE rule, utils.js proposeCaseModifiers. It is pure:
   it proposes and flags, writes nothing and leaves its input untouched, and
   a caller applies a proposal only on the user's tap. Its one caller is

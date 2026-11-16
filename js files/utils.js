@@ -174,14 +174,11 @@ var KEYWORD_SUPPLEMENT = {
   "44140": "colectomy colon resection hemicolectomy right left sigmoid",
   "44204": "lap colectomy laparoscopic colon resection hemicolectomy",
   "44205": "lap ileocecectomy right hemicolectomy laparoscopic",
-  "44141": "hartmann colostomy colectomy",
-  "44640": "hartmann reversal colostomy takedown",
-  "44620": "ileostomy takedown reversal closure",
   "44310": "ileostomy creation ostomy",
   "44320": "colostomy creation ostomy",
   "19301": "lumpectomy partial mastectomy breast conserving",
   "19303": "mastectomy simple total breast removal",
-  "38525": "axillary lymph node dissection ALND sentinel",
+  "38525": "axillary lymph node biopsy excision sentinel slnb deep",
   "38900": "sentinel lymph node biopsy SLNB",
   "38745": "axillary lymph node dissection ALND complete",
   "35301": "CEA carotid endarterectomy",
@@ -209,9 +206,6 @@ var KEYWORD_SUPPLEMENT = {
   "48150": "whipple pancreaticoduodenectomy pancreas",
   "60240": "thyroidectomy total thyroid",
   "60220": "thyroid lobectomy hemithyroidectomy",
-  "49591": "ventral hernia umbilical epigastric small",
-  "49593": "ventral hernia incisional medium",
-  "49595": "ventral hernia incisional large complex",
   "49082": "paracentesis diagnostic ascites tap",
   "49083": "paracentesis therapeutic ascites drainage",
   "11042": "wound debridement subcutaneous",
@@ -224,14 +218,6 @@ var KEYWORD_SUPPLEMENT = {
   "49520": "recurrent inguinal hernia groin open",
   "49521": "recurrent inguinal hernia groin incarcerated strangulated open",
   "49651": "recurrent inguinal hernia laparoscopic TAPP TEP groin lap",
-
-  // Recurrent ventral/incisional hernia
-  "49613": "recurrent ventral hernia incisional small reducible",
-  "49614": "recurrent ventral hernia incisional small incarcerated strangulated",
-  "49615": "recurrent ventral hernia incisional medium reducible",
-  "49616": "recurrent ventral hernia incisional medium incarcerated strangulated",
-  "49617": "recurrent ventral hernia incisional large reducible",
-  "49618": "recurrent ventral hernia incisional large incarcerated strangulated",
 
   // Skin cyst excision (benign lesions by location and size)
   "11400": "skin cyst excision benign lesion trunk extremity subcutaneous epidermal inclusion sebaceous pilar",
@@ -525,17 +511,17 @@ var COMPANION_CODES = {
   "21932": [{ code: "12034", label: "Intermediate closure" }, { code: "13101", label: "Complex closure" }],
   "21933": [{ code: "12035", label: "Intermediate closure" }, { code: "13101", label: "Complex closure" }],
   // Mastectomy -> SLNB, ALND
-  "19301": [{ code: "38900", label: "Sentinel node" }, { code: "38525", label: "Axillary dissection" }, { code: "19283", label: "Breast localization" }],
+  "19301": [{ code: "38900", label: "Sentinel node" }, { code: "38525", label: "Sentinel/deep axillary node" }, { code: "19283", label: "Breast localization" }],
   "19302": [{ code: "38900", label: "Sentinel node" }],
   "19303": [{ code: "38900", label: "Sentinel node" }, { code: "38745", label: "Axillary dissection" }],
   "19307": [{ code: "38900", label: "Sentinel node" }],
   // Breast biopsy -> localization
   "19081": [{ code: "19281", label: "Localization" }],
   "19083": [{ code: "19285", label: "US localization" }],
-  "19120": [{ code: "38900", label: "Sentinel node" }, { code: "19281", label: "Localization" }],
+  "19120": [{ code: "38900", label: "Sentinel node" }],
   "19125": [{ code: "38900", label: "Sentinel node" }],
-  // SLNB -> ALND
-  "38900": [{ code: "38525", label: "Axillary dissection" }],
+  // SLNB -> sentinel/deep axillary node excision
+  "38900": [{ code: "38525", label: "Sentinel/deep axillary node" }],
   // Cholecystectomy -> IOC
   "47562": [{ code: "47563", label: "With cholangiogram" }],
   // Colectomy -> mobilization, ileostomy
@@ -549,8 +535,8 @@ var COMPANION_CODES = {
   "44144": [{ code: "44139", label: "Mobilization colon" }],
   "44145": [{ code: "44139", label: "Mobilization colon" }, { code: "44310", label: "Ileostomy" }],
   "44150": [{ code: "44310", label: "Ileostomy" }],
-  // Hernia -> mesh (component separation)
-  "49595": [{ code: "15734", label: "TAR/component sep" }, { code: "49568", label: "Mesh implant" }],
+  // Hernia -> component separation (TAR)
+  "49595": [{ code: "15734", label: "TAR/component sep" }],
   "49617": [{ code: "15734", label: "TAR/component sep" }],
   "49618": [{ code: "15734", label: "TAR/component sep" }],
   // Appendectomy with abscess
@@ -559,8 +545,6 @@ var COMPANION_CODES = {
   // Small bowel resection -> additional resection
   "44120": [{ code: "44121", label: "Addl SB resection" }],
   "44202": [{ code: "44203", label: "Addl SB resection" }],
-  // Ex-lap -> adhesiolysis
-  "49000": [{ code: "44005", label: "Adhesiolysis" }, { code: "44310", label: "Ileostomy" }, { code: "44320", label: "Colostomy" }],
   // Thyroidectomy
   "60240": [{ code: "60220", label: "Lobectomy" }, { code: "38900", label: "Sentinel node" }],
   "60220": [{ code: "60240", label: "Total thyroidectomy" }],
@@ -601,9 +585,6 @@ var COMPANION_CODES = {
   "49650": [{ code: "49650", label: "Bilateral (mod -50)" }],
   // Port removal + new port
   "36590": [{ code: "36561", label: "New port placement" }],
-  // Colostomy reversal
-  "44640": [{ code: "44005", label: "Adhesiolysis" }],
-  "44620": [{ code: "44005", label: "Adhesiolysis" }],
   // AKA/BKA
   "27590": [{ code: "27882", label: "BKA open/guillotine" }],
   "27880": [{ code: "27590", label: "AKA" }],
@@ -693,16 +674,46 @@ function matchesCPTQuery(c, query) {
 // Order search MATCHES so the likely code is on top - never adds or drops a
 // match (same set as matchesCPTQuery). Stable: exact code, then code
 // prefix, then the user's most-used codes (usage = { code: count }), then
-// favorites, then database (CPT) order. Returns a new array.
+// favorites, then the short-word step, then database (CPT) order. Returns a
+// new array. The short-word step looks only at typed words of 3 characters
+// or fewer that are not all digits ("hra", "lar", "lap"; typing a code keeps
+// the order of the earlier steps): codes where each such word stands as a
+// whole word in the text matchesCPTQuery searches come first, then codes
+// where each at least starts a word, then the rest ("hra" inside
+// "urethra"); the worst short word decides, and longer words never reorder
+// anything.
 function rankCPTMatches(items, query, usage, favorites) {
   var q = (query || "").trim().toLowerCase();
   var fav = {};
   (favorites || []).forEach(function(c) { fav[c] = true; });
   var u = usage || {};
+  var shortWords = q.split(/\s+/).filter(function(t) { return t && t.length <= 3 && !/^[0-9]+$/.test(t); });
+  var edge = /[a-z0-9]/;
+  // 0 = every short word is a whole word somewhere in the code's text, 1 =
+  // each one at least starts a word, 2 = some short word is only inside a
+  // word (or nowhere). A word that begins or ends with a sign ("(hra", "w/")
+  // has no edge to test on that side. Letters and digits are word characters
+  // ("a1" only starts a word in "a13"). With no short word every code is 0.
+  var wordLevel = function(c) {
+    if (!shortWords.length) return 0;
+    var hay = (c.code + " " + c.desc + " " + c.category + " " + (c.keywords || "") + " " + (c.friendly || "")).toLowerCase();
+    var worst = 0;
+    for (var w = 0; w < shortWords.length && worst < 2; w++) {
+      var t = shortWords[w], best = 2, p = hay.indexOf(t);
+      while (p !== -1 && best > 0) {
+        var starts = p === 0 || !edge.test(hay.charAt(p - 1)) || !edge.test(t.charAt(0));
+        var ends = p + t.length >= hay.length || !edge.test(hay.charAt(p + t.length)) || !edge.test(t.charAt(t.length - 1));
+        if (starts) best = ends ? 0 : 1;
+        p = hay.indexOf(t, p + 1);
+      }
+      if (best > worst) worst = best;
+    }
+    return worst;
+  };
   return (items || []).map(function(c, i) {
     var code = String(c.code).toLowerCase();
-    return { c: c, i: i, tier: code === q ? 0 : (q && code.indexOf(q) === 0 ? 1 : 2), use: u[c.code] || 0, fav: fav[c.code] ? 1 : 0 };
-  }).sort(function(a, b) { return a.tier - b.tier || b.use - a.use || b.fav - a.fav || a.i - b.i; })
+    return { c: c, i: i, tier: code === q ? 0 : (q && code.indexOf(q) === 0 ? 1 : 2), use: u[c.code] || 0, fav: fav[c.code] ? 1 : 0, word: wordLevel(c) };
+  }).sort(function(a, b) { return a.tier - b.tier || b.use - a.use || b.fav - a.fav || a.word - b.word || a.i - b.i; })
     .map(function(x) { return x.c; });
 }
 const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();

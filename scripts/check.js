@@ -45,6 +45,15 @@ const FAC_SUM_BASELINE = 12437765;
 // element of ANY row does (wRVU, global, indicators, facility total,
 // prior-year value), also an edit that keeps every count and sum.
 const POLICY_HASH_BASELINE = "1d9704ed";
+// CURATED_HASH_BASELINE (Batch 3): the same fingerprint over every row's
+// "code|r[1]|r[3]|r[4]" line - the curated descriptor, category and keywords,
+// which no CMS element covers. Any wording edit moves it ON PURPOSE: the
+// session that rewrites a descriptor, a category or keywords sets the new
+// value (the failure prints it) in the same commit, once it has checked that
+// only the rows it meant to change did. A yearly swap moves it too (CMS's new
+// short descriptors replace the ones never curated; codes come and go).
+// Batch 3 (53 rows reworded) moved it from 5c6d70d2.
+const CURATED_HASH_BASELINE = "5a552984";
 // PRIOR_BASELINE: the prior-year work RVU (r[8]) - its year (CMS_MORE
 // priorYear), the sum in cents, how many rows have none (null: that year's
 // file has no payable row for the code) and how many hold a real 0.
@@ -3141,6 +3150,8 @@ if (rows) {
   });
   check("fingerprint self-test (FNV-1a 32 bit)", fnv1a("") === "811c9dc5" && fnv1a("a") === "e40c292c" && fnv1a("foobar") === "bf9cf968" && tableHash({ b: "2", a: "1" }) === fnv1a("a:1\nb:2"));
   check("CMS fingerprint == POLICY_HASH_BASELINE (every row's wRVU, global, indicators, facility total and prior-year value)", fnv1a(policyText) === POLICY_HASH_BASELINE, "got " + fnv1a(policyText));
+  const curatedText = rows.map(r => r[0] + "|" + r[1] + "|" + r[3] + "|" + r[4] + "\n").join("");
+  check("curated fingerprint == CURATED_HASH_BASELINE (every row's descriptor, category and keywords; a wording edit moves it on purpose)", fnv1a(curatedText) === CURATED_HASH_BASELINE, "got " + fnv1a(curatedText));
   const sameCounts = (a, b) => Object.keys(Object.assign({}, a, b)).every(k => (a[k] || 0) === (b[k] || 0));
   check("CMS indicator distributions == IND_BASELINE", ["mult", "bilat", "asst", "co"].every(k => sameCounts(IND_BASELINE[k], indDist[k])) && Object.keys(IND_BASELINE).join() === "mult,bilat,asst,co", JSON.stringify(indDist));
   check("CMS facility totals sum (cents) == FAC_SUM_BASELINE", facCents === FAC_SUM_BASELINE, "got " + facCents);
@@ -3236,6 +3247,76 @@ if (rows) {
   check("cpt-data.js is the builder's text and nothing else: one row per line, each as the builder writes it (the row writer copied here is held to the builder's own), then CMS_MORE with one entry per line in code order, each key once",
     !!layout && rowLines.length === rows.length && offRow === -1 && layout[2] === moreText && writerOff === "",
     writerOff ? "the row writer copied into this check is no longer the builder's - " + writerOff + " - copy jsStr, emitNum and emitRow from scripts/build-cpt-data.js again" : !layout ? "the two-statement layout was not found" : rowLines.length !== rows.length ? rowLines.length + " row lines for " + rows.length + " rows" : offRow !== -1 ? "line " + (offRow + 2) + " of the file (row " + (offRow + 1) + ", " + JSON.stringify(rows[offRow] && rows[offRow][0]) + ") is not the builder's text: " + offWhy() + " - undo the hand edit or run the builder again (if its row writer changed, copy it here)" : "CMS_MORE is not the builder's text (a key twice, another order or extra text?)");
+  // 6-B3 (Batch 3): the 53 rows Batch 3 reworded, word for word - [code,
+  // descriptor r[1], keywords r[4]], as the Batch 3 plan's details give them
+  // (a row whose descriptor Batch 3 kept carries it as it was). The new
+  // wording is the app's own (the AMA's long descriptors are copyrighted and
+  // this repo is public) and names nothing a code is NOT, since search
+  // matches those words too ("non-infected" is CMS's own). A saved case keeps
+  // the description it was saved with. CURATED_HASH_BASELINE covers every row.
+  const B3_ROWS = [
+    ["11008", "Rmv infected abd wall mesh add-on", "remove removal explant infected mesh prosthesis abdominal wall add-on"],
+    ["19120", "Exc breast lesion(s), palpable or intra-op US", "breast lesion excision excisional biopsy palpable mass fibroadenoma cyst papilloma intraoperative ultrasound"],
+    ["19125", "Exc breast lesion w/preop marker (wire/seed), first", "breast lesion excision excisional biopsy wire seed clip marker localized localization"],
+    ["19301", "Partial mastectomy", "partial mastectomy lumpectomy breast conserving surgery BCS segmental margins wire seed localized"],
+    ["44140", "Colectomy partial w/anastomosis", "partial colectomy segmental resection anastomosis open with"],
+    ["44141", "Colectomy partial w/anastomosis + skin-level stoma", "open partial colectomy anastomosis colostomy cecostomy skin level with"],
+    ["44143", "Colectomy partial w/end colostomy (Hartmann)", "hartmann procedure open partial colectomy end colostomy rectal stump with"],
+    ["44145", "Open LAR (partial colectomy, low colorectal join)", "open low anterior resection lar coloproctostomy colorectal anastomosis"],
+    ["44146", "Colectomy partial w/coloproctostomy & colostomy", "low anterior resection with diverting colostomy lar"],
+    ["44187", "Lap ileostomy/jejunostomy nontubal", "laparoscopic ileostomy creation loop diverting"],
+    ["44188", "Lap colostomy", "laparoscopic colostomy creation loop diverting"],
+    ["44204", "Lap colectomy partial w/anastomosis", "laparoscopic robotic partial colectomy segmental resection anastomosis with"],
+    ["44205", "Lap colectomy partial w/removal terminal ileum", "laparoscopic robotic ileocecectomy right hemicolectomy"],
+    ["44206", "Lap colectomy partial w/end colostomy (Hartmann)", "laparoscopic robotic hartmann procedure end colostomy rectal stump with"],
+    ["44207", "Lap LAR (partial colectomy, low colorectal join)", "laparoscopic robotic low anterior resection lar coloproctostomy colorectal anastomosis"],
+    ["44208", "Lap colectomy partial w/colorectal & colostomy", "laparoscopic robotic LAR with diverting colostomy"],
+    ["44210", "Lap colectomy total", "laparoscopic robotic total colectomy"],
+    ["44227", "Lap ostomy closure w/resection (eg Hartmann reversal)", "laparoscopic robotic ostomy closure takedown reversal hartmann colostomy ileostomy enterostomy close stoma"],
+    ["44310", "Ileostomy creation", "ileostomy jejunostomy creation open loop diverting"],
+    ["44320", "Colostomy creation", "colostomy creation open loop diverting"],
+    ["44620", "Open ostomy closure, stoma only", "open ostomy closure takedown reversal ileostomy colostomy loop enterostomy close stoma"],
+    ["44625", "Open ostomy closure w/resection and anastomosis", "open ostomy closure takedown reversal ileostomy colostomy loop anastomosis enterostomy close stoma"],
+    ["44626", "Open Hartmann reversal (ostomy closure w/resection)", "open hartmann reversal ostomy closure takedown colostomy colorectal anastomosis enterostomy close stoma"],
+    ["44640", "Closure enterocutaneous (bowel-skin) fistula", "enterocutaneous fistula ecf bowel skin fistula closure repair"],
+    ["45116", "Partial proctectomy with anastomosis, transsacral (Kraske) approach", "partial proctectomy transsacral kraske"],
+    ["46080", "Sphnctrotmy anal div sphnctr", "lateral internal sphincterotomy lis fissure"],
+    ["46505", "Botox/toxin injection, internal anal sphincter", "botox botulinum toxin injection anal fissure chemodenervation"],
+    ["46600", "Anoscopy, diagnostic, standard", "anoscopy diagnostic standard brushing washing"],
+    ["46601", "High-res anoscopy (HRA), diagnostic", "hra high resolution anoscopy magnified acetic acid anal dysplasia hsil"],
+    ["46607", "High-res anoscopy (HRA) w/biopsy", "hra high resolution anoscopy biopsy acetic acid anal dysplasia hsil"],
+    ["46910", "Destruction anal lesion(s), simple, electrocautery", "anal condyloma warts simple electrocautery cautery fulguration ablation"],
+    ["46924", "Destruction anal lesions, extensive, any method", "extensive anal condyloma warts ablation fulguration laser cryotherapy"],
+    ["49591", "Rpr ant abd hrn init <3cm reducible", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh small reducible open lap laparoscopic robotic"],
+    ["49592", "Rpr ant abd hrn init <3cm incarcerated", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh small incarcerated strangulated open lap laparoscopic robotic"],
+    ["49593", "Rpr ant abd hrn init 3-10cm reducible", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh medium reducible open lap laparoscopic robotic"],
+    ["49594", "Rpr ant abd hrn init 3-10cm incarcerated", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh medium incarcerated strangulated open lap laparoscopic robotic"],
+    ["49595", "Rpr ant abd hrn init >10cm reducible", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh large complex reducible open lap laparoscopic robotic"],
+    ["49596", "Rpr ant abd hrn init >10cm incarcerated", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh large incarcerated strangulated open lap laparoscopic robotic"],
+    ["49600", "Newborn omphalocele repair, small", "omphalocele newborn neonatal abdominal wall defect"],
+    ["49605", "Newborn gastroschisis or large omphalocele repair", "omphalocele gastroschisis newborn neonatal abdominal wall defect"],
+    ["49606", "Newborn abdominal wall defect, final closure", "omphalocele gastroschisis newborn neonatal silo prosthesis removal closure"],
+    ["49610", "Newborn omphalocele 1st-stage repair", "omphalocele newborn neonatal staged first stage"],
+    ["49611", "Newborn omphalocele 2nd-stage repair", "omphalocele newborn neonatal staged second stage"],
+    ["49613", "Rpr ant abd hrn recur <3cm reducible", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh recurrent small reducible open lap laparoscopic robotic"],
+    ["49614", "Rpr ant abd hrn recur <3cm incarcerated", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh recurrent small incarcerated strangulated open lap laparoscopic robotic"],
+    ["49615", "Rpr ant abd hrn recur 3-10cm reducible", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh recurrent medium reducible open lap laparoscopic robotic"],
+    ["49616", "Rpr ant abd hrn recur 3-10cm incarcerated", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh recurrent medium incarcerated strangulated open lap laparoscopic robotic"],
+    ["49617", "Rpr ant abd hrn recur >10cm reducible", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh recurrent large reducible open lap laparoscopic robotic"],
+    ["49618", "Rpr ant abd hrn recur >10cm incarcerated", "ventral hernia repair umbilical incisional epigastric spigelian anterior abdominal wall mesh recurrent large incarcerated strangulated open lap laparoscopic robotic"],
+    ["49623", "Rmv non-infected mesh, all or nearly all (add-on)", "remove removal explant non-infected mesh prosthesis hernia repair add-on"],
+    ["49650", "Lap rpr init ing hrn", "laparoscopic inguinal hernia repair TAPP TEP robotic"],
+    ["49651", "Lap rpr recur ing hrn", "laparoscopic inguinal hernia repair recurrent TAPP TEP robotic"],
+    ["55520", "Exc spermatic cord lesion/lipoma", "cord lipoma spermatic cord lesion cyst mass excision"]
+  ];
+  const b3Off = B3_ROWS.filter(t => !byCode[t[0]] || byCode[t[0]][1] !== t[1] || byCode[t[0]][4] !== t[2]);
+  // The five newborn abdominal wall repairs also moved from Hernia/Abdomen to
+  // Abdomen/Peritoneum: search reads the category, so under Hernia/Abdomen
+  // "large hernia" listed the newborn gastroschisis repair (84.91 wRVU).
+  const b3CatOff = ["49600", "49605", "49606", "49610", "49611"].filter(c => !byCode[c] || byCode[c][3] !== "Abdomen/Peritoneum");
+  check("cpt-data.js (Batch 3): the 53 reworded rows hold their descriptor and keywords word for word, and the five newborn repairs sit under Abdomen/Peritoneum",
+    B3_ROWS.length === 53 && new Set(B3_ROWS.map(t => t[0])).size === 53 && b3Off.length === 0 && b3CatOff.length === 0,
+    b3Off.slice(0, 4).map(t => t[0] + " has " + JSON.stringify(byCode[t[0]] ? [byCode[t[0]][1], byCode[t[0]][4]] : null) + ", want " + JSON.stringify([t[1], t[2]])).concat(b3CatOff.map(c => c + " sits under " + JSON.stringify(byCode[c] ? byCode[c][3] : null) + ", want \"Abdomen/Peritoneum\"")).join(" | "));
 }
 // 6-builder. scripts/build-cpt-data.js runs once a year, on files whose odd
 // corners the real ones rarely show. So its rules run here on MADE-UP files in
@@ -3593,7 +3674,12 @@ check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_R
 
 // 6b. CPT search ranking (rankCPTMatches) on the REAL CPT database: same
 // match set as matchesCPTQuery, reordered - exact code, prefix, usage,
-// favorites, CPT order. Usage/favorites below are made up.
+// favorites, then (Batch 3) the short-word step - typed words of 3
+// characters or fewer as a whole word, then at a word start, then only
+// inside a word, the worst word deciding - then CPT order. Usage/favorites
+// below are made up. The order rule itself is pinned on made-up rows
+// ("6b-order"), and the owner's search terms on the real data as a fresh
+// install ("6b-terms").
 // (Runs after the sandbox loads; see section 7 for the sandbox.)
 
 // 7. Call-pay math. Runs the REAL cpt-data.js + utils.js in a Node vm
@@ -3900,7 +3986,129 @@ if (sb) {
     order("49505", { "10021": 50 }) === "49505,10021,49507,20000" && order("4950", { "10021": 50 }) === "49505,49507,10021,20000",
     order("49505", { "10021": 50 }) + " | " + order("4950", { "10021": 50 }));
   const plain = sb.rankCPTMatches(herniaHits, "hernia", {}, []);
-  check("rankCPTMatches: no usage/favorites = CPT order (stable)", plain.every((c, i) => c === herniaHits[i]));
+  // Still holds with Batch 3's short-word step: "hernia" has 6 letters and
+  // the step grades only typed words of 3 characters or fewer, so with no
+  // usage and no favorites its hits keep CPT order. (Even grading every word
+  // would keep this order - the 4 hits holding "hernia" only at a word start
+  // are its last 4 - so "6b-order" pins the long-word rule on made-up rows.)
+  check("rankCPTMatches: no usage/favorites and no typed word of 3 characters or fewer (\"hernia\", real data) = CPT order (stable)", plain.every((c, i) => c === herniaHits[i]));
+  // 6b-order (Batch 3): the order rule on made-up rows, one per step, in
+  // CPT (input) order. For the short word "hra": the exact code, the code
+  // prefix, the most-used code, the favorite - those last two hold "hra"
+  // only inside a word - then "hra" as a whole word, at a word start, and
+  // only inside a word, CPT order between equals. A word of 4 characters or
+  // more reorders nothing; with two short words the worse one decides,
+  // typed first or second; each word counts at its best place in the row;
+  // an all-digit word is not graded (typing a code keeps the order of the
+  // earlier steps), and digits are word characters; the step reads the
+  // category, keywords and friendly label as the search does; a word that
+  // begins or ends with a sign has no edge to test on that side.
+  const mk = (code, desc, extra) => Object.assign({ code, desc, category: "Made-up", keywords: "" }, extra || {});
+  const ordRows = [mk("90101", "Made-up urethra row A"), mk("90102", "Made-up hraxial row"), mk("90103", "Made-up urethra row B"), mk("90104", "Made-up hra row"),
+    mk("90105", "Made-up urethra row, a favorite"), mk("90106", "Made-up urethra row, used twice"), mk("HRA01", "Made-up code prefix row"), mk("HRA", "Made-up exact code row")];
+  const ordOf = (list, q, use, favs) => sb.rankCPTMatches(list, q, use, favs).map(c => c.code).join(",");
+  const ordCases = [
+    [ordRows, "hra", { "90106": 2 }, ["90105"], "HRA,HRA01,90106,90105,90104,90102,90101,90103", "one row per step"],
+    [ordRows, "ade hra", { "90106": 2 }, ["90105"], "90106,90105,90101,90102,90103,90104,HRA01,HRA", "\"ade\" sits inside \"made\" in every row, so it decides: CPT order after usage and favorites"],
+    [[mk("90201", "Made-up periurethral row"), mk("90202", "Made-up urethra row")], "urethra", {}, [], "90201,90202", "a 7-letter word reorders nothing"],
+    [[mk("90301", "Made-up xi&dx row"), mk("90302", "Made-up xi&d row")], "&d", {}, [], "90302,90301", "a word that begins with a sign: its start is a word start"],
+    [[mk("90401", "Made-up i&dx row"), mk("90402", "Made-up i& row")], "i&", {}, [], "90401,90402", "a word that ends with a sign: its end is a word end"],
+    [ordRows, "hra ade", { "90106": 2 }, ["90105"], "90106,90105,90101,90102,90103,90104,HRA01,HRA", "the worse word typed second still decides, after usage and favorites"],
+    [[mk("90501", "Made-up urethra row"), mk("90502", "Made-up hra row")], "hra ade", {}, [], "90501,90502", "the worse word typed second still decides: \"ade\" sits inside \"made\" in both rows"],
+    [[mk("90601", "Made-up hraxial row"), mk("90602", "Made-up urethra hra row")], "hra", {}, [], "90602,90601", "a word counts at its best place: a later whole word beats an earlier match inside a word"],
+    [[mk("90701", "Made-up 13 cm row"), mk("90702", "Made-up 3.0 cm row")], "3", {}, [], "90701,90702", "an all-digit word is not graded (typing a code keeps the order of the earlier steps), though \"3\" is a whole word only in \"3.0\""],
+    [[mk("90711", "Made-up a13 row"), mk("90712", "Made-up a1 row")], "a1", {}, [], "90712,90711", "digits are word characters: \"a1\" only starts a word in \"a13\""],
+    [[mk("90801", "Made-up row one", { keywords: "xhra" }), mk("90802", "Made-up row two", { category: "Made-up hra" }), mk("90803", "Made-up row three", { friendly: "Made-up hra" })], "hra", {}, [], "90802,90803,90801", "the step reads the category and the friendly label as the search does"],
+    [[mk("90901", "Made-up xmesh row"), mk("90902", "Made-up mesh row")], "mesh", {}, [], "90901,90902", "a 4-letter word reorders nothing"],
+    [[mk("90911", "Made-up hraxial row"), mk("90912", "Made-up hrax row")], "hrax", {}, [], "90911,90912", "a 4-letter word that starts with a short one reorders nothing"]
+  ];
+  const ordBad = ordCases.filter(t => !t[0].every(c => sb.matchesCPTQuery(c, t[1])) || ordOf(t[0], t[1], t[2], t[3]) !== t[4]);
+  check("rankCPTMatches (Batch 3), made-up rows: exact code, code prefix, usage, favorites, then a typed word of 3 characters or fewer as a whole word, at a word start, inside a word, then CPT order; a longer word reorders nothing; the worst short word decides, typed first or second; a word counts at its best place; an all-digit word is not graded, and digits are word characters; the category and friendly label are read; a sign at a word's edge counts as that edge",
+    ordBad.length === 0, ordBad.map(t => t[5] + ": " + JSON.stringify(t[1]) + " -> " + ordOf(t[0], t[1], t[2], t[3]) + ", want " + t[4]).join(" || "));
+  // 6b-terms (Batch 3): the owner's search terms on the real data as a fresh
+  // install (no usage, no favorites) - Log's order, and History's (the same
+  // two functions; it shows the first 10). Each case: the query; the codes
+  // that must lead, in this order (a list in brackets: those codes, in any
+  // order); codes that must be listed; codes that must not match. The values
+  // are the Batch 3 plan's (its section 1); the rest came from the build's
+  // review: words a reworded row lost or gained, "with" and "robotic" across
+  // the colectomies, ex lap (a word's best place on the real data), 12 and 2
+  // (a code being typed keeps CPT order), and tem, tamis, stapled and loop
+  // colostomy (words the short-word step had lifted onto a wrong code). TWELVE = the
+  // anterior abdominal wall hernia repairs; CLOSE4 = the four ostomy closures
+  // (lap with resection, open stoma only, open with resection, open Hartmann
+  // reversal); NEWBORN = the newborn abdominal wall repairs.
+  const TWELVE = ["49591", "49592", "49593", "49594", "49595", "49596", "49613", "49614", "49615", "49616", "49617", "49618"];
+  const CLOSE4 = ["44227", "44620", "44625", "44626"];
+  const NEWBORN = ["49600", "49605", "49606", "49610", "49611"];
+  const TERMS = [
+    ["reversal", CLOSE4, [], ["44640"]],
+    ["takedown", ["44213"].concat(CLOSE4), [], ["44640"]],
+    ["Hartmann", ["44143", "44206", "44227", "44626"], [], ["44141", "44640"]],
+    ["ostomy closure", ["43870"].concat(CLOSE4), [], ["44640"]],
+    ["HRA", ["46601", "46607"], [], []],
+    ["Botox", ["46505"], [], []],
+    ["cord lipoma", ["55520"], [], []],
+    ["Hartmann reversal", ["44227", "44626"], [], ["44640"]],
+    ["colostomy takedown", CLOSE4, [], ["44640"]],
+    ["colostomy reversal", CLOSE4, [], ["44640"]],
+    ["lap reversal", ["44227"], [], []],
+    ["splenic flexure takedown", ["44213"], [], []],
+    ["high resolution anoscopy", ["46601", "46607"], [], []],
+    ["fissure", ["46080"], ["46505"], []],
+    ["sphincterotomy", ["46080"], [], []],
+    ["umbilical hernia", [TWELVE], [], NEWBORN],
+    ["incisional hernia", [TWELVE], [], []],
+    ["ventral hernia repair", [TWELVE], [], []],
+    ["lap ventral hernia", [TWELVE], [], []],
+    ["ventral hernia mesh", [TWELVE], [], []],
+    ["lap hernia", [TWELVE, "49650", "49651"], [], []],
+    ["mesh removal", ["11008", "49623"], [], []],
+    ["lumpectomy", ["19301"], [], []],
+    ["wire lumpectomy", ["19301"], [], []],
+    ["excisional biopsy", ["19120", "19125"], [], []],
+    ["seed", ["19125", "19301"], [], []],
+    ["SLNB", ["38525"], [], []],
+    ["ALND", [], [], ["38525"]],
+    ["axillary dissection", [], [], ["38525"]],
+    ["LAR", ["44145", "44146", "44207", "44208"], [], []],
+    ["enterostomy closure", CLOSE4, [], ["44640"]],
+    ["stoma reversal", CLOSE4, [], []],
+    ["close colostomy", CLOSE4, [], ["44143", "44206"]],
+    ["colectomy with colostomy", [], ["44141", "44143", "44206"], []],
+    ["colectomy with anastomosis", ["44140"], ["44204"], []],
+    ["partial colectomy with anastomosis", ["44140"], [], []],
+    ["lap colectomy with anastomosis", ["44204"], [], []],
+    ["robotic colectomy", ["44204"], ["44205", "44206", "44207", "44208", "44210"], []],
+    ["robotic lar", [["44207", "44208"]], [], []],
+    ["tem", [], [], ["45116"]],
+    ["tamis", ["45172"], [], ["45116"]],
+    ["stapled", ["46945", "46947"], [], ["44625"]],
+    ["loop colostomy", [["44188", "44320"]], [], ["44141"]],
+    ["large hernia", [], [], NEWBORN],
+    ["small hernia", [], [], NEWBORN],
+    ["abdominal wall hernia", [], [], NEWBORN],
+    ["ex lap", ["49000"], [], []],
+    ["12", ["12001", "12002", "12004", "12005"], [], []],
+    ["2", ["20100", "20101", "20102", "20103"], [], []]
+  ];
+  const leadOff = (got, lead) => {
+    let at = 0;
+    for (const g of lead) {
+      const want = Array.isArray(g) ? g : [g], part = got.slice(at, at + want.length);
+      if (part.slice().sort().join() !== want.slice().sort().join()) return "places " + (at + 1) + "-" + (at + want.length) + " hold " + (part.join(" ") || "nothing") + ", want " + want.join(" ") + (want.length > 1 && Array.isArray(g) ? " in any order" : "");
+      at += want.length;
+    }
+    return "";
+  };
+  const termBad = [];
+  TERMS.forEach(t => {
+    const got = sb.rankCPTMatches(hits(t[0]), t[0], {}, []).map(c => c.code);
+    const why = [leadOff(got, t[1])].concat(t[2].filter(c => got.indexOf(c) === -1).map(c => c + " not listed"), t[3].filter(c => got.indexOf(c) !== -1).map(c => c + " listed")).filter(Boolean);
+    if (why.length) termBad.push(JSON.stringify(t[0]) + ": " + why.join(", ") + " (" + got.length + " hits: " + got.slice(0, 8).join(" ") + ")");
+  });
+  check("CPT search (Batch 3): the owner's search terms on the real data, fresh install - the four ostomy closures for reversal, takedown (after 44213), Hartmann reversal, colostomy takedown and ostomy closure (after 43870), never the fistula closure 44640; Hartmann; HRA and high resolution anoscopy; Botox; cord lipoma; fissure and sphincterotomy; the twelve ventral hernia repairs first (lap hernia: then 49650, 49651; no newborn repair for umbilical hernia); mesh removal; the breast terms; SLNB, and ALND without 38525; LAR's four codes first; enterostomy closure, stoma reversal and close colostomy find the four closures (close colostomy never the Hartmann colectomies); colectomy with colostomy lists 44141, 44143, 44206; colectomy with anastomosis leads with 44140 (lap: 44204); robotic colectomy and robotic lar lead with the lap colectomies; tem and tamis never list the Kraske proctectomy 45116 (tamis leads with 45172); stapled leads with the hemorrhoid staplings, not 44625; loop colostomy leads with the colostomy creations, not 44141; large, small and abdominal wall hernia list no newborn repair; ex lap leads with 49000; typing 12 or 2 keeps CPT order",
+    termBad.length === 0, termBad.join(" || "));
 
   // wRVU overrides. getDB applies an override only when truthy: a stored 0
   // (the old keystroke editor could save one) stays inert - the code keeps its
@@ -4564,6 +4772,42 @@ if (sb) {
     });
     check("\"Also add?\" chips: an add-on whose primaries CMS lists in full is suggested only once one of them is in the case (38900 waits after 19301 alone and comes with 38525), typed or in a saved case of the encounter (Log passes the card's saved cases' codes), from the table and from the history; add-ons with no list or a partial one, and every other suggestion of the table, are as before",
       cb.length === 0, cb.join(" || "));
+    // Every key of the table, and every code it names, is a database code: a
+    // code CMS deleted (49568 sat under 49595 until Batch 3) is dropped
+    // without a word, so it never shows and is never noticed.
+    const ccDead = [];
+    Object.keys(CT).forEach(k => { if (!cMap[k]) ccDead.push("key " + k); (CT[k] || []).forEach(c => { if (!cMap[c.code]) ccDead.push(c.code + " under " + k); }); });
+    check("\"Also add?\" table (COMPANION_CODES): every key and every code it names is a database code", ccDead.length === 0, ccDead.join(", "));
+    // Batch 3's corrections to the curated tables, by value. The search
+    // supplement lines whose words now sit in the rows are gone (44141 and
+    // 44640 added "hartmann" to a skin-level stoma and a fistula closure,
+    // 44620 repeated its own keywords, and the nine hernia lines), and
+    // 38525's line names the deep and sentinel node, not a dissection
+    // ("ALND" no longer finds it). "Also add?" lost 49568 (deleted by CMS),
+    // 19281 under 19120 (a marker placed by imaging makes the case 19125), the
+    // adhesiolysis chips of 44620 and 44640 and every chip of 49000 (CMS's
+    // manual: enterolysis, and an ex lap beside another open abdominal
+    // operation, are not billed apart); 38525 reads "Sentinel/deep axillary
+    // node" under 19301 and 38900, and 38745 keeps "Axillary dissection".
+    const KS = sb.KEYWORD_SUPPLEMENT, b3t = [];
+    ["44141", "44640", "44620", "49591", "49593", "49595", "49613", "49614", "49615", "49616", "49617", "49618"].forEach(k => { if (Object.prototype.hasOwnProperty.call(KS, k)) b3t.push("KEYWORD_SUPPLEMENT still has " + k + " " + JSON.stringify(KS[k])); });
+    if (KS["38525"] !== "axillary lymph node biopsy excision sentinel slnb deep") b3t.push("KEYWORD_SUPPLEMENT 38525 is " + JSON.stringify(KS["38525"]));
+    const ccOf = k => JSON.stringify((CT[k] || []).map(c => [c.code, c.label]));
+    const CC_B3 = {
+      "49595": [["15734", "TAR/component sep"]],
+      "19301": [["38900", "Sentinel node"], ["38525", "Sentinel/deep axillary node"], ["19283", "Breast localization"]],
+      "38900": [["38525", "Sentinel/deep axillary node"]],
+      "19120": [["38900", "Sentinel node"]],
+      "19303": [["38900", "Sentinel node"], ["38745", "Axillary dissection"]]
+    };
+    Object.keys(CC_B3).forEach(k => { if (ccOf(k) !== JSON.stringify(CC_B3[k])) b3t.push("COMPANION_CODES " + k + " is " + ccOf(k) + ", want " + JSON.stringify(CC_B3[k])); });
+    ["44620", "44640", "49000"].forEach(k => {
+      if (Object.prototype.hasOwnProperty.call(CT, k)) b3t.push("COMPANION_CODES still has " + k);
+      if (G(k, [], [k]) !== "") b3t.push(k + " alone offers " + G(k, [], [k]));
+    });
+    Object.keys(CT).forEach(k => (CT[k] || []).forEach(c => { if (c.code === "38525" && /dissection/i.test(c.label)) b3t.push(k + " calls 38525 " + JSON.stringify(c.label)); }));
+    check("curated tables (Batch 3), by value: no KEYWORD_SUPPLEMENT line for 44141, 44640, 44620 or the nine hernia codes, and 38525's names the sentinel/deep node; COMPANION_CODES without 49568 (49595), 19281 (19120) or any chip for 44620, 44640 and 49000, and 38525 never called a dissection (38745 keeps the label)",
+      b3t.length === 0, b3t.join(" || "));
   } catch (e) { check("\"Also add?\" chips: their tests ran to their end", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
   // CSV import never reads the exports' Credit column back into a mark - it
   // warns instead - and never takes a wRVU from the file's own adjusted

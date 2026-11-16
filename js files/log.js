@@ -216,7 +216,9 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     if (curSearch.trim()) {
       var q = curSearch.trim();
       // Same matches, ranked: exact code, code prefix, your most-used codes,
-      // favorites, then CPT order (utils.js rankCPTMatches).
+      // favorites, short words (3 characters or fewer, not all digits) as
+      // whole words, then at a word start, then CPT order (utils.js
+      // rankCPTMatches).
       items = rankCPTMatches(items.filter(function(c) { return matchesCPTQuery(c, q); }), q, usageCounts, favorites);
     }
     return items;
