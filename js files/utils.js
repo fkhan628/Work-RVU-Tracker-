@@ -171,7 +171,6 @@ var KEYWORD_SUPPLEMENT = {
   "32551": "chest tube thoracostomy pigtail pleural",
   "31600": "trach tracheostomy",
   "44120": "small bowel resection SBR enterectomy",
-  "44140": "colectomy colon resection hemicolectomy right left sigmoid",
   "44204": "lap colectomy laparoscopic colon resection hemicolectomy",
   "44205": "lap ileocecectomy right hemicolectomy laparoscopic",
   "44310": "ileostomy creation ostomy",

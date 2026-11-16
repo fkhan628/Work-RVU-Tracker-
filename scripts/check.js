@@ -52,8 +52,9 @@ const POLICY_HASH_BASELINE = "1d9704ed";
 // value (the failure prints it) in the same commit, once it has checked that
 // only the rows it meant to change did. A yearly swap moves it too (CMS's new
 // short descriptors replace the ones never curated; codes come and go).
-// Batch 3 (53 rows reworded) moved it from 5c6d70d2.
-const CURATED_HASH_BASELINE = "5a552984";
+// Batch 3 (53 rows reworded) moved it from 5c6d70d2; ASSET_V 70 (the
+// colorectal family's search words, 41 rows) moved it from 5a552984.
+const CURATED_HASH_BASELINE = "e949507b";
 // PRIOR_BASELINE: the prior-year work RVU (r[8]) - its year (CMS_MORE
 // priorYear), the sum in cents, how many rows have none (null: that year's
 // file has no payable row for the code) and how many hold a real 0.
@@ -3450,39 +3451,71 @@ if (rows) {
   check("cpt-data.js is the builder's text and nothing else: one row per line, each as the builder writes it (the row writer copied here is held to the builder's own), then CMS_MORE with one entry per line in code order, each key once",
     !!layout && rowLines.length === rows.length && offRow === -1 && layout[2] === moreText && writerOff === "",
     writerOff ? "the row writer copied into this check is no longer the builder's - " + writerOff + " - copy jsStr, emitNum and emitRow from scripts/build-cpt-data.js again" : !layout ? "the two-statement layout was not found" : rowLines.length !== rows.length ? rowLines.length + " row lines for " + rows.length + " rows" : offRow !== -1 ? "line " + (offRow + 2) + " of the file (row " + (offRow + 1) + ", " + JSON.stringify(rows[offRow] && rows[offRow][0]) + ") is not the builder's text: " + offWhy() + " - undo the hand edit or run the builder again (if its row writer changed, copy it here)" : "CMS_MORE is not the builder's text (a key twice, another order or extra text?)");
-  // 6-B3 (Batch 3): the 53 rows Batch 3 reworded, word for word - [code,
-  // descriptor r[1], keywords r[4]], as the Batch 3 plan's details give them
-  // (a row whose descriptor Batch 3 kept carries it as it was). The new
-  // wording is the app's own (the AMA's long descriptors are copyrighted and
-  // this repo is public) and names nothing a code is NOT, since search
-  // matches those words too ("non-infected" is CMS's own). A saved case keeps
-  // the description it was saved with. CURATED_HASH_BASELINE covers every row.
+  // 6-B3 (Batch 3, then ASSET_V 70): the 83 rows reworded in ASSET_V 69 (53)
+  // and 70 (the colorectal family's search words: 30 more rows, and 11 of the
+  // 53 again), word for word - [code, descriptor r[1], keywords r[4]], as the
+  // plans' details give them (a row whose descriptor was kept carries it as
+  // it was). The new wording is the app's own (the AMA's long descriptors
+  // are copyrighted and this repo is public) and names nothing a code is
+  // NOT, since search matches those words too ("non-infected" is CMS's
+  // own). A saved case keeps the description it was saved with.
+  // CURATED_HASH_BASELINE covers every row.
   const B3_ROWS = [
     ["11008", "Rmv infected abd wall mesh add-on", "remove removal explant infected mesh prosthesis abdominal wall add-on"],
     ["19120", "Exc breast lesion(s), palpable or intra-op US", "breast lesion excision excisional biopsy palpable mass fibroadenoma cyst papilloma intraoperative ultrasound"],
     ["19125", "Exc breast lesion w/preop marker (wire/seed), first", "breast lesion excision excisional biopsy wire seed clip marker localized localization"],
     ["19301", "Partial mastectomy", "partial mastectomy lumpectomy breast conserving surgery BCS segmental margins wire seed localized"],
-    ["44140", "Colectomy partial w/anastomosis", "partial colectomy segmental resection anastomosis open with"],
+    ["44005", "Enterolysis", "lysis of adhesions loa open adhesiolysis bowel obstruction"],
+    ["44140", "Colectomy partial w/anastomosis", "partial colectomy colon resection hemicolectomy left sigmoid sigmoidectomy transverse segmental anastomosis open with"],
     ["44141", "Colectomy partial w/anastomosis + skin-level stoma", "open partial colectomy anastomosis colostomy cecostomy skin level with"],
     ["44143", "Colectomy partial w/end colostomy (Hartmann)", "hartmann procedure open partial colectomy end colostomy rectal stump with"],
-    ["44145", "Open LAR (partial colectomy, low colorectal join)", "open low anterior resection lar coloproctostomy colorectal anastomosis"],
-    ["44146", "Colectomy partial w/coloproctostomy & colostomy", "low anterior resection with diverting colostomy lar"],
-    ["44187", "Lap ileostomy/jejunostomy nontubal", "laparoscopic ileostomy creation loop diverting"],
-    ["44188", "Lap colostomy", "laparoscopic colostomy creation loop diverting"],
-    ["44204", "Lap colectomy partial w/anastomosis", "laparoscopic robotic partial colectomy segmental resection anastomosis with"],
+    ["44145", "Open LAR (partial colectomy, low colorectal join)", "open low anterior resection lar ultra-low ultralow sigmoid coloproctostomy colorectal anastomosis tme mesorectal"],
+    ["44146", "Colectomy partial w/coloproctostomy & colostomy", "low anterior resection lar tme mesorectal with diverting colostomy"],
+    ["44147", "Colectomy partial abdominal & transanal approach", "colectomy transanal tme mesorectal excision"],
+    ["44150", "Colectomy total abdominal", "total abdominal colectomy subtotal end ileostomy brooke ileorectal anastomosis ira with"],
+    ["44151", "Total abdominal colectomy w/continent ileostomy", "total abdominal colectomy continent ileostomy kock pouch with"],
+    ["44155", "Colectomy total w/proctectomy & ileostomy", "total proctocolectomy tpc end ileostomy brooke with"],
+    ["44156", "Colectomy, total, with proctectomy and continent ileostomy", "total proctocolectomy tpc continent ileostomy kock pouch with"],
+    ["44157", "Colectomy total w/ileoanal anastomosis", "total proctocolectomy tpc ileoanal anastomosis mucosectomy with"],
+    ["44158", "Colectomy total w/ileoanal pouch & loop ileostomy", "total proctocolectomy tpc ipaa ileal pouch-anal anastomosis j-pouch reservoir mucosectomy with loop ileostomy"],
+    ["44160", "Colectomy partial w/removal terminal ileum", "open ileocecectomy right hemicolectomy terminal ileum cecum"],
+    ["44180", "Lap enterolysis", "laparoscopic robotic lysis of adhesions loa adhesiolysis"],
+    ["44187", "Lap ileostomy/jejunostomy nontubal", "laparoscopic robotic ileostomy creation end brooke loop diverting"],
+    ["44188", "Lap colostomy", "laparoscopic robotic colostomy creation end loop diverting"],
+    ["44204", "Lap colectomy partial w/anastomosis", "laparoscopic robotic partial colectomy sigmoid sigmoidectomy left transverse segmental resection anastomosis with"],
     ["44205", "Lap colectomy partial w/removal terminal ileum", "laparoscopic robotic ileocecectomy right hemicolectomy"],
     ["44206", "Lap colectomy partial w/end colostomy (Hartmann)", "laparoscopic robotic hartmann procedure end colostomy rectal stump with"],
-    ["44207", "Lap LAR (partial colectomy, low colorectal join)", "laparoscopic robotic low anterior resection lar coloproctostomy colorectal anastomosis"],
-    ["44208", "Lap colectomy partial w/colorectal & colostomy", "laparoscopic robotic LAR with diverting colostomy"],
-    ["44210", "Lap colectomy total", "laparoscopic robotic total colectomy"],
+    ["44207", "Lap LAR (partial colectomy, low colorectal join)", "laparoscopic robotic low anterior resection lar ultra-low ultralow sigmoid coloproctostomy colorectal anastomosis tme mesorectal"],
+    ["44208", "Lap colectomy partial w/colorectal & colostomy", "laparoscopic robotic lar low anterior resection tme mesorectal with diverting colostomy"],
+    ["44210", "Lap colectomy total", "laparoscopic robotic total abdominal colectomy subtotal end ileostomy brooke ileorectal anastomosis ira with"],
+    ["44211", "Lap total proctocolectomy w/ileoanal pouch (IPAA)", "laparoscopic robotic total proctocolectomy tpc ipaa ileal pouch-anal anastomosis j-pouch reservoir mucosectomy with"],
+    ["44212", "Lap total proctocolectomy w/end ileostomy", "laparoscopic robotic total proctocolectomy tpc end ileostomy brooke with"],
     ["44227", "Lap ostomy closure w/resection (eg Hartmann reversal)", "laparoscopic robotic ostomy closure takedown reversal hartmann colostomy ileostomy enterostomy close stoma"],
-    ["44310", "Ileostomy creation", "ileostomy jejunostomy creation open loop diverting"],
-    ["44320", "Colostomy creation", "colostomy creation open loop diverting"],
+    ["44310", "Ileostomy creation", "ileostomy jejunostomy creation open end brooke loop diverting"],
+    ["44316", "Kock pouch (continent ileostomy) creation", "kock pouch continent ileostomy creation reservoir"],
+    ["44320", "Colostomy creation", "colostomy creation open end loop diverting"],
     ["44620", "Open ostomy closure, stoma only", "open ostomy closure takedown reversal ileostomy colostomy loop enterostomy close stoma"],
     ["44625", "Open ostomy closure w/resection and anastomosis", "open ostomy closure takedown reversal ileostomy colostomy loop anastomosis enterostomy close stoma"],
     ["44626", "Open Hartmann reversal (ostomy closure w/resection)", "open hartmann reversal ostomy closure takedown colostomy colorectal anastomosis enterostomy close stoma"],
     ["44640", "Closure enterocutaneous (bowel-skin) fistula", "enterocutaneous fistula ecf bowel skin fistula closure repair"],
+    ["44800", "Meckel diverticulum excision", "meckel meckels diverticulum diverticulectomy"],
+    ["45110", "Proctectomy complete", "open abdominoperineal resection apr proctectomy complete with end colostomy tme mesorectal"],
+    ["45112", "Proctectomy, coloanal pull-through", "proctectomy coloanal anastomosis pull-through ultra-low ultralow tme mesorectal with"],
+    ["45113", "Completion proctectomy w/ileal J-pouch (IPAA)", "completion partial proctectomy ipaa ileal pouch-anal ileoanal anastomosis j-pouch reservoir mucosectomy with"],
+    ["45114", "Abdominal-transsacral proctectomy w/anastomosis", "partial proctectomy abdominal transsacral approach anastomosis with"],
     ["45116", "Partial proctectomy with anastomosis, transsacral (Kraske) approach", "partial proctectomy transsacral kraske"],
+    ["45119", "Proctectomy pull-through w/coloanal anast, colon J-pouch", "proctectomy coloanal anastomosis colonic j-pouch reservoir pull-through tme mesorectal with diverting ileostomy"],
+    ["45120", "Hirschsprung pull-through proctectomy", "hirschsprung congenital megacolon pull-through swenson duhamel soave"],
+    ["45121", "Hirschsprung proctectomy w/total colectomy", "hirschsprung congenital megacolon total colectomy pull-through biopsies"],
+    ["45123", "Partial proctectomy", "partial proctectomy perineal approach"],
+    ["45136", "Excise ileoanal reservior", "pouch excision ileoanal reservoir ileostomy j-pouch"],
+    ["45395", "Lap APR, proctectomy w/end colostomy", "laparoscopic robotic abdominoperineal resection apr proctectomy complete with end colostomy tme mesorectal"],
+    ["45397", "Lap coloanal pull-through w/colonic J-pouch", "laparoscopic robotic proctectomy coloanal anastomosis colonic j-pouch reservoir pull-through tme mesorectal with diverting ileostomy"],
+    ["45400", "Lap rectopexy (proctopexy) for prolapse", "laparoscopic robotic rectopexy proctopexy rectal prolapse"],
+    ["45402", "Lap proctopexy w/sig resect", "laparoscopic robotic rectopexy proctopexy rectal prolapse sigmoid resection sigmoidectomy frykman goldberg"],
+    ["45540", "Open abdominal rectopexy for prolapse", "open abdominal rectopexy proctopexy rectal prolapse"],
+    ["45541", "Perineal proctopexy for prolapse", "perineal rectopexy proctopexy rectal prolapse"],
+    ["45550", "Open rectopexy w/sigmoid resection", "open abdominal rectopexy proctopexy rectal prolapse sigmoid resection sigmoidectomy frykman goldberg"],
     ["46080", "Sphnctrotmy anal div sphnctr", "lateral internal sphincterotomy lis fissure"],
     ["46505", "Botox/toxin injection, internal anal sphincter", "botox botulinum toxin injection anal fissure chemodenervation"],
     ["46600", "Anoscopy, diagnostic, standard", "anoscopy diagnostic standard brushing washing"],
@@ -3517,9 +3550,9 @@ if (rows) {
   // Abdomen/Peritoneum: search reads the category, so under Hernia/Abdomen
   // "large hernia" listed the newborn gastroschisis repair (84.91 wRVU).
   const b3CatOff = ["49600", "49605", "49606", "49610", "49611"].filter(c => !byCode[c] || byCode[c][3] !== "Abdomen/Peritoneum");
-  check("cpt-data.js (Batch 3): the 53 reworded rows hold their descriptor and keywords word for word, and the five newborn repairs sit under Abdomen/Peritoneum",
-    B3_ROWS.length === 53 && new Set(B3_ROWS.map(t => t[0])).size === 53 && b3Off.length === 0 && b3CatOff.length === 0,
-    b3Off.slice(0, 4).map(t => t[0] + " has " + JSON.stringify(byCode[t[0]] ? [byCode[t[0]][1], byCode[t[0]][4]] : null) + ", want " + JSON.stringify([t[1], t[2]])).concat(b3CatOff.map(c => c + " sits under " + JSON.stringify(byCode[c] ? byCode[c][3] : null) + ", want \"Abdomen/Peritoneum\"")).join(" | "));
+  check("cpt-data.js (Batch 3 and ASSET_V 70): the 83 reworded rows hold their descriptor and keywords word for word, and the five newborn repairs sit under Abdomen/Peritoneum",
+    B3_ROWS.length === 83 && new Set(B3_ROWS.map(t => t[0])).size === 83 && b3Off.length === 0 && b3CatOff.length === 0,
+    b3Off.map(t => t[0] + " has " + JSON.stringify(byCode[t[0]] ? [byCode[t[0]][1], byCode[t[0]][4]] : null) + ", want " + JSON.stringify([t[1], t[2]])).concat(b3CatOff.map(c => c + " sits under " + JSON.stringify(byCode[c] ? byCode[c][3] : null) + ", want \"Abdomen/Peritoneum\"")).join(" | "));
 }
 // 6-builder. scripts/build-cpt-data.js runs once a year, on files whose odd
 // corners the real ones rarely show. So its rules run here on MADE-UP files in
@@ -4314,6 +4347,98 @@ if (sb) {
   });
   check("CPT search (Batch 3): the owner's search terms on the real data, fresh install - the four ostomy closures for reversal, takedown (after 44213), Hartmann reversal, colostomy takedown and ostomy closure (after 43870), never the fistula closure 44640; Hartmann; HRA and high resolution anoscopy; Botox; cord lipoma; fissure and sphincterotomy; the twelve ventral hernia repairs first (lap hernia: then 49650, 49651; no newborn repair for umbilical hernia); mesh removal; the breast terms; SLNB, and ALND without 38525; LAR's four codes first; enterostomy closure, stoma reversal and close colostomy find the four closures (close colostomy never the Hartmann colectomies); colectomy with colostomy lists 44141, 44143, 44206; colectomy with anastomosis leads with 44140 (lap: 44204); robotic colectomy and robotic lar lead with the lap colectomies; tem and tamis never list the Kraske proctectomy 45116 (tamis leads with 45172); stapled leads with the hemorrhoid staplings, not 44625; loop colostomy leads with the colostomy creations, not 44141; large, small and abdominal wall hernia list no newborn repair; ex lap leads with 49000; typing 12 or 2 keeps CPT order",
     termBad.length === 0, termBad.join(" || "));
+  // 6b-terms70 (ASSET_V 70): the colorectal family's searches on the real
+  // data as a fresh install, in 6b-terms' form. All but five failed on
+  // build 69: the pouch words (IPAA, J-pouch) sat on 44157, which has no
+  // pouch, and on 44212; Kock pouch on 44155; "total proctocolectomy" on
+  // 44151, which keeps the rectum; "right" on 44140, though a right
+  // hemicolectomy removes the terminal ileum (44160, 44205); 44800 is a
+  // Meckel's diverticulum excision, not a pouch excision; lap proctectomy led
+  // with the lap total proctocolectomies; and end ileostomy, subtotal
+  // colectomy, completion proctectomy, lap APR, rectopexy, Hirschsprung,
+  // Brooke and robotic LOA found nothing. The five that passed there hold
+  // what build 69 found: ileoanal anastomosis and partial proctectomy keep
+  // 45113 listed (its new descriptor drops both words, its keywords carry
+  // them); proctectomy with anastomosis keeps 45112 first; lap and robotic
+  // right hemicolectomy keep 44205 first, never 44204. The lap total
+  // proctocolectomies 44211 and 44212 say "proctocolectomy", not
+  // "proctectomy": with their new words (anastomosis, J-pouch, robotic) they
+  // came before every proctectomy code in CPT order. The open ones, 44155
+  // and 44156, keep "proctectomy" so that "colectomy with proctectomy" finds
+  // them. "robotic" sits on the lap stoma and adhesiolysis codes too: "loa"
+  // is inside "coloanal", so "robotic loa" led with a 45397 pull-through.
+  // "abdominoperineal" stays off the pull-throughs (45112, 45119, 45397) on
+  // purpose: surgeons mean an APR by it.
+  const TERMS70 = [
+    ["ipaa", ["44158", "44211"], ["45113"], ["44157", "44212"]],
+    ["lap ipaa", ["44211"], [], ["44212"]],
+    ["j pouch", ["44158", "44211"], ["45113", "45119", "45397"], ["44157", "44212"]],
+    ["kock pouch", [["44151", "44156"]], ["44316"], ["44155"]],
+    ["continent ileostomy", [["44151", "44156"]], ["44316"], ["44155"]],
+    ["total proctocolectomy", ["44155", "44156", "44157", "44158"], ["44211", "44212"], ["44150", "44151", "44210"]],
+    ["tpc", ["44155", "44156", "44157", "44158", "44211", "44212"], [], ["44151"]],
+    ["total colectomy", ["44150"], [], []],
+    ["subtotal colectomy", ["44150", "44210"], [], []],
+    ["ira", ["44150", "44210"], [], []],
+    ["total colectomy with ileostomy", ["44150"], ["44210"], []],
+    ["end ileostomy", ["44150"], ["44155", "44210", "44212"], []],
+    ["total colectomy end ileostomy", ["44150"], ["44210"], []],
+    ["lap total colectomy end ileostomy", ["44210"], ["44212"], []],
+    ["completion proctectomy", ["45113"], [], []],
+    ["ileoanal anastomosis", [], ["44157", "45113"], []],
+    ["partial proctectomy", ["45111"], ["45113"], []],
+    ["proctectomy with anastomosis", ["45112"], ["45113", "45114", "45116"], ["44211"]],
+    ["proctectomy j pouch", ["45113"], ["45119", "45397"], ["44211", "44212"]],
+    ["lap proctectomy", [["45395", "45397"]], [], ["44211", "44212"]],
+    ["robotic proctectomy", [["45395", "45397"]], [], ["44211", "44212"]],
+    ["brooke ileostomy", ["44150"], ["44187", "44310"], []],
+    ["lap tpc", [["44211", "44212"]], [], []],
+    ["colectomy with proctectomy", [["44155", "44156"]], [], []],
+    ["robotic loa", ["44180"], [], []],
+    ["robotic diverting ileostomy", ["44187"], [], []],
+    ["lap right hemicolectomy", ["44205"], [], ["44204"]],
+    ["robotic right hemicolectomy", ["44205"], [], ["44204"]],
+    ["lar tme", [["44145", "44146", "44207", "44208"]], [], []],
+    ["open end colostomy", [], ["44320"], []],
+    ["perineal proctectomy", [], ["45123"], []],
+    ["colonic j pouch", [["45119", "45397"]], [], []],
+    ["transsacral", [["45114", "45116"]], [], []],
+    ["pouch excision", ["45136"], [], ["44800"]],
+    ["meckel", ["44800"], [], []],
+    ["diverting loop ileostomy", [["44187", "44310"]], [], ["44158"]],
+    ["proctectomy", [], ["45110", "45395"], ["44150", "44151", "44210"]],
+    ["apr", ["45110", "45395"], [], ["45112"]],
+    ["lap apr", ["45395"], [], ["45110"]],
+    ["open apr", ["45110"], [], []],
+    ["abdominoperineal", ["45110", "45395"], [], ["45112"]],
+    ["proctectomy with colostomy", ["45110", "45395"], [], ["45112"]],
+    ["coloanal", [["45112", "45119", "45397"]], [], ["45120"]],
+    ["hirschsprung", [["45120", "45121"]], [], []],
+    ["tme", ["44145"], ["44207", "45110", "45395"], []],
+    ["robotic tme", ["44207", "44208", "45395", "45397"], [], []],
+    ["ultra low anterior resection", [["44145", "44207"]], [], []],
+    ["rectopexy", ["45400", "45402", "45540", "45541", "45550"], [], []],
+    ["robotic rectopexy", ["45400", "45402"], [], ["45540", "45541", "45550"]],
+    ["lap rectal prolapse", ["45400", "45402"], [], []],
+    ["frykman", ["45402", "45550"], [], []],
+    ["lap sigmoid colectomy", ["44204"], ["44207"], []],
+    ["sigmoidectomy", ["44140", "44204"], [], []],
+    ["lap sigmoidectomy", ["44204"], [], []],
+    ["open sigmoidectomy", ["44140"], [], []],
+    ["right hemicolectomy", ["44160"], ["44205"], ["44140"]],
+    ["open right hemicolectomy", ["44160"], [], ["44140"]],
+    ["lap loa", ["44180"], [], []],
+    ["loa", [["44005", "44180"]], [], []],
+    ["lap end colostomy", ["44188"], [], []]
+  ];
+  const termBad70 = [];
+  TERMS70.forEach(t => {
+    const got = sb.rankCPTMatches(hits(t[0]), t[0], {}, []).map(c => c.code);
+    const why = [leadOff(got, t[1])].concat(t[2].filter(c => got.indexOf(c) === -1).map(c => c + " not listed"), t[3].filter(c => got.indexOf(c) !== -1).map(c => c + " listed")).filter(Boolean);
+    if (why.length) termBad70.push(JSON.stringify(t[0]) + ": " + why.join(", ") + " (" + got.length + " hits: " + got.slice(0, 8).join(" ") + ")");
+  });
+  check("CPT search (ASSET_V 70): the colorectal family on the real data, fresh install (" + TERMS70.length + " searches) - IPAA, J-pouch and Kock pouch find the codes with a pouch or a continent ileostomy; total proctocolectomy and TPC the proctocolectomies, never 44151; total colectomy, subtotal colectomy, IRA and end ileostomy lead with 44150; completion proctectomy 45113, and ileoanal anastomosis and partial proctectomy still list it; proctectomy with anastomosis, proctectomy J-pouch, lap and robotic proctectomy lead with the proctectomies, never the lap total proctocolectomies 44211 and 44212; brooke ileostomy lists the stoma creations 44187 and 44310; lap TPC the two lap codes and colectomy with proctectomy the two open ones; robotic LOA and robotic diverting ileostomy lead with the lap codes 44180 and 44187; lap and robotic right hemicolectomy 44205, never 44204; LAR TME, open end colostomy, perineal proctectomy, colonic J-pouch and transsacral find their rows; pouch excision 45136, never the Meckel's 44800; APR, abdominoperineal and proctectomy with colostomy the APRs, never the pull-through 45112; coloanal never the Hirschsprung 45120; TME and robotic TME across the LARs, APRs and pull-throughs; rectopexy, never the open rows for robotic; sigmoid on both colectomy kinds; right hemicolectomy 44160, never 44140; loa the adhesiolysis codes; lap end colostomy 44188",
+    TERMS70.length === 60 && termBad70.length === 0, termBad70.join(" || "));
 
   // wRVU overrides. getDB applies an override only when truthy: a stored 0
   // (the old keystroke editor could save one) stays inert - the code keeps its
@@ -4995,7 +5120,9 @@ if (sb) {
     // operation, are not billed apart); 38525 reads "Sentinel/deep axillary
     // node" under 19301 and 38900, and 38745 keeps "Axillary dissection".
     const KS = sb.KEYWORD_SUPPLEMENT, b3t = [];
-    ["44141", "44640", "44620", "49591", "49593", "49595", "49613", "49614", "49615", "49616", "49617", "49618"].forEach(k => { if (Object.prototype.hasOwnProperty.call(KS, k)) b3t.push("KEYWORD_SUPPLEMENT still has " + k + " " + JSON.stringify(KS[k])); });
+    // ASSET_V 70 moved 44140's line into its row too, without "right" (a
+    // right hemicolectomy removes the terminal ileum: 44160, 44205).
+    ["44141", "44640", "44620", "49591", "49593", "49595", "49613", "49614", "49615", "49616", "49617", "49618", "44140"].forEach(k => { if (Object.prototype.hasOwnProperty.call(KS, k)) b3t.push("KEYWORD_SUPPLEMENT still has " + k + " " + JSON.stringify(KS[k])); });
     if (KS["38525"] !== "axillary lymph node biopsy excision sentinel slnb deep") b3t.push("KEYWORD_SUPPLEMENT 38525 is " + JSON.stringify(KS["38525"]));
     const ccOf = k => JSON.stringify((CT[k] || []).map(c => [c.code, c.label]));
     const CC_B3 = {
@@ -5011,7 +5138,7 @@ if (sb) {
       if (G(k, [], [k]) !== "") b3t.push(k + " alone offers " + G(k, [], [k]));
     });
     Object.keys(CT).forEach(k => (CT[k] || []).forEach(c => { if (c.code === "38525" && /dissection/i.test(c.label)) b3t.push(k + " calls 38525 " + JSON.stringify(c.label)); }));
-    check("curated tables (Batch 3), by value: no KEYWORD_SUPPLEMENT line for 44141, 44640, 44620 or the nine hernia codes, and 38525's names the sentinel/deep node; COMPANION_CODES without 49568 (49595), 19281 (19120) or any chip for 44620, 44640 and 49000, and 38525 never called a dissection (38745 keeps the label)",
+    check("curated tables (Batch 3, ASSET_V 70), by value: no KEYWORD_SUPPLEMENT line for 44141, 44640, 44620, the nine hernia codes or 44140, and 38525's names the sentinel/deep node; COMPANION_CODES without 49568 (49595), 19281 (19120) or any chip for 44620, 44640 and 49000, and 38525 never called a dissection (38745 keeps the label)",
       b3t.length === 0, b3t.join(" || "));
   } catch (e) { check("\"Also add?\" chips: their tests ran to their end", false, String(e && e.stack ? e.stack.split("\n").slice(0, 3).join(" ") : e)); }
   // Log's hernia picker (Batch 3). HERNIA_PICK, the fourth curated table, by

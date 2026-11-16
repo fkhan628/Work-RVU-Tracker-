@@ -294,7 +294,8 @@ the per-file gates below. Run it after EVERY file change.
   word in "a13"); each word counts at its best place, the worst such word
   decides, and a longer word never reorders anything. Log and History both
   use it; check.js pins it (the order on made-up rows, 6b-order; the owner's
-  search terms on the real data as a fresh install, 6b-terms).
+  search terms on the real data as a fresh install, 6b-terms; the colorectal
+  family's searches, 6b-terms70).
 - wRVU credit has ONE rule, in utils.js: isNoCredit(e) is the only
   no-credit test (strict e.noCredit === true); creditedRVU(e) feeds every
   wRVU or comp SUM (the snapshot adjustedRVU, uncoerced, or 0);
@@ -934,8 +935,8 @@ the per-file gates below. Run it after EVERY file change.
   the new value in the same commit, deliberately - and so does a yearly swap
   (CMS's new short text for codes never curated, codes added and removed;
   take the value from the check's failure line once the builder's report of
-  descriptor changes is reviewed). The 53 rows reworded in ASSET_V 69 are
-  also pinned word for word, and the five newborn repairs 49600-49611 sit
+  descriptor changes is reviewed). The 83 rows reworded in ASSET_V 69 and 70
+  are also pinned word for word, and the five newborn repairs 49600-49611 sit
   under Abdomen/Peritoneum (search reads the category: under Hernia/Abdomen
   "large hernia" listed one). Wording never names what a code is NOT (search
   matches those words too; CMS's own "non-infected" is the one exception)
