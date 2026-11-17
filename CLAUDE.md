@@ -284,18 +284,34 @@ the per-file gates below. Run it after EVERY file change.
   repairData fixed point (contract tests). callpay.js: versionSummary is the
   only caller of rateSummary (legacy branch); a null date reads "Original".
 - CPT search: matchesCPTQuery (utils.js) defines WHICH codes match;
-  rankCPTMatches only reorders them (exact, prefix, usage, favorites, the
-  short-word step, CPT order). The short-word step (ASSET_V 69) looks only
-  at typed words of 3 characters or fewer that are not all digits (so
-  typing a code keeps the order of the earlier steps), in the text
-  matchesCPTQuery reads:
-  a whole word first, then a word start, then only inside a word ("hra" in
-  "urethra"; letters and digits are word characters, so "a1" only starts a
-  word in "a13"); each word counts at its best place, the worst such word
-  decides, and a longer word never reorders anything. Log and History both
-  use it; check.js pins it (the order on made-up rows, 6b-order; the owner's
+  rankCPTMatches only reorders them (exact, prefix, the weak-word step,
+  usage, favorites, the short-word step, CPT order). A WEAK word (ASSET_V
+  71) is a hidden search word written "~word" in r[4]: matchesCPTQuery
+  still finds the code by it ("~proctectomy" holds "proctectomy"), but it
+  never lifts the code - right after the code tiers, the codes that hold
+  fewer typed words only in weak words come first, so usage, favorites and
+  the short-word step never lift a weak match above a code that holds every
+  typed word elsewhere. A code with no "~" is read exactly as before. Use
+  one for CPT's own wording or a common phrasing that would otherwise lift
+  a code above the code a surgeon means (the total proctocolectomies'
+  "proctectomy", the Kock colectomies' "pouch"); never for what a code is
+  NOT, and never for a filler such as "and" or "&" (the code would become
+  the only answer to every search written with it). Only in r[4]: never in
+  a descriptor, category, FRIENDLY_DESC or KEYWORD_SUPPLEMENT; and neither
+  the word nor any run of 3 or more of its letters or digits may also stand
+  in the row's other text (those two tables included), where the "~" would
+  silently do nothing; check.js 6b-weak pins both, row by row. Typing
+  a lone "~" lists the codes that have one (accepted). The short-word step
+  (ASSET_V 69) looks only at typed words of 3 characters or fewer that are
+  not all digits (so typing a code keeps the order of the earlier steps),
+  in the text matchesCPTQuery reads without its weak words: a whole word
+  first, then a word start, then only inside a word ("hra" in "urethra";
+  letters and digits are word characters, so "a1" only starts a word in
+  "a13"); each word counts at its best place, the worst such word decides,
+  and in this step a longer word reorders nothing. Log and History both use
+  it; check.js pins it (the order on made-up rows, 6b-order; the owner's
   search terms on the real data as a fresh install, 6b-terms; the colorectal
-  family's searches, 6b-terms70).
+  family's searches, 6b-terms70; a few with made-up usage, 6b-usage).
 - wRVU credit has ONE rule, in utils.js: isNoCredit(e) is the only
   no-credit test (strict e.noCredit === true); creditedRVU(e) feeds every
   wRVU or comp SUM (the snapshot adjustedRVU, uncoerced, or 0);
@@ -926,7 +942,8 @@ the per-file gates below. Run it after EVERY file change.
   never "last year" by default): its base row's when that row is payable,
   else its -26 row's when that one is payable, else null - so a 0 there is a
   real 0.00. Never hand-edit any of them.
-  The curated fields - descriptor (r[1]), category (r[3]), keywords (r[4]) -
+  The curated fields - descriptor (r[1]), category (r[3]), keywords (r[4],
+  which may hold weak "~word" search words - the CPT search bullet) -
   may be edited in place; the generator carries them forward on its next run
   (and its swap checklist edits them in the candidate). Edit them with the
   builder's own row writer (jsStr, emitNum, emitRow), never by hand: plain

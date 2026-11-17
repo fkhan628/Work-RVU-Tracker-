@@ -461,9 +461,10 @@ function History({ data, db, cptMap, categories, upd, setView, showUndo, history
   const toggleEditMod = (mc) => { setEditMods(prev => prev.includes(mc) ? prev.filter(m => m !== mc) : [...prev, mc]); };
 
   // Ranked like Log's search (utils.js rankCPTMatches): exact code, prefix,
-  // most-used, favorites, short words (3 characters or fewer, not all
-  // digits) as whole words, then at a word start, then CPT order - the top
-  // 10 are the likely ones.
+  // fewer typed words held only in weak ("~") search words, most-used,
+  // favorites, short words (3 characters or fewer, not all digits) as whole
+  // words, then at a word start, then CPT order - the top 10 are the likely
+  // ones.
   const editUsage = useMemo(() => {
     var counts = {};
     (data.entries || []).forEach(function(e) { counts[e.cptCode] = (counts[e.cptCode] || 0) + 1; });

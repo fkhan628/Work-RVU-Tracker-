@@ -221,10 +221,11 @@ function LogProc({ data, db, cptMap, categories, upd, setView, showUndo, openCal
     if (cat !== "All") items = items.filter(function(c) { return c.category === cat; });
     if (curSearch.trim()) {
       var q = curSearch.trim();
-      // Same matches, ranked: exact code, code prefix, your most-used codes,
-      // favorites, short words (3 characters or fewer, not all digits) as
-      // whole words, then at a word start, then CPT order (utils.js
-      // rankCPTMatches).
+      // Same matches, ranked: exact code, code prefix, then the codes that
+      // hold fewer typed words only in weak ("~") search words, your
+      // most-used codes, favorites, short words (3 characters or fewer, not
+      // all digits) as whole words, then at a word start, then CPT order
+      // (utils.js rankCPTMatches).
       items = rankCPTMatches(items.filter(function(c) { return matchesCPTQuery(c, q); }), q, usageCounts, favorites);
     }
     return items;

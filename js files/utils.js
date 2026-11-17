@@ -756,30 +756,35 @@ function matchesCPTQuery(c, query) {
 }
 // Order search MATCHES so the likely code is on top - never adds or drops a
 // match (same set as matchesCPTQuery). Stable: exact code, then code
-// prefix, then the user's most-used codes (usage = { code: count }), then
-// favorites, then the short-word step, then database (CPT) order. Returns a
-// new array. The short-word step looks only at typed words of 3 characters
-// or fewer that are not all digits ("hra", "lar", "lap"; typing a code keeps
-// the order of the earlier steps): codes where each such word stands as a
-// whole word in the text matchesCPTQuery searches come first, then codes
-// where each at least starts a word, then the rest ("hra" inside
-// "urethra"); the worst short word decides, and longer words never reorder
-// anything.
+// prefix, then the weak-word step, then the user's most-used codes (usage =
+// { code: count }), then favorites, then the short-word step, then database
+// (CPT) order. Returns a new array. A WEAK word is a hidden search word
+// written with "~" in front ("~proctectomy"): matchesCPTQuery still finds
+// the code by it, but it never lifts the code - the codes that hold fewer
+// typed words only in weak words come first, so usage, favorites and the
+// short-word step never lift a weak match above a code that holds every
+// typed word elsewhere. A code with no "~" is read exactly as before. The
+// short-word step looks only at typed words of 3 characters or fewer that
+// are not all digits ("hra", "lar", "lap"; typing a code keeps the order of
+// the earlier steps): codes where each such word stands as a whole word in
+// the code's text (without its weak words) come first, then codes where each
+// at least starts a word, then the rest ("hra" inside "urethra"); the worst
+// short word decides, and in this step longer words reorder nothing.
 function rankCPTMatches(items, query, usage, favorites) {
   var q = (query || "").trim().toLowerCase();
   var fav = {};
   (favorites || []).forEach(function(c) { fav[c] = true; });
   var u = usage || {};
-  var shortWords = q.split(/\s+/).filter(function(t) { return t && t.length <= 3 && !/^[0-9]+$/.test(t); });
+  var terms = q.split(/\s+/).filter(function(t) { return t; });
+  var shortWords = terms.filter(function(t) { return t.length <= 3 && !/^[0-9]+$/.test(t); });
   var edge = /[a-z0-9]/;
   // 0 = every short word is a whole word somewhere in the code's text, 1 =
   // each one at least starts a word, 2 = some short word is only inside a
   // word (or nowhere). A word that begins or ends with a sign ("(hra", "w/")
   // has no edge to test on that side. Letters and digits are word characters
   // ("a1" only starts a word in "a13"). With no short word every code is 0.
-  var wordLevel = function(c) {
+  var wordLevel = function(hay) {
     if (!shortWords.length) return 0;
-    var hay = (c.code + " " + c.desc + " " + c.category + " " + (c.keywords || "") + " " + (c.friendly || "")).toLowerCase();
     var worst = 0;
     for (var w = 0; w < shortWords.length && worst < 2; w++) {
       var t = shortWords[w], best = 2, p = hay.indexOf(t);
@@ -795,8 +800,14 @@ function rankCPTMatches(items, query, usage, favorites) {
   };
   return (items || []).map(function(c, i) {
     var code = String(c.code).toLowerCase();
-    return { c: c, i: i, tier: code === q ? 0 : (q && code.indexOf(q) === 0 ? 1 : 2), use: u[c.code] || 0, fav: fav[c.code] ? 1 : 0, word: wordLevel(c) };
-  }).sort(function(a, b) { return a.tier - b.tier || b.use - a.use || b.fav - a.fav || a.word - b.word || a.i - b.i; })
+    var kw = c.keywords || "";
+    if (typeof kw !== "string") kw = String(kw);
+    var weak = kw.indexOf("~") !== -1, hay = "", n = 0;
+    if (shortWords.length || weak) hay = (c.code + " " + c.desc + " " + c.category + " " + (weak ? kw.replace(/~[^\s]*/g, " ") : kw) + " " + (c.friendly || "")).toLowerCase();
+    // How many typed words the code holds only in its weak words.
+    if (weak) for (var k = 0; k < terms.length; k++) if (hay.indexOf(terms[k]) === -1) n++;
+    return { c: c, i: i, tier: code === q ? 0 : (q && code.indexOf(q) === 0 ? 1 : 2), weak: n, use: u[c.code] || 0, fav: fav[c.code] ? 1 : 0, word: wordLevel(hay) };
+  }).sort(function(a, b) { return a.tier - b.tier || a.weak - b.weak || b.use - a.use || b.fav - a.fav || a.word - b.word || a.i - b.i; })
     .map(function(x) { return x.c; });
 }
 const buildCategories = (db) => [...new Set(db.map(c => c.category))].sort();

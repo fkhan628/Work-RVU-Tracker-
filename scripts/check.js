@@ -53,8 +53,9 @@ const POLICY_HASH_BASELINE = "1d9704ed";
 // only the rows it meant to change did. A yearly swap moves it too (CMS's new
 // short descriptors replace the ones never curated; codes come and go).
 // Batch 3 (53 rows reworded) moved it from 5c6d70d2; ASSET_V 70 (the
-// colorectal family's search words, 41 rows) moved it from 5a552984.
-const CURATED_HASH_BASELINE = "e949507b";
+// colorectal family's search words, 41 rows) moved it from 5a552984;
+// ASSET_V 71 (weak search words on 11 rows) moved it from e949507b.
+const CURATED_HASH_BASELINE = "1f1febb7";
 // PRIOR_BASELINE: the prior-year work RVU (r[8]) - its year (CMS_MORE
 // priorYear), the sum in cents, how many rows have none (null: that year's
 // file has no payable row for the code) and how many hold a real 0.
@@ -3451,9 +3452,11 @@ if (rows) {
   check("cpt-data.js is the builder's text and nothing else: one row per line, each as the builder writes it (the row writer copied here is held to the builder's own), then CMS_MORE with one entry per line in code order, each key once",
     !!layout && rowLines.length === rows.length && offRow === -1 && layout[2] === moreText && writerOff === "",
     writerOff ? "the row writer copied into this check is no longer the builder's - " + writerOff + " - copy jsStr, emitNum and emitRow from scripts/build-cpt-data.js again" : !layout ? "the two-statement layout was not found" : rowLines.length !== rows.length ? rowLines.length + " row lines for " + rows.length + " rows" : offRow !== -1 ? "line " + (offRow + 2) + " of the file (row " + (offRow + 1) + ", " + JSON.stringify(rows[offRow] && rows[offRow][0]) + ") is not the builder's text: " + offWhy() + " - undo the hand edit or run the builder again (if its row writer changed, copy it here)" : "CMS_MORE is not the builder's text (a key twice, another order or extra text?)");
-  // 6-B3 (Batch 3, then ASSET_V 70): the 83 rows reworded in ASSET_V 69 (53)
-  // and 70 (the colorectal family's search words: 30 more rows, and 11 of the
-  // 53 again), word for word - [code, descriptor r[1], keywords r[4]], as the
+  // 6-B3 (Batch 3, then ASSET_V 70 and 71): the 83 rows reworded in ASSET_V
+  // 69 (53) and 70 (the colorectal family's search words: 30 more rows, and
+  // 11 of the 53 again; ASSET_V 71 gave 11 of them weak "~" search words and
+  // 4 of those new descriptors), word for word - [code, descriptor r[1],
+  // keywords r[4]], as the
   // plans' details give them (a row whose descriptor was kept carries it as
   // it was). The new wording is the app's own (the AMA's long descriptors
   // are copyrighted and this repo is public) and names nothing a code is
@@ -3473,11 +3476,11 @@ if (rows) {
     ["44146", "Colectomy partial w/coloproctostomy & colostomy", "low anterior resection lar tme mesorectal with diverting colostomy"],
     ["44147", "Colectomy partial abdominal & transanal approach", "colectomy transanal tme mesorectal excision"],
     ["44150", "Colectomy total abdominal", "total abdominal colectomy subtotal end ileostomy brooke ileorectal anastomosis ira with"],
-    ["44151", "Total abdominal colectomy w/continent ileostomy", "total abdominal colectomy continent ileostomy kock pouch with"],
-    ["44155", "Colectomy total w/proctectomy & ileostomy", "total proctocolectomy tpc end ileostomy brooke with"],
-    ["44156", "Colectomy, total, with proctectomy and continent ileostomy", "total proctocolectomy tpc continent ileostomy kock pouch with"],
-    ["44157", "Colectomy total w/ileoanal anastomosis", "total proctocolectomy tpc ileoanal anastomosis mucosectomy with"],
-    ["44158", "Colectomy total w/ileoanal pouch & loop ileostomy", "total proctocolectomy tpc ipaa ileal pouch-anal anastomosis j-pouch reservoir mucosectomy with loop ileostomy"],
+    ["44151", "Total abdominal colectomy w/continent ileostomy", "total abdominal colectomy continent ileostomy kock ~pouch with"],
+    ["44155", "Total proctocolectomy w/end ileostomy", "total proctocolectomy tpc end ileostomy brooke with ~w/proctectomy"],
+    ["44156", "Total proctocolectomy w/continent ileostomy (Kock)", "total proctocolectomy tpc continent ileostomy kock ~pouch with ~proctectomy"],
+    ["44157", "Colectomy total w/ileoanal anastomosis", "total proctocolectomy tpc ileoanal anastomosis mucosectomy with ~proctectomy"],
+    ["44158", "Colectomy total w/ileoanal pouch, ileostomy", "total proctocolectomy tpc ipaa ileal pouch-anal anastomosis j-pouch reservoir mucosectomy with ~loop ileostomy ~proctectomy"],
     ["44160", "Colectomy partial w/removal terminal ileum", "open ileocecectomy right hemicolectomy terminal ileum cecum"],
     ["44180", "Lap enterolysis", "laparoscopic robotic lysis of adhesions loa adhesiolysis"],
     ["44187", "Lap ileostomy/jejunostomy nontubal", "laparoscopic robotic ileostomy creation end brooke loop diverting"],
@@ -3488,8 +3491,8 @@ if (rows) {
     ["44207", "Lap LAR (partial colectomy, low colorectal join)", "laparoscopic robotic low anterior resection lar ultra-low ultralow sigmoid coloproctostomy colorectal anastomosis tme mesorectal"],
     ["44208", "Lap colectomy partial w/colorectal & colostomy", "laparoscopic robotic lar low anterior resection tme mesorectal with diverting colostomy"],
     ["44210", "Lap colectomy total", "laparoscopic robotic total abdominal colectomy subtotal end ileostomy brooke ileorectal anastomosis ira with"],
-    ["44211", "Lap total proctocolectomy w/ileoanal pouch (IPAA)", "laparoscopic robotic total proctocolectomy tpc ipaa ileal pouch-anal anastomosis j-pouch reservoir mucosectomy with"],
-    ["44212", "Lap total proctocolectomy w/end ileostomy", "laparoscopic robotic total proctocolectomy tpc end ileostomy brooke with"],
+    ["44211", "Lap total proctocolectomy w/ileoanal pouch (IPAA)", "laparoscopic robotic total proctocolectomy tpc ipaa ileal pouch-anal anastomosis j-pouch reservoir mucosectomy with ~w/proctectomy ~loop ~ileostomy"],
+    ["44212", "Lap total proctocolectomy w/end ileostomy", "laparoscopic robotic total proctocolectomy tpc end ileostomy brooke with ~w/proctectomy"],
     ["44227", "Lap ostomy closure w/resection (eg Hartmann reversal)", "laparoscopic robotic ostomy closure takedown reversal hartmann colostomy ileostomy enterostomy close stoma"],
     ["44310", "Ileostomy creation", "ileostomy jejunostomy creation open end brooke loop diverting"],
     ["44316", "Kock pouch (continent ileostomy) creation", "kock pouch continent ileostomy creation reservoir"],
@@ -3501,16 +3504,16 @@ if (rows) {
     ["44800", "Meckel diverticulum excision", "meckel meckels diverticulum diverticulectomy"],
     ["45110", "Proctectomy complete", "open abdominoperineal resection apr proctectomy complete with end colostomy tme mesorectal"],
     ["45112", "Proctectomy, coloanal pull-through", "proctectomy coloanal anastomosis pull-through ultra-low ultralow tme mesorectal with"],
-    ["45113", "Completion proctectomy w/ileal J-pouch (IPAA)", "completion partial proctectomy ipaa ileal pouch-anal ileoanal anastomosis j-pouch reservoir mucosectomy with"],
+    ["45113", "Completion proctectomy w/ileal J-pouch (IPAA)", "completion partial proctectomy ipaa ileal pouch-anal ileoanal anastomosis j-pouch reservoir mucosectomy with ~loop ileostomy"],
     ["45114", "Abdominal-transsacral proctectomy w/anastomosis", "partial proctectomy abdominal transsacral approach anastomosis with"],
     ["45116", "Partial proctectomy with anastomosis, transsacral (Kraske) approach", "partial proctectomy transsacral kraske"],
-    ["45119", "Proctectomy pull-through w/coloanal anast, colon J-pouch", "proctectomy coloanal anastomosis colonic j-pouch reservoir pull-through tme mesorectal with diverting ileostomy"],
+    ["45119", "Proctectomy pull-through w/coloanal anast, colon J-pouch", "proctectomy coloanal anastomosis colonic j-pouch reservoir pull-through tme mesorectal with diverting ileostomy ~loop"],
     ["45120", "Hirschsprung pull-through proctectomy", "hirschsprung congenital megacolon pull-through swenson duhamel soave"],
-    ["45121", "Hirschsprung proctectomy w/total colectomy", "hirschsprung congenital megacolon total colectomy pull-through biopsies"],
+    ["45121", "Hirschsprung total colectomy w/pull-through", "hirschsprung congenital megacolon total colectomy pull-through biopsies ~proctectomy"],
     ["45123", "Partial proctectomy", "partial proctectomy perineal approach"],
     ["45136", "Excise ileoanal reservior", "pouch excision ileoanal reservoir ileostomy j-pouch"],
     ["45395", "Lap APR, proctectomy w/end colostomy", "laparoscopic robotic abdominoperineal resection apr proctectomy complete with end colostomy tme mesorectal"],
-    ["45397", "Lap coloanal pull-through w/colonic J-pouch", "laparoscopic robotic proctectomy coloanal anastomosis colonic j-pouch reservoir pull-through tme mesorectal with diverting ileostomy"],
+    ["45397", "Lap coloanal pull-through w/colonic J-pouch", "laparoscopic robotic proctectomy coloanal anastomosis colonic j-pouch reservoir pull-through tme mesorectal with diverting ileostomy ~loop"],
     ["45400", "Lap rectopexy (proctopexy) for prolapse", "laparoscopic robotic rectopexy proctopexy rectal prolapse"],
     ["45402", "Lap proctopexy w/sig resect", "laparoscopic robotic rectopexy proctopexy rectal prolapse sigmoid resection sigmoidectomy frykman goldberg"],
     ["45540", "Open abdominal rectopexy for prolapse", "open abdominal rectopexy proctopexy rectal prolapse"],
@@ -3550,7 +3553,7 @@ if (rows) {
   // Abdomen/Peritoneum: search reads the category, so under Hernia/Abdomen
   // "large hernia" listed the newborn gastroschisis repair (84.91 wRVU).
   const b3CatOff = ["49600", "49605", "49606", "49610", "49611"].filter(c => !byCode[c] || byCode[c][3] !== "Abdomen/Peritoneum");
-  check("cpt-data.js (Batch 3 and ASSET_V 70): the 83 reworded rows hold their descriptor and keywords word for word, and the five newborn repairs sit under Abdomen/Peritoneum",
+  check("cpt-data.js (Batch 3, ASSET_V 70 and 71): the 83 reworded rows hold their descriptor and keywords word for word, and the five newborn repairs sit under Abdomen/Peritoneum",
     B3_ROWS.length === 83 && new Set(B3_ROWS.map(t => t[0])).size === 83 && b3Off.length === 0 && b3CatOff.length === 0,
     b3Off.map(t => t[0] + " has " + JSON.stringify(byCode[t[0]] ? [byCode[t[0]][1], byCode[t[0]][4]] : null) + ", want " + JSON.stringify([t[1], t[2]])).concat(b3CatOff.map(c => c + " sits under " + JSON.stringify(byCode[c] ? byCode[c][3] : null) + ", want \"Abdomen/Peritoneum\"")).join(" | "));
 }
@@ -3911,13 +3914,17 @@ check("utils.js GLOBAL_DAYS section holds no typed CPT codes (derived from CMS_R
 }
 
 // 6b. CPT search ranking (rankCPTMatches) on the REAL CPT database: same
-// match set as matchesCPTQuery, reordered - exact code, prefix, usage,
-// favorites, then (Batch 3) the short-word step - typed words of 3
-// characters or fewer as a whole word, then at a word start, then only
-// inside a word, the worst word deciding - then CPT order. Usage/favorites
+// match set as matchesCPTQuery, reordered - exact code, prefix, then
+// (ASSET_V 71) the weak-word step - fewer typed words held only in weak
+// "~" search words first - then usage, favorites, then (Batch 3) the
+// short-word step - typed words of 3 characters or fewer as a whole word,
+// then at a word start, then only inside a word, the worst word deciding,
+// read in the text without weak words - then CPT order. Usage/favorites
 // below are made up. The order rule itself is pinned on made-up rows
-// ("6b-order"), and the owner's search terms on the real data as a fresh
-// install ("6b-terms").
+// ("6b-order"), the owner's search terms on the real data as a fresh
+// install ("6b-terms"), the colorectal family's ("6b-terms70"), a few of
+// them with made-up usage ("6b-usage"), and where a "~" may stand
+// ("6b-weak").
 // (Runs after the sandbox loads; see section 7 for the sandbox.)
 
 // 7. Call-pay math. Runs the REAL cpt-data.js + utils.js in a Node vm
@@ -4234,13 +4241,22 @@ if (sb) {
   // CPT (input) order. For the short word "hra": the exact code, the code
   // prefix, the most-used code, the favorite - those last two hold "hra"
   // only inside a word - then "hra" as a whole word, at a word start, and
-  // only inside a word, CPT order between equals. A word of 4 characters or
-  // more reorders nothing; with two short words the worse one decides,
-  // typed first or second; each word counts at its best place in the row;
-  // an all-digit word is not graded (typing a code keeps the order of the
-  // earlier steps), and digits are word characters; the step reads the
-  // category, keywords and friendly label as the search does; a word that
-  // begins or ends with a sign has no edge to test on that side.
+  // only inside a word, CPT order between equals. In this short-word step a
+  // word of 4 characters or more reorders nothing; with two short words the
+  // worse one decides, typed first or second; each word counts at its best
+  // place in the row; an all-digit word is not graded (typing a code keeps
+  // the order of the earlier steps), and digits are word characters; the
+  // step reads the category, keywords and friendly label as the search does;
+  // a word that begins or ends with a sign has no edge to test on that side;
+  // search words that are not text are read as text, as the search reads
+  // them. ASSET_V 71 adds the weak-word cases (a search word written
+  // "~word"): a weak match comes after a strong one, fewer weak words first,
+  // even when used or a favorite; the weak step comes before the short-word
+  // step, which reads the text without weak words; a weak word is taken out
+  // whole, signs included; weak words that were not typed do not count; a
+  // typed word in the code, category or friendly label is strong, on a row
+  // with weak words too. A case that throws fails under its own label, and
+  // the number of cases is pinned.
   const mk = (code, desc, extra) => Object.assign({ code, desc, category: "Made-up", keywords: "" }, extra || {});
   const ordRows = [mk("90101", "Made-up urethra row A"), mk("90102", "Made-up hraxial row"), mk("90103", "Made-up urethra row B"), mk("90104", "Made-up hra row"),
     mk("90105", "Made-up urethra row, a favorite"), mk("90106", "Made-up urethra row, used twice"), mk("HRA01", "Made-up code prefix row"), mk("HRA", "Made-up exact code row")];
@@ -4258,11 +4274,28 @@ if (sb) {
     [[mk("90711", "Made-up a13 row"), mk("90712", "Made-up a1 row")], "a1", {}, [], "90712,90711", "digits are word characters: \"a1\" only starts a word in \"a13\""],
     [[mk("90801", "Made-up row one", { keywords: "xhra" }), mk("90802", "Made-up row two", { category: "Made-up hra" }), mk("90803", "Made-up row three", { friendly: "Made-up hra" })], "hra", {}, [], "90802,90803,90801", "the step reads the category and the friendly label as the search does"],
     [[mk("90901", "Made-up xmesh row"), mk("90902", "Made-up mesh row")], "mesh", {}, [], "90901,90902", "a 4-letter word reorders nothing"],
-    [[mk("90911", "Made-up hraxial row"), mk("90912", "Made-up hrax row")], "hrax", {}, [], "90911,90912", "a 4-letter word that starts with a short one reorders nothing"]
+    [[mk("90911", "Made-up hraxial row"), mk("90912", "Made-up hrax row")], "hrax", {}, [], "90911,90912", "a 4-letter word that starts with a short one reorders nothing"],
+    [[mk("90961", "Made-up row one", { keywords: "~gamma" }), mk("90962", "Made-up gamma row")], "gamma", {}, [], "90962,90961", "a weak word finds a row but never lifts it: the strong match first"],
+    [[mk("90963", "Made-up row", { keywords: "~alpha ~beta" }), mk("90964", "Made-up beta row", { keywords: "~alpha" }), mk("90965", "Made-up alpha beta row")], "alpha beta", {}, [], "90965,90964,90963", "fewer typed words held only in weak words first"],
+    [[mk("90966", "Made-up row", { keywords: "~hra" }), mk("90967", "Made-up urethra row")], "hra", {}, [], "90967,90966", "a weak whole word does not lift a row: a strong match inside a word comes first"],
+    [[mk("90968", "Made-up row", { keywords: "~delta" }), mk("90969", "Made-up delta row")], "delta", { "90968": 2 }, [], "90969,90968", "usage does not lift a weak match"],
+    [[mk("90970", "Made-up row", { keywords: "~epsilon" }), mk("90971", "Made-up epsilon row")], "epsilon", {}, ["90970"], "90971,90970", "a favorite does not lift a weak match"],
+    [[mk("90972", "Made-up zeta row", { keywords: "~zeta" }), mk("90973", "Made-up zeta row")], "zeta", {}, [], "90972,90973", "a word that is also outside the weak words is strong: CPT order"],
+    [[mk("90974", "Made-up row", { keywords: "~w/theta" }), mk("90975", "Made-up row two", { keywords: "w/theta" })], "theta", {}, [], "90975,90974", "a weak word with a sign is taken out whole"],
+    [[mk("90976", "Made-up row", { keywords: "~iota ~kappa" }), mk("90977", "Made-up iota row", { keywords: "~kappa" })], "iota", {}, [], "90977,90976", "weak words that were not typed do not count"],
+    [[mk("90981", "Made-up lap row", { keywords: "~omega" }), mk("90982", "Made-up collapse omega row")], "lap omega", {}, [], "90982,90981", "the weak-word step comes before the short-word step"],
+    [[mk("90983", "Made-up sigma row"), mk("90984", "Made-up sigma row two", { keywords: "~tau" })], "sigma", { "90984": 3 }, [], "90984,90983", "weak words that were not typed do not hold back a used row"],
+    [[mk("90985", "Made-up collapse row", { keywords: "~lap" }), mk("90986", "Made-up lapx row")], "lap", {}, [], "90986,90985", "the short-word step reads the text without weak words"],
+    [[mk("90987", "Made-up construe row"), mk("90988", "Made-up row", { keywords: true })], "tru", {}, [], "90988,90987", "search words that are not text are read as text, as the search reads them: true reads \"true\", where \"tru\" starts a word"],
+    [[mk("90989", "Made-up lambda row"), mk("90990", "Made-up row", { category: "Made-up lambda", keywords: "~phi" })], "lambda", { "90990": 2 }, [], "90990,90989", "a typed word in the category is strong on a row with weak words too: usage lifts it"],
+    [[mk("90991", "Made-up upsilon row"), mk("90992", "Made-up row", { friendly: "Made-up upsilon", keywords: "~chi" })], "upsilon", { "90992": 2 }, [], "90992,90991", "a typed word in the friendly label is strong on a row with weak words too: usage lifts it"],
+    [[mk("90993", "Made-up 0994 row"), mk("90994", "Made-up row", { keywords: "~psi" })], "0994", { "90994": 2 }, [], "90994,90993", "a typed word in the code is strong on a row with weak words too: usage lifts it"]
   ];
-  const ordBad = ordCases.filter(t => !t[0].every(c => sb.matchesCPTQuery(c, t[1])) || ordOf(t[0], t[1], t[2], t[3]) !== t[4]);
-  check("rankCPTMatches (Batch 3), made-up rows: exact code, code prefix, usage, favorites, then a typed word of 3 characters or fewer as a whole word, at a word start, inside a word, then CPT order; a longer word reorders nothing; the worst short word decides, typed first or second; a word counts at its best place; an all-digit word is not graded, and digits are word characters; the category and friendly label are read; a sign at a word's edge counts as that edge",
-    ordBad.length === 0, ordBad.map(t => t[5] + ": " + JSON.stringify(t[1]) + " -> " + ordOf(t[0], t[1], t[2], t[3]) + ", want " + t[4]).join(" || "));
+  // A case that throws fails under its own label (check.js would stop there).
+  const ordRun = t => { try { return { all: t[0].every(c => sb.matchesCPTQuery(c, t[1])), got: ordOf(t[0], t[1], t[2], t[3]) }; } catch (e) { return { all: true, got: "threw " + (e && e.message) }; } };
+  const ordBad = ordCases.filter(t => { const r = ordRun(t); return !r.all || r.got !== t[4]; });
+  check("rankCPTMatches (Batch 3, ASSET_V 71), made-up rows: exact code, code prefix, then fewer typed words held only in weak (~) search words, usage, favorites, then a typed word of 3 characters or fewer as a whole word, at a word start, inside a word (in the text without weak words), then CPT order; a weak match comes after a strong one even when used or a favorite; weak words that were not typed do not count, and a weak word is taken out whole; a typed word in the code, category or friendly label is strong; in the short-word step a longer word reorders nothing, the worst short word decides, typed first or second, and a word counts at its best place; an all-digit word is not graded, and digits are word characters; the category and friendly label are read; a sign at a word's edge counts as that edge; search words that are not text are read as text",
+    ordCases.length === 28 && ordBad.length === 0, (ordCases.length === 28 ? [] : ["ordCases holds " + ordCases.length + " cases, want 28"]).concat(ordBad.map(t => { const r = ordRun(t); return t[5] + ": " + JSON.stringify(t[1]) + " -> " + r.got + (r.all ? "" : " (a row does not match the query)") + ", want " + t[4]; })).join(" || "));
   // 6b-terms (Batch 3): the owner's search terms on the real data as a fresh
   // install (no usage, no favorites) - Log's order, and History's (the same
   // two functions; it shows the first 10). Each case: the query; the codes
@@ -4348,32 +4381,49 @@ if (sb) {
   check("CPT search (Batch 3): the owner's search terms on the real data, fresh install - the four ostomy closures for reversal, takedown (after 44213), Hartmann reversal, colostomy takedown and ostomy closure (after 43870), never the fistula closure 44640; Hartmann; HRA and high resolution anoscopy; Botox; cord lipoma; fissure and sphincterotomy; the twelve ventral hernia repairs first (lap hernia: then 49650, 49651; no newborn repair for umbilical hernia); mesh removal; the breast terms; SLNB, and ALND without 38525; LAR's four codes first; enterostomy closure, stoma reversal and close colostomy find the four closures (close colostomy never the Hartmann colectomies); colectomy with colostomy lists 44141, 44143, 44206; colectomy with anastomosis leads with 44140 (lap: 44204); robotic colectomy and robotic lar lead with the lap colectomies; tem and tamis never list the Kraske proctectomy 45116 (tamis leads with 45172); stapled leads with the hemorrhoid staplings, not 44625; loop colostomy leads with the colostomy creations, not 44141; large, small and abdominal wall hernia list no newborn repair; ex lap leads with 49000; typing 12 or 2 keeps CPT order",
     termBad.length === 0, termBad.join(" || "));
   // 6b-terms70 (ASSET_V 70): the colorectal family's searches on the real
-  // data as a fresh install, in 6b-terms' form. All but five failed on
-  // build 69: the pouch words (IPAA, J-pouch) sat on 44157, which has no
+  // data as a fresh install, in 6b-terms' form. Of the 60 that ASSET_V 70
+  // pinned, all but five failed on build 69: the pouch words (IPAA, J-pouch)
+  // sat on 44157, which has no
   // pouch, and on 44212; Kock pouch on 44155; "total proctocolectomy" on
   // 44151, which keeps the rectum; "right" on 44140, though a right
   // hemicolectomy removes the terminal ileum (44160, 44205); 44800 is a
   // Meckel's diverticulum excision, not a pouch excision; lap proctectomy led
   // with the lap total proctocolectomies; and end ileostomy, subtotal
   // colectomy, completion proctectomy, lap APR, rectopexy, Hirschsprung,
-  // Brooke and robotic LOA found nothing. The five that passed there hold
+  // Brooke and robotic LOA found nothing. The five that passed there held
   // what build 69 found: ileoanal anastomosis and partial proctectomy keep
   // 45113 listed (its new descriptor drops both words, its keywords carry
   // them); proctectomy with anastomosis keeps 45112 first; lap and robotic
   // right hemicolectomy keep 44205 first, never 44204. The lap total
   // proctocolectomies 44211 and 44212 say "proctocolectomy", not
   // "proctectomy": with their new words (anastomosis, J-pouch, robotic) they
-  // came before every proctectomy code in CPT order. The open ones, 44155
-  // and 44156, keep "proctectomy" so that "colectomy with proctectomy" finds
-  // them. "robotic" sits on the lap stoma and adhesiolysis codes too: "loa"
-  // is inside "coloanal", so "robotic loa" led with a 45397 pull-through.
-  // "abdominoperineal" stays off the pull-throughs (45112, 45119, 45397) on
-  // purpose: surgeons mean an APR by it.
+  // came before every proctectomy code in CPT order. "robotic" sits on the
+  // lap stoma and adhesiolysis codes too: "loa" is inside "coloanal", so
+  // "robotic loa" led with a 45397 pull-through. "abdominoperineal" stays off
+  // the pull-throughs (45112, 45119, 45397) on purpose: surgeons mean an APR
+  // by it. ASSET_V 71 (weak "~" search words): all six total
+  // proctocolectomies hold "proctectomy" only as a weak word (44155 and 44156
+  // no longer say it on screen), so CPT's wording ("lap colectomy
+  // proctectomy") finds them and proctectomy searches lead with the
+  // proctectomies, the total proctocolectomies after them; "pouch" is weak
+  // on the Kock colectomies 44151 and 44156, so pouch searches lead with the
+  // IPAA codes ("kock pouch" with the Kock pouch creation 44316); "loop" is
+  // weak on 44158, 45113, 45119 and 45397, so "loop ileostomy" leads with the
+  // stoma creations; 45121 holds "proctectomy" weakly too, so "total
+  // colectomy proctectomy" leads with 44155, not the Hirschsprung code.
+  // 44211 holds "loop" and "ileostomy" weakly (CPT's 44211 includes a loop
+  // ileostomy): lap IPAA and lap TPC with a loop ileostomy find it, while lap
+  // TPC with ileostomy still leads with the end ileostomy 44212, and "lap loop
+  // ileostomy" with the lap stoma creation 44187, 44211 last. A strong "loop"
+  // on 45119 or 45397 would lead "j pouch loop ileostomy" with a pull-through
+  // (6b-weak also forbids it). "loop" alone leads with 44187; "total
+  // proctocolectomy w/end ileostomy" with the open 44155.
   const TERMS70 = [
     ["ipaa", ["44158", "44211"], ["45113"], ["44157", "44212"]],
     ["lap ipaa", ["44211"], [], ["44212"]],
     ["j pouch", ["44158", "44211"], ["45113", "45119", "45397"], ["44157", "44212"]],
-    ["kock pouch", [["44151", "44156"]], ["44316"], ["44155"]],
+    ["kock pouch", ["44316"], ["44151", "44156"], ["44155"]],
+    ["kock", ["44151", "44156", "44316"], [], []],
     ["continent ileostomy", [["44151", "44156"]], ["44316"], ["44155"]],
     ["total proctocolectomy", ["44155", "44156", "44157", "44158"], ["44211", "44212"], ["44150", "44151", "44210"]],
     ["tpc", ["44155", "44156", "44157", "44158", "44211", "44212"], [], ["44151"]],
@@ -4387,10 +4437,31 @@ if (sb) {
     ["completion proctectomy", ["45113"], [], []],
     ["ileoanal anastomosis", [], ["44157", "45113"], []],
     ["partial proctectomy", ["45111"], ["45113"], []],
-    ["proctectomy with anastomosis", ["45112"], ["45113", "45114", "45116"], ["44211"]],
-    ["proctectomy j pouch", ["45113"], ["45119", "45397"], ["44211", "44212"]],
-    ["lap proctectomy", [["45395", "45397"]], [], ["44211", "44212"]],
-    ["robotic proctectomy", [["45395", "45397"]], [], ["44211", "44212"]],
+    ["proctectomy with anastomosis", ["45112", ["45113", "45114", "45116", "45119", "45397"]], ["44157", "44158", "44211"], []],
+    ["proctectomy j pouch", ["45113"], ["45119", "45397"], []],
+    ["lap proctectomy", [["45395", "45397"]], ["44211", "44212"], []],
+    ["robotic proctectomy", [["45395", "45397"]], ["44211", "44212"], []],
+    ["lap colectomy proctectomy", [["44211", "44212"]], [], []],
+    ["total colectomy proctectomy", ["44155"], ["45121"], []],
+    ["proctectomy pouch", ["45113"], ["44156"], []],
+    ["tpc pouch", ["44158", "44211"], ["44156"], []],
+    ["total proctocolectomy pouch", ["44158", "44211"], [], []],
+    ["colectomy proctectomy pouch", ["44158", "44211"], [], []],
+    ["loop ileostomy", [["44187", "44310"]], ["44158"], []],
+    ["ipaa loop ileostomy", ["44158"], ["45113"], []],
+    ["proctectomy loop ileostomy", [["45113", "45119", "45397"]], ["44158"], []],
+    ["lap ipaa loop ileostomy", ["44211"], [], []],
+    ["lap tpc loop ileostomy", ["44211"], [], ["44212"]],
+    ["lap tpc ileostomy", ["44212"], ["44211"], []],
+    ["lap j pouch loop ileostomy", [], ["44211", "45397"], []],
+    ["j pouch loop ileostomy", ["44158"], ["45113", "45119", "45397"], []],
+    ["coloanal loop ileostomy", ["45119"], ["45397"], []],
+    ["robotic ipaa loop ileostomy", ["44211"], [], []],
+    ["lap total colectomy proctectomy ileostomy", ["44212", "44211"], [], []],
+    ["proctectomy with ileostomy", [["45113", "45119", "45397"], "44155"], [], []],
+    ["lap loop ileostomy", ["44187", "45397", "44211"], [], []],
+    ["loop", ["44187"], ["44158", "44211"], []],
+    ["total proctocolectomy w/end ileostomy", ["44155"], ["44212"], []],
     ["brooke ileostomy", ["44150"], ["44187", "44310"], []],
     ["lap tpc", [["44211", "44212"]], [], []],
     ["colectomy with proctectomy", [["44155", "44156"]], [], []],
@@ -4406,7 +4477,7 @@ if (sb) {
     ["pouch excision", ["45136"], [], ["44800"]],
     ["meckel", ["44800"], [], []],
     ["diverting loop ileostomy", [["44187", "44310"]], [], ["44158"]],
-    ["proctectomy", [], ["45110", "45395"], ["44150", "44151", "44210"]],
+    ["proctectomy", ["45110"], ["45395"], ["44150", "44151", "44210"]],
     ["apr", ["45110", "45395"], [], ["45112"]],
     ["lap apr", ["45395"], [], ["45110"]],
     ["open apr", ["45110"], [], []],
@@ -4437,8 +4508,57 @@ if (sb) {
     const why = [leadOff(got, t[1])].concat(t[2].filter(c => got.indexOf(c) === -1).map(c => c + " not listed"), t[3].filter(c => got.indexOf(c) !== -1).map(c => c + " listed")).filter(Boolean);
     if (why.length) termBad70.push(JSON.stringify(t[0]) + ": " + why.join(", ") + " (" + got.length + " hits: " + got.slice(0, 8).join(" ") + ")");
   });
-  check("CPT search (ASSET_V 70): the colorectal family on the real data, fresh install (" + TERMS70.length + " searches) - IPAA, J-pouch and Kock pouch find the codes with a pouch or a continent ileostomy; total proctocolectomy and TPC the proctocolectomies, never 44151; total colectomy, subtotal colectomy, IRA and end ileostomy lead with 44150; completion proctectomy 45113, and ileoanal anastomosis and partial proctectomy still list it; proctectomy with anastomosis, proctectomy J-pouch, lap and robotic proctectomy lead with the proctectomies, never the lap total proctocolectomies 44211 and 44212; brooke ileostomy lists the stoma creations 44187 and 44310; lap TPC the two lap codes and colectomy with proctectomy the two open ones; robotic LOA and robotic diverting ileostomy lead with the lap codes 44180 and 44187; lap and robotic right hemicolectomy 44205, never 44204; LAR TME, open end colostomy, perineal proctectomy, colonic J-pouch and transsacral find their rows; pouch excision 45136, never the Meckel's 44800; APR, abdominoperineal and proctectomy with colostomy the APRs, never the pull-through 45112; coloanal never the Hirschsprung 45120; TME and robotic TME across the LARs, APRs and pull-throughs; rectopexy, never the open rows for robotic; sigmoid on both colectomy kinds; right hemicolectomy 44160, never 44140; loa the adhesiolysis codes; lap end colostomy 44188",
-    TERMS70.length === 60 && termBad70.length === 0, termBad70.join(" || "));
+  check("CPT search (ASSET_V 70 and 71): the colorectal family on the real data, fresh install (" + TERMS70.length + " searches) - IPAA and J-pouch find the codes with a pouch; Kock pouch leads with the Kock pouch creation 44316, then the two Kock colectomies, and kock and continent ileostomy find all three; total proctocolectomy and TPC the proctocolectomies, never 44151; total colectomy, subtotal colectomy, IRA and end ileostomy lead with 44150; completion proctectomy 45113, and ileoanal anastomosis and partial proctectomy still list it; proctectomy leads with 45110, and proctectomy with anastomosis, proctectomy J-pouch, lap and robotic proctectomy with the proctectomies, the total proctocolectomies (weak proctectomy) only after them; CPT's wording finds the total proctocolectomies (lap colectomy proctectomy; total colectomy proctectomy leads with 44155, not the Hirschsprung 45121); pouch searches lead with the IPAA codes, a Kock code after them; loop ileostomy leads with the stoma creations, ipaa loop ileostomy and j pouch loop ileostomy with 44158, proctectomy loop ileostomy with the three proctectomies before 44158, and coloanal loop ileostomy with 45119; lap and robotic IPAA and lap TPC with a loop ileostomy find 44211, lap TPC with ileostomy still leads with 44212, and lap loop ileostomy with 44187, 44211 last; proctectomy with ileostomy lists the three proctectomies before 44155; loop alone leads with 44187; total proctocolectomy w/end ileostomy with 44155; brooke ileostomy lists the stoma creations 44187 and 44310; lap TPC the two lap codes and colectomy with proctectomy the two open ones; robotic LOA and robotic diverting ileostomy lead with the lap codes 44180 and 44187; lap and robotic right hemicolectomy 44205, never 44204; LAR TME, open end colostomy, perineal proctectomy, colonic J-pouch and transsacral find their rows; pouch excision 45136, never the Meckel's 44800; APR, abdominoperineal and proctectomy with colostomy the APRs, never the pull-through 45112; coloanal never the Hirschsprung 45120; TME and robotic TME across the LARs, APRs and pull-throughs; rectopexy, never the open rows for robotic; sigmoid on both colectomy kinds; right hemicolectomy 44160, never 44140; loa the adhesiolysis codes; lap end colostomy 44188",
+    TERMS70.length === 82 && termBad70.length === 0, (TERMS70.length === 82 ? [] : ["TERMS70 holds " + TERMS70.length + " searches, want 82"]).concat(termBad70).join(" || "));
+  // 6b-usage (ASSET_V 71): a weak match is never lifted by usage or a
+  // favorite, on the real data - the weak-word step comes before both. A
+  // used total proctocolectomy (its "proctectomy" is weak) never leads
+  // "proctectomy", nor does a starred one; a used and a starred lap one never
+  // lead "lap proctectomy"; a used and starred Kock code ("pouch" weak) never
+  // leads "tpc pouch".
+  const USE71 = [
+    ["proctectomy", { "44212": 5, "44155": 3 }, [], "45110"],
+    ["proctectomy", {}, ["44155"], "45110"],
+    ["lap proctectomy", { "44211": 5 }, ["44212"], "45395"],
+    ["tpc pouch", { "44156": 4 }, ["44156"], "44158"]
+  ];
+  const lead71 = t => { const got = sb.rankCPTMatches(hits(t[0]), t[0], t[1], t[2]); return got.length ? got[0].code : "nothing"; };
+  const useBad71 = USE71.filter(t => lead71(t) !== t[3]);
+  check("CPT search (ASSET_V 71), real data with made-up usage and favorites: a weak match is never lifted - proctectomy leads with 45110 though 44212 and 44155 are used, or 44155 is a favorite, lap proctectomy with 45395 though 44211 is used and 44212 a favorite, tpc pouch with 44158 though the Kock 44156 is used and a favorite",
+    USE71.length === 4 && useBad71.length === 0, (USE71.length === 4 ? [] : ["USE71 holds " + USE71.length + " searches, want 4"]).concat(useBad71.map(t => JSON.stringify(t[0]) + " (used " + JSON.stringify(t[1]) + ", favorites " + JSON.stringify(t[2]) + ") leads with " + lead71(t) + ", want " + t[3])).join(" || "));
+  // 6b-weak (ASSET_V 71): where a weak word may stand. A "~" appears only in
+  // a row's search words (r[4]), at the start of a word and followed by one;
+  // never in a descriptor or category (shown on screen), FRIENDLY_DESC (shown
+  // too) or KEYWORD_SUPPLEMENT; and only on the rows that use one on purpose,
+  // so a new weak word is a deliberate edit here. A weak word must also stay
+  // weak: it may not stand in its row's other text as the search reads it
+  // (code, descriptor, category, the search words without weak words,
+  // KEYWORD_SUPPLEMENT and FRIENDLY_DESC), whole or by any run of 3 or more
+  // letters or digits in it ("proctectomy" of "~w/proctectomy", "loop" of
+  // "~(loop)"), or typing it would find the row as a full match and the "~"
+  // would silently do nothing.
+  const WEAK_ROWS71 = ["44151", "44155", "44156", "44157", "44158", "44211", "44212", "45113", "45119", "45121", "45397"];
+  const raw71 = vm.runInContext("CMS_RAW", sb);
+  const weakBad71 = [];
+  raw71.forEach(r => {
+    if ((String(r[1]) + String(r[3])).indexOf("~") !== -1) weakBad71.push(r[0] + " has a ~ in its descriptor or category");
+    if (/[^ ]~|~(\s|$)/.test(String(r[4] || ""))) weakBad71.push(r[0] + " has a ~ that does not start a word: " + JSON.stringify(r[4]));
+  });
+  const weakRows71 = raw71.filter(r => String(r[4] || "").indexOf("~") !== -1).map(r => r[0]);
+  if (JSON.stringify(weakRows71) !== JSON.stringify(WEAK_ROWS71)) weakBad71.push("rows with a weak word: " + weakRows71.join(" ") + ", want " + WEAK_ROWS71.join(" "));
+  ["FRIENDLY_DESC", "KEYWORD_SUPPLEMENT"].forEach(t => { const tab = vm.runInContext(t, sb); Object.keys(tab).forEach(k => { if (String(tab[k]).indexOf("~") !== -1) weakBad71.push(t + " " + k + " holds a ~"); }); });
+  db0.forEach(c => {
+    const kw = String(c.keywords || "");
+    if (kw.indexOf("~") === -1) return;
+    const strong = (c.code + " " + c.desc + " " + c.category + " " + kw.replace(/~[^\s]*/g, " ") + " " + (c.friendly || "")).toLowerCase();
+    (kw.match(/~[^\s]*/g) || []).forEach(w => {
+      const word = w.slice(1).toLowerCase(), parts = word.split(/[^a-z0-9]+/).filter(p => p.length >= 3);
+      if (!word) return; // a lone "~": the start-of-word or the tables rule above names it
+      if (strong.indexOf(word) !== -1 || parts.some(p => strong.indexOf(p) !== -1)) weakBad71.push(c.code + " " + w + " also stands in the row's other text");
+    });
+  });
+  check("CPT search (ASSET_V 71): a weak word (\"~word\") stands only in a row's search words, at the start of a word, on exactly the 11 rows that use one on purpose; never in a descriptor, a category, FRIENDLY_DESC (shown on screen) or KEYWORD_SUPPLEMENT; and no weak word also stands in its row's other text, those two tables included, where it would do nothing",
+    weakBad71.length === 0, weakBad71.join(" || "));
 
   // wRVU overrides. getDB applies an override only when truthy: a stored 0
   // (the old keystroke editor could save one) stays inert - the code keeps its
